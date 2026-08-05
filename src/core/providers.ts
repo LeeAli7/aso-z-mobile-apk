@@ -8,7 +8,7 @@ import { ModelInfo } from "./gateway";
 export interface CustomProvider {
   id: string;
   name: string; // отображаемое имя
-  baseUrl: string; // полный endpoint (https://host/path/chat/completions)
+  baseUrl: string; // полный endpoint провайдера
   apiKey: string | null;
   model: string; // имя модели в запросе
   temperature?: number;
