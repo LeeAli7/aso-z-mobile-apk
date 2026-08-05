@@ -29,6 +29,7 @@ export function ChatScreen() {
   const [modelsOpen, setModelsOpen] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const stopRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
   const listRef = useRef<FlatList<Msg>>(null);
 
   const active = state.sessions.find((s) => s.id === state.activeSessionId) ?? null;
@@ -60,16 +61,22 @@ export function ChatScreen() {
     scrollBottom();
 
     const cur = state.sessions.find((s) => s.id === sid);
-    const history = (cur?.messages ?? [])
-      .filter((m) => !m.streaming && !m.error)
-      .slice(-20)
-      .map((m) => ({ role: m.role, content: m.content }));
+    // ВАЖНО: включаем текущее сообщение в историю — иначе модель не видит вопрос.
+    const history: { role: "user" | "assistant"; content: string }[] = [
+      ...(cur?.messages ?? [])
+        .filter((m) => !m.streaming && !m.error)
+        .slice(-20)
+        .map((m) => ({ role: m.role, content: m.content })),
+      { role: "user", content },
+    ];
 
     const aiId = genId();
     dispatch({ type: "ADD_MSG", sessionId: sid, msg: { id: aiId, role: "assistant", content: "", streaming: true } });
 
     let acc = "";
-    await streamChat(model, history as never, {
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    await streamChat(model, history, {
       onToken: (tok) => {
         if (stopRef.current) return;
         acc += tok;
@@ -78,19 +85,21 @@ export function ChatScreen() {
       },
       onDone: (clean) => {
         setStreaming(false);
+        if (stopRef.current && !clean) return; // отменено пользователем — не трогаем
         dispatch({
           type: "UPDATE_MSG", sessionId: sid, msgId: aiId,
-          patch: { content: clean || acc || "(пусто)", streaming: false },
+          patch: { content: clean || acc || (stopRef.current ? "" : "(пусто)"), streaming: false },
         });
       },
       onError: (err) => {
         setStreaming(false);
+        if (stopRef.current) return; // abort по Стоп — не показываем ошибку
         dispatch({
           type: "UPDATE_MSG", sessionId: sid, msgId: aiId,
           patch: { streaming: false, error: err, content: acc || "" },
         });
       },
-    });
+    }, ctrl.signal);
   }, [text, streaming, active, dispatch, model, setActive, scrollBottom]);
 
   const handleNewSession = useCallback(() => {
@@ -205,7 +214,7 @@ export function ChatScreen() {
           style={{ flex: 1, backgroundColor: theme.surface, borderColor: theme.border, borderWidth: 1, borderRadius: 12, paddingHorizontal: 13, paddingVertical: 9, fontSize: 14, color: theme.text, maxHeight: 90, minHeight: 40 }}
         />
         {streaming ? (
-          <Pressable onPress={() => { stopRef.current = true; setStreaming(false); }} style={{ height: 40, paddingHorizontal: 12, borderRadius: 12, backgroundColor: theme.danger, alignItems: "center", justifyContent: "center" }}>
+          <Pressable onPress={() => { stopRef.current = true; setStreaming(false); abortRef.current?.abort(); }} style={{ height: 40, paddingHorizontal: 12, borderRadius: 12, backgroundColor: theme.danger, alignItems: "center", justifyContent: "center" }}>
             <Text style={{ color: "#fff", fontSize: 12, fontWeight: "700" }}>{t("stop")}</Text>
           </Pressable>
         ) : (

@@ -212,11 +212,13 @@ export async function vibeChat(
   projectId: string,
   history: VibeMsg[],
   callbacks: VibeChatCallbacks,
+  signal?: AbortSignal,
 ): Promise<void> {
   const messages: ChatMessage[] = [
     { role: "system", content: SYSTEM_PROMPT },
     ...history
-      .filter((m) => !m.streaming)
+      // tool/result — служебные сообщения UI, провайдеру не отправляем
+      .filter((m) => !m.streaming && !m.tool && !m.result && m.content.trim())
       .map((m): ChatMessage => ({
         role: m.role === "user" ? "user" : "assistant",
         content: m.content,
@@ -255,5 +257,5 @@ export async function vibeChat(
       callbacks.onDone(cleanText, names);
     },
     onError: (err) => callbacks.onError(err),
-  });
+  }, signal);
 }

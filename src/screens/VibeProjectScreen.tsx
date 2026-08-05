@@ -44,6 +44,7 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
   const [busy, setBusy] = useState(false);
   const [showFile, setShowFile] = useState(false);
   const stopRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
   const listRef = useRef<FlatList<VibeMsg>>(null);
 
   const model =
@@ -72,6 +73,16 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
     loadFiles();
   }, [loadMsgs, loadFiles]);
 
+  // Сохранение истории — debounce, НЕ внутри setMessages (убирает race и
+  // лишние записи в AsyncStorage на каждый токен).
+  useEffect(() => {
+    if (!projectId) return;
+    const t = setTimeout(() => {
+      saveMessages(projectId, messages).catch(() => {});
+    }, 400);
+    return () => clearTimeout(t);
+  }, [messages, projectId]);
+
   const scrollBottom = () =>
     setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 60);
 
@@ -85,25 +96,19 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
     const userMsg: VibeMsg = { id: genId(), role: "user", content };
     const aiId = genId();
     const aiMsg: VibeMsg = { id: aiId, role: "assistant", content: "", streaming: true };
-    setMessages((m) => {
-      const next = [...m, userMsg, aiMsg];
-      saveMessages(projectId, next);
-      return next;
-    });
+    setMessages((m) => [...m, userMsg, aiMsg]);
     scrollBottom();
 
     let acc = "";
     let written: string[] = [];
 
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     await vibeChat(model, projectId, [...messages, userMsg], {
       onToken: (tok) => {
         if (stopRef.current) return;
         acc += tok;
-        setMessages((m) => {
-          const next = m.map((x) => (x.id === aiId ? { ...x, content: acc } : x));
-          saveMessages(projectId, next);
-          return next;
-        });
+        setMessages((m) => m.map((x) => (x.id === aiId ? { ...x, content: acc } : x)));
         scrollBottom();
       },
       onTool: (label) => {
@@ -111,33 +116,26 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
       },
       onDone: (cleanText, filesWritten) => {
         written = filesWritten;
-        setMessages((m) => {
-          const next = m.map((x) =>
+        setMessages((m) =>
+          m.map((x) =>
             x.id === aiId ? { ...x, content: cleanText || acc, streaming: false } : x,
-          );
-          saveMessages(projectId, next);
-          return next;
-        });
+          ),
+        );
         if (filesWritten.length > 0) loadFiles();
         setBusy(false);
       },
       onError: (err) => {
-        setMessages((m) => {
-          const next = m.map((x) =>
+        if (stopRef.current) { setBusy(false); return; } // abort по Стоп — тихо
+        setMessages((m) =>
+          m.map((x) =>
             x.id === aiId ? { ...x, content: acc, streaming: false, result: err } : x,
-          );
-          saveMessages(projectId, next);
-          return next;
-        });
+          ),
+        );
         setBusy(false);
       },
-    });
+    }, ctrl.signal);
     if (stopRef.current) {
-      setMessages((m) => {
-        const next = m.map((x) => (x.id === aiId ? { ...x, streaming: false } : x));
-        saveMessages(projectId, next);
-        return next;
-      });
+      setMessages((m) => m.map((x) => (x.id === aiId ? { ...x, streaming: false } : x)));
       setBusy(false);
     }
   }, [text, busy, model, projectId, messages, loadFiles]);
@@ -145,6 +143,7 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
   const stop = useCallback(() => {
     stopRef.current = true;
     setBusy(false);
+    abortRef.current?.abort();
   }, []);
 
   const viewFile = useCallback(
