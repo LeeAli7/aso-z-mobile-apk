@@ -11,6 +11,7 @@ import React, {
   useReducer,
   useRef,
 } from "react";
+import { useColorScheme } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
@@ -215,7 +216,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  const theme = useMemo(() => themes[state.theme] ?? themes.dark, [state.theme]);
+  const scheme = useColorScheme();
+  // резолвим 'system' в фактическую тему
+  const theme = useMemo(() => {
+    const resolved: "light" | "dark" =
+      state.theme === "system" ? (scheme === "dark" ? "dark" : "light") : state.theme;
+    return themes[resolved] ?? themes.dark;
+  }, [state.theme, scheme]);
 
   // ── bootstrap ──
   useEffect(() => {
@@ -230,7 +237,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           AsyncStorage.getItem(KEYS.sessions),
           AsyncStorage.getItem(KEYS.active),
         ]);
-        if (th === "light" || th === "dark") dispatch({ type: "SET_THEME", theme: th });
+        if (th === "light" || th === "dark" || th === "system") dispatch({ type: "SET_THEME", theme: th });
         if (lg === "ru" || lg === "en") dispatch({ type: "SET_LANG", lang: lg });
         dispatch({ type: "SET_TOKEN", token: tok });
         dispatch({ type: "SET_DEVICE", deviceId: dev || genDeviceId() });

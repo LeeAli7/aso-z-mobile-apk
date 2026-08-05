@@ -2,7 +2,8 @@
  * Тема-токены: светлая (Paper) и тёмная (Amber Night).
  * Палитры из утверждённого макета 004 — один дизайн, две темы.
  */
-export type ThemeName = "light" | "dark";
+/** "system" резолвится в light/dark через Appearance (см. AppStore). */
+export type ThemeName = "light" | "dark" | "system";
 
 export interface Theme {
   name: ThemeName;
@@ -29,7 +30,7 @@ export interface Theme {
   ok: string;
 }
 
-export const themes: Record<ThemeName, Theme> = {
+export const themes: Record<"light" | "dark", Theme> = {
   dark: {
     name: "dark",
     bg: "#1c1917",
