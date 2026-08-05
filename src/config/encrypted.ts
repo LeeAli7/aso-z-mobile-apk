@@ -7,7 +7,7 @@
 export const ENCRYPTED_PROVIDERS = [
   // gateway A — 4 модели
   {
-    e: "KQcbKgIDVw5BEQwxBBhHVx5TX24JCjReT0k=",
+    e: "KQcbKgIDVw5BEQwxBBhHVx5TX24JCjReT0kOTQkIK0gUTF9AXlM1GgA0Ag==",
     m: [
       { n: "deepseek-v4-flash-free", d: "Aso Math", tier: "flash", prem: true },
       { n: "north-mini-code-free", d: "Aso Code", tier: "code", prem: false },
@@ -17,7 +17,7 @@ export const ENCRYPTED_PROVIDERS = [
   },
   // gateway B — 2 модели
   {
-    e: "KQcbKgIDVw5PEQBxDB5PXR5TX24SHzNeVghEQBMGKhMSUQ==",
+    e: "KQcbKgIDVw5PEQBxDB5PXR5TX24SHzNeVghEQBMGKhMSUR1TWlc1XAw1HEkURFoIBjEU",
     m: [
       { n: "stepfun/step-3.7-flash:free", d: "Aso", tier: "flash", prem: false, caps: ["V"] },
       { n: "poolside/laguna-m.1:free", d: "Aso Ultra", tier: "ultra", prem: true },
