@@ -82,7 +82,14 @@ export async function streamChat(
   try {
     const resp = await fetch(endpoint, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        // Нужен browser-like UA: иначе Cloudflare на upstream режет запросы
+        // с не-браузерной сигнатурой (okhttp/python/curl) ответом 403/400.
+        "User-Agent":
+          "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36",
+        Accept: "text/event-stream",
+      },
       body: JSON.stringify(payload),
     });
 

@@ -10,13 +10,14 @@ import { ThemeName } from "../theme/tokens";
 import { Lang } from "../i18n";
 import { TextField, PrimaryButton, GroupLabel, Toggle } from "../components/ui";
 import { requestSync, pollSync, fetchProfile } from "../core/sync";
-import { config } from "../core/env";
+import { config, setApiBase } from "../core/env";
 
 export function SettingsScreen({ navigation }: { navigation: any }) {
   const { state, theme, dispatch, t } = useApp();
   const insets = useSafeAreaInsets();
 
   const [username, setUsername] = useState("");
+  const [server, setServer] = useState(config.apiBase);
   const [status, setStatus] = useState(state.syncStatus);
   const [syncing, setSyncing] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -176,10 +177,23 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
           )}
         </View>
 
-        {/* server address (dev) */}
-        <Text style={{ color: theme.mute, fontSize: 9, fontFamily: "monospace", marginTop: 10, textAlign: "center" }}>
-          api: {config.apiBase}
-        </Text>
+        {/* server address (для синхронизации с ТГ) */}
+        <GroupLabel>Сервер синхронизации</GroupLabel>
+        <View style={{ padding: 14, borderRadius: 15, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }}>
+          <Text style={{ color: theme.dim, fontSize: 12, lineHeight: 18, marginBottom: 8 }}>
+            Адрес нашего API. Нужен только для синхронизации аккаунта с Telegram (кнопка выше). Чат и Vibe работают напрямую, без сервера.
+          </Text>
+          <TextField value={server} onChangeText={setServer} placeholder="http://127.0.0.1:8000" />
+          <View style={{ height: 8 }} />
+          <PrimaryButton
+            title="Сохранить адрес"
+            onPress={async () => {
+              await setApiBase(server);
+              Alert.alert("Готово", "Адрес сервера сохранён.");
+            }}
+            disabled={!server.trim()}
+          />
+        </View>
 
         {/* app settings */}
         <GroupLabel>{t("grp_app")}</GroupLabel>

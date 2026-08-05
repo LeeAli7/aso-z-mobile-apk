@@ -1,17 +1,24 @@
 /**
- * Vibe Coding — список проектов + создание нового.
+ * Vibe Coding — список локальных проектов + создание нового.
+ * Всё хранится на устройстве (AsyncStorage + documentDirectory).
  */
 import React, { useCallback, useEffect, useState } from "react";
 import { Alert, FlatList, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useApp } from "../store/AppStore";
 import { PrimaryButton, TextField } from "../components/ui";
-import { apiFetch } from "../core/apiClient";
+import {
+  VibeProject,
+  createProject,
+  deleteProject,
+  listFiles,
+  listProjects,
+} from "../core/vibeLocal";
 
 export function VibeScreen({ navigation }: { navigation: any }) {
   const { state, theme, t } = useApp();
   const insets = useSafeAreaInsets();
-  const [projects, setProjects] = useState<any[]>([]);
+  const [projects, setProjects] = useState<VibeProject[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
@@ -19,35 +26,63 @@ export function VibeScreen({ navigation }: { navigation: any }) {
 
   const load = useCallback(async () => {
     try {
-      const data = await apiFetch("/api/mobile/vibe/projects", state.token);
-      setProjects(data.projects ?? []);
+      const list = await listProjects();
+      // подмешиваем счётчик файлов
+      const withFiles = await Promise.all(
+        list.map(async (p) => {
+          const files = await listFiles(p.id).catch(() => []);
+          return { ...p, fileCount: files.length };
+        }),
+      );
+      setProjects(withFiles as any);
     } catch (e: any) {
-      // no token → просто пусто; синхрон ещё не сделан
+      Alert.alert("Error", String(e?.message || e));
     } finally {
       setLoading(false);
     }
-  }, [state.token]);
+  }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const create = useCallback(async () => {
     const n = name.trim();
     if (!n) return;
     setCreating(true);
     try {
-      const data = await apiFetch("/api/mobile/vibe/projects", state.token, {
-        method: "POST",
-        body: JSON.stringify({ name: n, description: desc.trim() }),
-      });
-      setName(""); setDesc("");
-      navigation.navigate("VibeProject", { id: data.id, name: data.name });
+      const p = await createProject(n, desc);
+      setName("");
+      setDesc("");
+      navigation.navigate("VibeProject", { id: p.id, name: p.name });
     } catch (e: any) {
       Alert.alert("Error", String(e?.message || e));
     } finally {
       setCreating(false);
       load();
     }
-  }, [name, desc, state.token, navigation, load]);
+  }, [name, desc, navigation, load]);
+
+  const remove = useCallback(
+    (p: VibeProject) => {
+      Alert.alert(t("delete"), p.name, [
+        { text: t("cancel"), style: "cancel" },
+        {
+          text: t("delete"),
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteProject(p.id);
+              load();
+            } catch (e: any) {
+              Alert.alert("Error", String(e?.message || e));
+            }
+          },
+        },
+      ]);
+    },
+    [load, t],
+  );
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
@@ -63,16 +98,19 @@ export function VibeScreen({ navigation }: { navigation: any }) {
       ) : projects.length === 0 ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 36 }}>
           <Text style={{ color: theme.text, fontSize: 17, fontWeight: "700", marginBottom: 6 }}>Нет проектов</Text>
-          <Text style={{ color: theme.dim, fontSize: 13, textAlign: "center" }}>Создай проект — агент напишет код в изолированном workspace.</Text>
+          <Text style={{ color: theme.dim, fontSize: 13, textAlign: "center" }}>
+            Создай проект — агент напишет код, файлы сохранятся прямо на устройстве.
+          </Text>
         </View>
       ) : (
         <FlatList
           data={projects}
-          keyExtractor={(p) => String(p.id)}
+          keyExtractor={(p) => p.id}
           contentContainerStyle={{ padding: 16 }}
           renderItem={({ item }) => (
             <Pressable
               onPress={() => navigation.navigate("VibeProject", { id: item.id, name: item.name })}
+              onLongPress={() => remove(item)}
               style={{ flexDirection: "row", alignItems: "center", gap: 11, padding: 13, borderRadius: 13, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface, marginBottom: 10 }}
             >
               <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: theme.accent, alignItems: "center", justifyContent: "center" }}>
@@ -81,7 +119,7 @@ export function VibeScreen({ navigation }: { navigation: any }) {
               <View style={{ flex: 1 }}>
                 <Text style={{ color: theme.text, fontSize: 14, fontWeight: "500" }}>{item.name}</Text>
                 <Text style={{ color: theme.mute, fontSize: 10, marginTop: 2, fontFamily: "monospace" }}>
-                  {item.files} файлов · {new Date(item.created_at).toLocaleDateString()}
+                  {(item as any).fileCount ?? 0} файлов · {new Date(item.createdAt).toLocaleDateString()}
                 </Text>
               </View>
               <Text style={{ color: theme.accentHi, fontSize: 15 }}>›</Text>

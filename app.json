@@ -18,7 +18,8 @@
         "foregroundImage": "./assets/adaptive-icon.png"
       },
       "package": "app.aso.zmobile",
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "usesCleartextTraffic": true
     },
     "web": {
       "favicon": "./assets/favicon.png"

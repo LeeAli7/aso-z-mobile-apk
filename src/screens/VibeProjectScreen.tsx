@@ -1,5 +1,11 @@
 /**
- * Vibe Project — агент-чат (SSE + tool events), файлы, терминал.
+ * Vibe Project — агент-чат (прямой канал) + локальные файлы.
+ *
+ * Всё на устройстве:
+ *  - чат с агентом — через gateway.ts (напрямую к провайдеру);
+ *  - файлы, которые агент «пишет» блоками [FILE:…], сохраняются
+ *    в documentDirectory/vibe/<project>/ на самом телефоне.
+ *  - история чата — локально (AsyncStorage).
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -13,19 +19,17 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useApp, genId } from "../store/AppStore";
-import { apiFetch } from "../core/apiClient";
-import { config } from "../core/env";
 import { renderMarkdown } from "../components/Markdown";
 import { BottomSheet } from "../components/ui";
-
-interface VibeMsg {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  tool?: string;
-  result?: string;
-  streaming?: boolean;
-}
+import {
+  VibeMsg,
+  VibeFileEntry,
+  listFiles,
+  loadMessages,
+  readFile,
+  saveMessages,
+  vibeChat,
+} from "../core/vibeLocal";
 
 export function VibeProjectScreen({ route, navigation }: { route: any; navigation: any }) {
   const { state, theme, t } = useApp();
@@ -33,152 +37,128 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
   const { id: projectId, name: projectName } = route.params;
 
   const [messages, setMessages] = useState<VibeMsg[]>([]);
-  const [files, setFiles] = useState<any[]>([]);
+  const [files, setFiles] = useState<VibeFileEntry[]>([]);
   const [fileContent, setFileContent] = useState<string | null>(null);
-  const [terminalOut, setTerminalOut] = useState<string>("");
-  const [termInput, setTermInput] = useState("");
-  const [mode, setMode] = useState<"chat" | "files" | "term">("chat");
+  const [mode, setMode] = useState<"chat" | "files">("chat");
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [showFile, setShowFile] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
-  const listRef = useRef<FlatList<any>>(null);
+  const stopRef = useRef(false);
+  const listRef = useRef<FlatList<VibeMsg>>(null);
 
-  const loadDetail = useCallback(async () => {
-    try {
-      const data = await apiFetch(`/api/mobile/vibe/projects/${projectId}`, state.token);
-      const msgs = (data.messages ?? []).map((m: any) => ({ id: genId(), role: m.role, content: m.content }));
-      if (msgs.length === 0) {
-        msgs.push({ id: genId(), role: "assistant", content: "Проект готов. Опиши задачу — агент напишет код." });
-      }
-      setMessages(msgs);
-    } catch {}
-  }, [projectId, state.token]);
+  const model =
+    state.models.find((m) => m.modelName === state.sessions.find((s) => s.id === state.activeSessionId)?.modelId) ??
+    state.models[0];
+
+  const loadMsgs = useCallback(async () => {
+    const msgs = await loadMessages(projectId);
+    if (msgs.length === 0) {
+      msgs.push({
+        id: genId(),
+        role: "assistant",
+        content: "Проект готов. Опиши задачу — агент напишет код, файлы сохранятся на устройстве.",
+      });
+    }
+    setMessages(msgs);
+  }, [projectId]);
 
   const loadFiles = useCallback(async () => {
-    try {
-      const data = await apiFetch(`/api/mobile/vibe/projects/${projectId}/files`, state.token);
-      setFiles(data.files ?? []);
-    } catch {}
-  }, [projectId, state.token]);
+    const fl = await listFiles(projectId);
+    setFiles(fl);
+  }, [projectId]);
 
-  useEffect(() => { loadDetail(); loadFiles(); }, [loadDetail, loadFiles]);
+  useEffect(() => {
+    loadMsgs();
+    loadFiles();
+  }, [loadMsgs, loadFiles]);
 
-  const scrollBottom = () => setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 60);
+  const scrollBottom = () =>
+    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 60);
 
   const send = useCallback(async () => {
     const content = text.trim();
-    if (!content || busy) return;
+    if (!content || busy || !model) return;
     setText("");
     setBusy(true);
-    setMessages((m) => [...m, { id: genId(), role: "user", content }]);
+    stopRef.current = false;
+
+    const userMsg: VibeMsg = { id: genId(), role: "user", content };
     const aiId = genId();
-    setMessages((m) => [...m, { id: aiId, role: "assistant", content: "", streaming: true }]);
+    const aiMsg: VibeMsg = { id: aiId, role: "assistant", content: "", streaming: true };
+    setMessages((m) => {
+      const next = [...m, userMsg, aiMsg];
+      saveMessages(projectId, next);
+      return next;
+    });
     scrollBottom();
 
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
+    let acc = "";
+    let written: string[] = [];
 
-    try {
-      const resp = await fetch(
-        `${config.apiBase}/api/mobile/vibe/projects/${projectId}/chat`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${state.token}` },
-          body: JSON.stringify({ message: content }),
-          signal: ctrl.signal,
-        },
-      );
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-
-      const reader = resp.body?.getReader();
-      if (!reader) throw new Error("no body");
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let acc = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        let idx;
-        while ((idx = buffer.indexOf("\n")) >= 0) {
-          let line = buffer.slice(0, idx).trim();
-          buffer = buffer.slice(idx + 1);
-          if (line.startsWith("data:")) line = line.slice(5).trim();
-          if (!line) continue;
-          try {
-            const evt = JSON.parse(line);
-            if (evt.token) {
-              acc += evt.token;
-              setMessages((m) => m.map((x) => (x.id === aiId ? { ...x, content: acc } : x)));
-              scrollBottom();
-            } else if (evt.tool_start) {
-              setMessages((m) => [...m, { id: genId(), role: "assistant", content: "", tool: evt.tool_start }]);
-            } else if (evt.tool_result) {
-              setMessages((m) => {
-                const copy = [...m];
-                for (let i = copy.length - 1; i >= 0; i--) {
-                  if (copy[i]?.tool) {
-                    copy[i] = { ...copy[i], tool: undefined, result: String(evt.result || "").slice(0, 200) };
-                    break;
-                  }
-                }
-                return copy;
-              });
-            } else if (evt.done) {
-              setMessages((m) => m.map((x) => (x.id === aiId ? { ...x, content: evt.clean_text || acc, streaming: false } : x)));
-              loadFiles();
-            } else if (evt.error) {
-              setMessages((m) => m.map((x) => (x.id === aiId ? { ...x, content: "", streaming: false, result: evt.error } : x)));
-            }
-          } catch {}
-        }
-      }
-      setMessages((m) => m.map((x) => (x.id === aiId ? { ...x, streaming: false } : x)));
-    } catch (e: any) {
-      if (e?.name !== "AbortError") {
-        setMessages((m) => m.map((x) => (x.id === aiId ? { ...x, streaming: false, result: String(e?.message || e) } : x)));
-      }
-    } finally {
-      setBusy(false);
-      abortRef.current = null;
-    }
-  }, [text, busy, projectId, state.token, loadFiles]);
-
-  const runTerminal = useCallback(async () => {
-    const cmd = termInput.trim();
-    if (!cmd) return;
-    setTerminalOut((o) => o + "$ " + cmd + "\n");
-    setTermInput("");
-    try {
-      const data = await apiFetch(`/api/mobile/vibe/projects/${projectId}/terminal`, state.token, {
-        method: "POST",
-        body: JSON.stringify({ command: cmd }),
+    await vibeChat(model, projectId, [...messages, userMsg], {
+      onToken: (tok) => {
+        if (stopRef.current) return;
+        acc += tok;
+        setMessages((m) => {
+          const next = m.map((x) => (x.id === aiId ? { ...x, content: acc } : x));
+          saveMessages(projectId, next);
+          return next;
+        });
+        scrollBottom();
+      },
+      onTool: (label) => {
+        setMessages((m) => [...m, { id: genId(), role: "assistant", content: "", tool: label }]);
+      },
+      onDone: (cleanText, filesWritten) => {
+        written = filesWritten;
+        setMessages((m) => {
+          const next = m.map((x) =>
+            x.id === aiId ? { ...x, content: cleanText || acc, streaming: false } : x,
+          );
+          saveMessages(projectId, next);
+          return next;
+        });
+        if (filesWritten.length > 0) loadFiles();
+        setBusy(false);
+      },
+      onError: (err) => {
+        setMessages((m) => {
+          const next = m.map((x) =>
+            x.id === aiId ? { ...x, content: acc, streaming: false, result: err } : x,
+          );
+          saveMessages(projectId, next);
+          return next;
+        });
+        setBusy(false);
+      },
+    });
+    if (stopRef.current) {
+      setMessages((m) => {
+        const next = m.map((x) => (x.id === aiId ? { ...x, streaming: false } : x));
+        saveMessages(projectId, next);
+        return next;
       });
-      setTerminalOut((o) => o + (data.output || "") + (data.code === 0 ? "" : `\n[exit ${data.code}]`) + "\n");
-    } catch (e: any) {
-      setTerminalOut((o) => o + `[error: ${e?.message || e}]\n`);
+      setBusy(false);
     }
-  }, [termInput, projectId, state.token]);
-
-  const viewFile = useCallback(async (path: string) => {
-    try {
-      const data = await apiFetch(
-        `/api/mobile/vibe/projects/${projectId}/file?path=${encodeURIComponent(path)}`,
-        state.token,
-      );
-      setFileContent(data.content || "(empty)");
-      setShowFile(true);
-    } catch (e: any) {
-      Alert.alert("Error", String(e?.message || e));
-    }
-  }, [projectId, state.token]);
+  }, [text, busy, model, projectId, messages, loadFiles]);
 
   const stop = useCallback(() => {
-    abortRef.current?.abort();
+    stopRef.current = true;
     setBusy(false);
   }, []);
+
+  const viewFile = useCallback(
+    async (name: string) => {
+      try {
+        const content = await readFile(projectId, name);
+        setFileContent(content || "(пусто)");
+        setShowFile(true);
+      } catch (e: any) {
+        Alert.alert("Error", String(e?.message || e));
+      }
+    },
+    [projectId],
+  );
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
@@ -189,20 +169,22 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
         </Pressable>
         <View style={{ flex: 1 }}>
           <Text style={{ color: theme.text, fontSize: 14, fontWeight: "600" }}>{projectName}</Text>
-          <Text style={{ color: theme.mute, fontSize: 10, fontFamily: "monospace" }}>workspace</Text>
+          <Text style={{ color: theme.mute, fontSize: 10, fontFamily: "monospace" }}>
+            {model ? model.displayName : "…"} · на устройстве
+          </Text>
         </View>
       </View>
 
       {/* tabs */}
       <View style={{ flexDirection: "row", gap: 6, paddingHorizontal: 14, paddingVertical: 8 }}>
-        {(["chat", "files", "term"] as const).map((m) => (
+        {(["chat", "files"] as const).map((m) => (
           <Pressable
             key={m}
             onPress={() => setMode(m)}
             style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: mode === m ? theme.accent : theme.border, backgroundColor: mode === m ? theme.accent : theme.surface }}
           >
             <Text style={{ color: mode === m ? (theme.name === "dark" ? "#1c1202" : "#fdf9f2") : theme.dim, fontSize: 10, fontWeight: "600" }}>
-              {m === "chat" ? "Чат" : m === "files" ? "Файлы" : "Терминал"}
+              {m === "chat" ? "Чат" : "Файлы"}
             </Text>
           </Pressable>
         ))}
@@ -247,7 +229,12 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
           contentContainerStyle={{ padding: 14 }}
           ListHeaderComponent={
             <Text style={{ color: theme.mute, fontSize: 11, marginBottom: 8, fontFamily: "monospace" }}>
-              {files.length} файлов
+              {files.length} файлов · хранятся на устройстве
+            </Text>
+          }
+          ListEmptyComponent={
+            <Text style={{ color: theme.dim, fontSize: 12, textAlign: "center", marginTop: 30 }}>
+              Пока пусто. Опиши задачу в чате — агент создаст файлы.
             </Text>
           }
           renderItem={({ item }) => (
@@ -261,27 +248,6 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
             </Pressable>
           )}
         />
-      )}
-
-      {mode === "term" && (
-        <View style={{ flex: 1, padding: 14 }}>
-          <ScrollView style={{ flex: 1, backgroundColor: theme.codeBg, borderRadius: 10, padding: 10 }} contentContainerStyle={{ paddingBottom: 10 }}>
-            <Text selectable style={{ color: theme.codeText, fontFamily: "monospace", fontSize: 12, lineHeight: 18 }}>{terminalOut || "Терминал готов. Введи команду."}</Text>
-          </ScrollView>
-          <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
-            <TextInput
-              value={termInput}
-              onChangeText={setTermInput}
-              onSubmitEditing={runTerminal}
-              placeholder="команда"
-              placeholderTextColor={theme.mute}
-              style={{ flex: 1, backgroundColor: theme.surface, borderColor: theme.border, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 13, color: theme.text, fontFamily: "monospace" }}
-            />
-            <Pressable onPress={runTerminal} style={{ height: 40, paddingHorizontal: 14, borderRadius: 10, backgroundColor: theme.accent, alignItems: "center", justifyContent: "center" }}>
-              <Text style={{ color: theme.name === "dark" ? "#1c1202" : "#fdf9f2", fontSize: 13, fontWeight: "600" }}>›</Text>
-            </Pressable>
-          </View>
-        </View>
       )}
 
       {/* file viewer modal */}
