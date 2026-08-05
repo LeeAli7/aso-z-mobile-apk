@@ -119,23 +119,17 @@ export function ChatScreen() {
       if (!cur) return;
       Alert.prompt(t("rename"), undefined, (name) => {
         if (name && name.trim()) {
-          const renamed: Session = { ...cur, name: name.trim() };
-          dispatch({ type: "ADD_SESSION", session: renamed });
-          dispatch({ type: "DELETE_SESSION", sessionId: sid });
-          setActive(renamed.id);
+          dispatch({ type: "UPDATE_SESSION", sessionId: sid, patch: { name: name.trim() } });
         }
       }, "plain-text", cur.name);
     },
-    [state.sessions, dispatch, setActive, t],
+    [state.sessions, dispatch, t],
   );
 
   const switchModel = useCallback(
     (m: ModelInfo) => {
       if (active) {
-        const updated: Session = { ...active, modelId: m.modelName };
-        dispatch({ type: "ADD_SESSION", session: updated });
-        dispatch({ type: "DELETE_SESSION", sessionId: active.id });
-        setActive(updated.id);
+        dispatch({ type: "UPDATE_SESSION", sessionId: active.id, patch: { modelId: m.modelName } });
       } else {
         const sid = genId();
         dispatch({ type: "ADD_SESSION", session: {
@@ -167,8 +161,8 @@ export function ChatScreen() {
           </Text>
           <Text numberOfLines={1} style={{ color: theme.mute, fontSize: 10.5, marginTop: 1 }}>{active?.name ?? t("chat_title")}</Text>
         </Pressable>
-        <Pressable hitSlop={8} style={{ width: 34, height: 34, alignItems: "center", justifyContent: "center" }}>
-          <Text style={{ color: theme.dim, fontSize: 15 }}>⋯</Text>
+        <Pressable onPress={handleNewSession} hitSlop={8} style={{ width: 34, height: 34, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: theme.border, borderRadius: 10, backgroundColor: theme.surface }}>
+          <Text style={{ color: theme.dim, fontSize: 15 }}>✎</Text>
         </Pressable>
       </View>
 
@@ -202,9 +196,6 @@ export function ChatScreen() {
 
       {/* input */}
       <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8, paddingHorizontal: 14, paddingTop: 6, paddingBottom: insets.bottom + 8, borderTopWidth: 1, borderTopColor: theme.border, backgroundColor: theme.bg }}>
-        <Pressable hitSlop={8} style={{ width: 40, height: 40, borderRadius: 12, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface, alignItems: "center", justifyContent: "center" }}>
-          <Text style={{ color: theme.dim, fontSize: 18 }}>+</Text>
-        </Pressable>
         <TextInput
           value={text}
           onChangeText={setText}

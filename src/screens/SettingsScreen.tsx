@@ -200,8 +200,6 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
         <View style={{ marginTop: 4, borderRadius: 15, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
           <Row label={t("language")} onPress={() => setLang(state.lang === "ru" ? "en" : "ru")} value={state.lang.toUpperCase()} theme={theme} />
           <Divider theme={theme} />
-          <Row label={t("theme")} onPress={() => {}} value={theme.name === "dark" ? t("theme_dark") : t("theme_light")} theme={theme} />
-          <Divider theme={theme} />
           <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 10, backgroundColor: theme.surface }}>
             <Text style={{ color: theme.text, fontSize: 13.5, flex: 1 }}>{t("theme_dark")}</Text>
             <Toggle value={theme.name === "dark"} onChange={(v) => setTheme(v ? "dark" : "light")} />
