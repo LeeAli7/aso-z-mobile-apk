@@ -153,7 +153,7 @@ export function ChatScreen() {
       {/* header */}
       <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingBottom: 10, paddingTop: insets.top + 6, borderBottomWidth: 1, borderBottomColor: theme.border, backgroundColor: theme.bg }}>
         <Pressable onPress={() => setSessionsOpen(true)} hitSlop={8} style={{ width: 34, height: 34, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: theme.border, borderRadius: 10, backgroundColor: theme.surface }}>
-          <Text style={{ color: theme.dim, fontSize: 15 }}>☰</Text>
+          <Text style={{ color: theme.dim, fontSize: 16 }}>≡</Text>
         </Pressable>
         <Pressable onPress={() => setModelsOpen(true)} style={{ flex: 1 }}>
           <Text style={{ color: theme.text, fontSize: 14, fontWeight: "600" }}>
@@ -162,7 +162,7 @@ export function ChatScreen() {
           <Text numberOfLines={1} style={{ color: theme.mute, fontSize: 10.5, marginTop: 1 }}>{active?.name ?? t("chat_title")}</Text>
         </Pressable>
         <Pressable onPress={handleNewSession} hitSlop={8} style={{ width: 34, height: 34, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: theme.border, borderRadius: 10, backgroundColor: theme.surface }}>
-          <Text style={{ color: theme.dim, fontSize: 15 }}>✎</Text>
+          <Text style={{ color: theme.dim, fontSize: 16 }}>＋</Text>
         </Pressable>
       </View>
 
@@ -210,7 +210,7 @@ export function ChatScreen() {
           </Pressable>
         ) : (
           <Pressable onPress={send} style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: theme.accent, alignItems: "center", justifyContent: "center" }}>
-            <Text style={{ color: theme.name === "dark" ? "#1c1202" : "#fdf9f2", fontSize: 16 }}>➤</Text>
+            <Text style={{ color: theme.name === "dark" ? "#1c1202" : "#fdf9f2", fontSize: 18 }}>→</Text>
           </Pressable>
         )}
       </View>

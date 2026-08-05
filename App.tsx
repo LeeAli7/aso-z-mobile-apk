@@ -22,9 +22,11 @@ const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
 function TabIcon({ name, focused, theme }: { name: string; focused: boolean; theme: any }) {
-  const icons: Record<string, string> = { Chat: "◉", Vibe: "⌘", Settings: "⚙" };
+  // Символы из базового набора Unicode — гарантированно есть в шрифте Android.
+  // (⌘/✎/☰ рендерятся на Android как пустые квадраты)
+  const icons: Record<string, string> = { Chat: "●", Vibe: "◆", Settings: "⚙" };
   return (
-    <Text style={{ color: focused ? theme.accentHi : theme.mute, fontSize: 17 }}>
+    <Text style={{ color: focused ? theme.accentHi : theme.mute, fontSize: 15 }}>
       {icons[name] ?? "•"}
     </Text>
   );
