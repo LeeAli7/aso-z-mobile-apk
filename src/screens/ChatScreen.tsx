@@ -34,6 +34,7 @@ export function ChatScreen() {
   const [text, setText] = useState("");
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [modelsOpen, setModelsOpen] = useState(false);
+  const [search, setSearch] = useState("");
   const [streaming, setStreaming] = useState(false);
   const stopRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -46,68 +47,119 @@ export function ChatScreen() {
   const scrollBottom = () =>
     setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 60);
 
-  const send = useCallback(async () => {
-    const content = text.trim();
-    if (!content || streaming || !model) return;
+  const copyMsg = (m: Msg) => Clipboard.setStringAsync(m.content).catch(() => {});
+  const shareMsg = (m: Msg) => Share.share({ message: m.content }).catch(() => {});
 
-    // ensure session
-    let sid = active?.id;
-    if (!sid) {
-      sid = genId();
-      dispatch({ type: "ADD_SESSION", session: {
-        id: sid, name: content.slice(0, 40) || "New chat",
-        messages: [], modelId: null, createdAt: Date.now(), updatedAt: Date.now(),
-      }});
-      setActive(sid);
-    }
+  const sendText = useCallback(
+    async (raw: string) => {
+      const content = raw.trim();
+      if (!content || streaming || !model) return;
 
-    dispatch({ type: "ADD_MSG", sessionId: sid, msg: { id: genId(), role: "user", content } });
-    setText("");
-    setStreaming(true);
-    stopRef.current = false;
-    scrollBottom();
+      // ensure session
+      let sid = active?.id;
+      if (!sid) {
+        sid = genId();
+        dispatch({ type: "ADD_SESSION", session: {
+          id: sid, name: content.slice(0, 40) || "New chat",
+          messages: [], modelId: null, createdAt: Date.now(), updatedAt: Date.now(),
+        }});
+        setActive(sid);
+      }
 
-    const cur = state.sessions.find((s) => s.id === sid);
-    // ВАЖНО: включаем текущее сообщение в историю — иначе модель не видит вопрос.
-    const history: { role: "user" | "assistant"; content: string }[] = [
-      ...(cur?.messages ?? [])
-        .filter((m) => !m.streaming && !m.error)
-        .slice(-20)
-        .map((m) => ({ role: m.role, content: m.content })),
-      { role: "user", content },
-    ];
+      dispatch({ type: "ADD_MSG", sessionId: sid, msg: { id: genId(), role: "user", content } });
+      setText("");
+      setStreaming(true);
+      stopRef.current = false;
+      scrollBottom();
 
-    const aiId = genId();
-    dispatch({ type: "ADD_MSG", sessionId: sid, msg: { id: aiId, role: "assistant", content: "", streaming: true } });
+      const cur = state.sessions.find((s) => s.id === sid);
+      // ВАЖНО: включаем текущее сообщение в историю — иначе модель не видит вопрос.
+      const history: { role: "user" | "assistant"; content: string }[] = [
+        ...(cur?.messages ?? [])
+          .filter((m) => !m.streaming && !m.error)
+          .slice(-20)
+          .map((m) => ({ role: m.role, content: m.content })),
+        { role: "user", content },
+      ];
 
-    let acc = "";
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
-    await streamChat(model, history, {
-      onToken: (tok) => {
-        if (stopRef.current) return;
-        acc += tok;
-        dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: aiId, patch: { content: acc } });
-        scrollBottom();
-      },
-      onDone: (clean) => {
-        setStreaming(false);
-        if (stopRef.current && !clean) return; // отменено пользователем — не трогаем
-        dispatch({
-          type: "UPDATE_MSG", sessionId: sid, msgId: aiId,
-          patch: { content: clean || acc || (stopRef.current ? "" : "(пусто)"), streaming: false },
-        });
-      },
-      onError: (err) => {
-        setStreaming(false);
-        if (stopRef.current) return; // abort по Стоп — не показываем ошибку
-        dispatch({
-          type: "UPDATE_MSG", sessionId: sid, msgId: aiId,
-          patch: { streaming: false, error: err, content: acc || "" },
-        });
-      },
-    }, ctrl.signal);
-  }, [text, streaming, active, dispatch, model, setActive, scrollBottom]);
+      const aiId = genId();
+      dispatch({ type: "ADD_MSG", sessionId: sid, msg: { id: aiId, role: "assistant", content: "", streaming: true } });
+
+      let acc = "";
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
+      await streamChat(model, history, {
+        onToken: (tok) => {
+          if (stopRef.current) return;
+          acc += tok;
+          dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: aiId, patch: { content: acc } });
+          scrollBottom();
+        },
+        onDone: (clean) => {
+          setStreaming(false);
+          if (stopRef.current && !clean) return; // отменено пользователем — не трогаем
+          dispatch({
+            type: "UPDATE_MSG", sessionId: sid, msgId: aiId,
+            patch: { content: clean || acc || (stopRef.current ? "" : "(пусто)"), streaming: false },
+          });
+        },
+        onError: (err) => {
+          setStreaming(false);
+          if (stopRef.current) return; // abort по Стоп — не показываем ошибку
+          dispatch({
+            type: "UPDATE_MSG", sessionId: sid, msgId: aiId,
+            patch: { streaming: false, error: err, content: acc || "" },
+          });
+        },
+      }, ctrl.signal);
+    },
+    [text, streaming, active, dispatch, model, setActive, scrollBottom],
+  );
+
+  const send = useCallback(() => {
+    if (text.trim()) sendText(text);
+  }, [text, sendText]);
+
+  // Повтор последнего запроса (для ошибок AI-сообщения)
+  const retryMsg = useCallback(
+    (m: Msg) => {
+      if (!active || !m.role) return;
+      const idx = active.messages.findIndex((x) => x.id === m.id);
+      for (let j = idx - 1; j >= 0; j--) {
+        const prev = active.messages[j];
+        if (prev.role === "user") {
+          sendText(prev.content);
+          return;
+        }
+      }
+    },
+    [active, sendText],
+  );
+
+  const msgMenu = useCallback(
+    (m: Msg) => {
+      const actions: { text: string; style?: "destructive" | "cancel"; onPress: () => void }[] = [
+        { text: "Копировать", onPress: () => copyMsg(m) },
+        { text: "Поделиться", onPress: () => shareMsg(m) },
+      ];
+      if (m.role === "assistant" && (m.error || m.content)) {
+        actions.push({ text: "Повторить", onPress: () => retryMsg(m) });
+      }
+      actions.push({
+        text: "Удалить",
+        style: "destructive",
+        onPress: () => {
+          if (active) {
+            dispatch({ type: "DELETE_MSG", sessionId: active.id, msgId: m.id });
+            showToast("ok", "Сообщение удалено");
+          }
+        },
+      });
+      actions.push({ text: "Отмена", style: "cancel", onPress: () => {} });
+      Alert.alert(m.role === "user" ? "Сообщение" : "Ответ", undefined, actions);
+    },
+    [active, dispatch, retryMsg, copyMsg, shareMsg],
+  );
 
   const handleNewSession = useCallback(() => {
     const id = newSession();
@@ -159,11 +211,9 @@ export function ChatScreen() {
     [active, dispatch, setActive, t],
   );
 
-  const copyMsg = (m: Msg) => Clipboard.setStringAsync(m.content).catch(() => {});
-  const shareMsg = (m: Msg) => Share.share({ message: m.content }).catch(() => {});
-
-  const sessionList = [...state.sessions].sort((a, b) => b.updatedAt - a.updatedAt);
-
+  const sessionList = [...state.sessions]
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .filter((s) => !search.trim() || s.name.toLowerCase().includes(search.trim().toLowerCase()));
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       {/* header */}
@@ -195,7 +245,7 @@ export function ChatScreen() {
           contentContainerStyle={{ padding: 16, paddingBottom: 24 }}
           onContentSizeChange={scrollBottom}
           renderItem={({ item }) => (
-            <Bubble msg={item} theme={theme} onCopy={() => copyMsg(item)} onShare={() => shareMsg(item)} />
+            <Bubble msg={item} theme={theme} onCopy={() => copyMsg(item)} onShare={() => shareMsg(item)} onLongPress={() => msgMenu(item)} />
           )}
         />
       )}
@@ -230,8 +280,17 @@ export function ChatScreen() {
       </KeyboardAvoidingView>
 
       {/* ── Sessions sheet ── */}
-      <Sheet visible={sessionsOpen} onClose={() => setSessionsOpen(false)} title={t("sessions")} snapPoints={["60%"]}>
+      <Sheet visible={sessionsOpen} onClose={() => setSessionsOpen(false)} title={t("sessions")} snapPoints={["70%"]}>
         <Button title={"＋ " + t("newSession")} onPress={handleNewSession} fullWidth />
+        <View style={{ marginTop: 10 }}>
+          <TextInput
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Поиск сессий…"
+            placeholderTextColor={theme.mute}
+            style={{ backgroundColor: theme.surface2, borderColor: theme.border, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, fontSize: 13, color: theme.text, minHeight: 40 }}
+          />
+        </View>
         {sessionList.map((s) => (
           <Pressable
             key={s.id}
@@ -287,7 +346,7 @@ export function ChatScreen() {
   );
 }
 
-function Bubble({ msg, theme, onCopy, onShare }: { msg: Msg; theme: any; onCopy: () => void; onShare: () => void }) {
+function Bubble({ msg, theme, onCopy, onShare, onLongPress }: { msg: Msg; theme: any; onCopy: () => void; onShare: () => void; onLongPress?: () => void }) {
   const user = msg.role === "user";
   const align: "flex-end" | "flex-start" = user ? "flex-end" : "flex-start";
   const containerStyle = { alignSelf: align, maxWidth: "86%" as const, marginBottom: 10 };
@@ -315,6 +374,11 @@ function Bubble({ msg, theme, onCopy, onShare }: { msg: Msg; theme: any; onCopy:
   }
   return (
     <View style={containerStyle}>
+      <Pressable
+        onLongPress={onLongPress}
+        delayLongPress={350}
+        style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
+      >
       <View style={{ backgroundColor: user ? theme.userBubble : theme.surface, borderRadius: 14, borderTopLeftRadius: user ? 14 : 4, borderTopRightRadius: user ? 14 : 14, borderWidth: user ? 0 : 1, borderColor: user ? undefined : theme.border, paddingHorizontal: 13, paddingVertical: 9 }}>
         {user ? (
           <Text style={{ color: theme.userText, fontSize: 14, lineHeight: 20 }}>{msg.content}</Text>
@@ -322,6 +386,7 @@ function Bubble({ msg, theme, onCopy, onShare }: { msg: Msg; theme: any; onCopy:
           renderMarkdown(msg.content, theme)
         )}
       </View>
+      </Pressable>
       <View style={{ flexDirection: "row", justifyContent: user ? "flex-end" : "flex-start", marginTop: 4, gap: 14 }}>
         <Pressable onPress={onCopy} hitSlop={10} accessibilityLabel="Копировать" style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
           <MaterialIcons name="content-copy" size={12} color={theme.mute} />

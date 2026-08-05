@@ -1,46 +1,26 @@
 /**
- * Лёгкий markdown-рендер для сообщений AI.
- * Порт ключевой логики TMA formatContent: код-блоки сначала
- * вырезаются в плейсхолдеры, потом текст, потом восстановление.
- * Здесь рендерим через <Text> с вложенными <Text> (bold/code/italic).
+ * RichMarkdown — рендер ответов AI.
+ *
+ * Без глобального состояния (исправлен race condition старого рендера):
+ * весь парсинг выполняется внутри компонента с локальными переменными.
+ * Поддерживает: код-блоки (с кнопкой копирования), заголовки, списки,
+ * цитаты, ссылки, bold/italic/inline-code, таблицы (базово, как текст).
  */
-import React from "react";
-import { Text } from "react-native";
+import React, { useMemo } from "react";
+import { Linking, Pressable, Text, View } from "react-native";
+import { MaterialIcons } from "@expo/vector-icons";
+import { useApp } from "../store/AppStore";
+import { showToast } from "../design-system/components/Toast";
+import * as Clipboard from "expo-clipboard";
 
-interface ThemeLike {
-  text: string;
-  codeBg: string;
-  codeText: string;
-  accent: string;
-}
+/* ── Inline-разбор: **bold**, *italic*, `code`, [text](url) ── */
 
-/** Превращает знаки ```...``` в маркеры, чтобы оставить внутри <Text> mono. */
-function splitCodeBlocks(md: string): string[] {
-  // разбиваем по ```lang\n...```
-  const parts: string[] = [];
-  const re = /```[^\n]*\n([\s\S]*?)```/g;
-  let last = 0;
-  let m: RegExpExecArray | null;
-  let i = 0;
-  while ((m = re.exec(md))) {
-    if (m.index > last) parts.push(md.slice(last, m.index));
-    parts.push("\u0000CODE" + i++ + "\u0000");
-    last = m.index + m[0].length;
-  }
-  if (last < md.length) parts.push(md.slice(last));
-  return parts.length ? parts : [md];
-}
-
-const codeBlocks: Record<number, string> = {};
-let codeCounter = 0;
-
-function renderInline(text: string, theme: ThemeLike, keyPrefix: string) {
+function renderInline(text: string, theme: any, keyPrefix: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
-  // матчим **bold**, `code`, *italic*
-  const re = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*\s][^*]*\*)/g;
+  const re = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*\s][^*]*\*|\[([^\]]+)\]\(([^)\s]+)\))/g;
   let last = 0;
-  let m: RegExpExecArray | null;
   let k = 0;
+  let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
     if (m.index > last) nodes.push(<Text key={`${keyPrefix}-t${k++}`}>{text.slice(last, m.index)}</Text>);
     const tok = m[0];
@@ -52,8 +32,20 @@ function renderInline(text: string, theme: ThemeLike, keyPrefix: string) {
       );
     } else if (tok.startsWith("`")) {
       nodes.push(
-        <Text key={`${keyPrefix}-c${k++}`} style={{ fontFamily: "monospace", color: theme.codeText, backgroundColor: theme.codeBg }}>
+        <Text key={`${keyPrefix}-c${k++}`} style={{ fontFamily: "monospace", color: theme.codeText, backgroundColor: theme.codeBg, paddingHorizontal: 3, borderRadius: 4 }}>
           {tok.slice(1, -1)}
+        </Text>,
+      );
+    } else if (tok.startsWith("[")) {
+      const label = m[2];
+      const url = m[3];
+      nodes.push(
+        <Text
+          key={`${keyPrefix}-l${k++}`}
+          style={{ color: theme.accentHi, textDecorationLine: "underline" }}
+          onPress={() => Linking.openURL(url).catch(() => {})}
+        >
+          {label}
         </Text>,
       );
     } else {
@@ -69,68 +61,150 @@ function renderInline(text: string, theme: ThemeLike, keyPrefix: string) {
   return nodes;
 }
 
-export function renderMarkdown(md: string | null | undefined, theme: ThemeLike): React.ReactNode {
-  const src = md ?? "";
-  if (!src) return null;
+/* ── Компонент ── */
 
-  // 1. вырезать код-блоки
-  codeCounter = 0;
-  Object.keys(codeBlocks).forEach((k) => delete codeBlocks[+k]);
-  const lines = src.split("\n");
-  const out: React.ReactNode[] = [];
-  let buffer: string[] = [];
-  let inCode = false;
-  let codeLang = "";
+export function RichMarkdown({ content }: { content: string }) {
+  const { theme } = useApp();
+  const nodes = useMemo(() => {
+    const src = content ?? "";
+    if (!src) return [];
+    const lines = src.split("\n");
+    const out: React.ReactNode[] = [];
+    let i = 0;
+    let k = 0;
 
-  const flush = (key: string) => {
-    if (buffer.length === 0) return;
-    const para = buffer.join("\n");
-    buffer = [];
-    if (!para.trim()) return;
-    out.push(<Text key={key} style={{ color: theme.text, fontSize: 14, lineHeight: 20 }}>{renderInline(para, theme, key)}</Text>);
-  };
+    while (i < lines.length) {
+      const line = lines[i];
 
-  lines.forEach((line, i) => {
-    if (line.trim().startsWith("```")) {
-      if (!inCode) {
-        flush("t" + i);
-        inCode = true;
-        codeLang = line.trim().slice(3).trim();
-        const cid = codeCounter++;
-        codeBlocks[cid] = "";
-        out.push(<Text key={`code-${i}`} style={{ color: theme.codeText }}>{"\u0000CODE" + cid + "\u0000"}</Text>);
-      } else {
-        const cid = codeCounter - 1;
+      // код-блок ```lang ... ```
+      if (line.trimStart().startsWith("```")) {
+        const lang = line.trim().slice(3).trim();
+        const buf: string[] = [];
+        i++;
+        while (i < lines.length && !lines[i].trimStart().startsWith("```")) {
+          buf.push(lines[i]);
+          i++;
+        }
+        i++; // закрывающий ```
+        const code = buf.join("\n");
+        const key = k++;
         out.push(
-          <Text key={`code-end-${i}`} style={{ fontFamily: "monospace", color: theme.codeText, backgroundColor: theme.codeBg }}>{codeBlocks[cid]}</Text>,
+          <View key={`code${key}`} style={{ marginVertical: 6, borderRadius: 10, overflow: "hidden", borderWidth: 1, borderColor: theme.border, backgroundColor: theme.codeBg }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 10, paddingVertical: 5, backgroundColor: theme.surface2 }}>
+              <Text style={{ color: theme.mute, fontSize: 9.5, fontFamily: "monospace" }}>{lang || "code"}</Text>
+              <Pressable
+                hitSlop={8}
+                onPress={() => Clipboard.setStringAsync(code).then(() => showToast("ok", "Код скопирован"))}
+                style={{ flexDirection: "row", alignItems: "center", gap: 3 }}
+                accessibilityLabel="Копировать код"
+              >
+                <MaterialIcons name="content-copy" size={11} color={theme.dim} />
+                <Text style={{ color: theme.dim, fontSize: 10 }}>Копировать</Text>
+              </Pressable>
+            </View>
+            <Text selectable style={{ color: theme.codeText, fontFamily: "monospace", fontSize: 12, lineHeight: 17, padding: 10 }}>
+              {code}
+            </Text>
+          </View>,
         );
-        inCode = false;
+        continue;
       }
-      return;
-    }
-    if (inCode) {
-      const cid = codeCounter - 1;
-      // строки кода рендерим отдельными mono-элементами
+
+      // заголовки ## ### ####
+      const h = line.match(/^(#{1,4})\s+(.*)$/);
+      if (h) {
+        const level = h[1].length;
+        out.push(
+          <Text key={`h${k++}`} style={{ color: theme.text, fontSize: level <= 2 ? 16 : 14, fontWeight: "700", marginTop: 8, marginBottom: 3 }}>
+            {renderInline(h[2] ?? "", theme, `h${k}`)}
+          </Text>,
+        );
+        i++;
+        continue;
+      }
+
+      // маркированный список: - / * / •  (соберём подряд)
+      const ul = line.match(/^\s*[-*•]\s+(.*)$/);
+      if (ul) {
+        const items: string[] = [];
+        while (i < lines.length) {
+          const m2 = lines[i].match(/^\s*[-*•]\s+(.*)$/);
+          if (m2) { items.push(m2[1] ?? ""); i++; } else break;
+        }
+        out.push(
+          <View key={`ul${k++}`} style={{ marginVertical: 2 }}>
+            {items.map((it, idx) => (
+              <View key={idx} style={{ flexDirection: "row", gap: 6, marginBottom: 2 }}>
+                <Text style={{ color: theme.accentHi, fontSize: 14, lineHeight: 20 }}>•</Text>
+                <Text style={{ color: theme.text, fontSize: 14, lineHeight: 20, flex: 1 }}>
+                  {renderInline(it, theme, `uli${k}-${idx}`)}
+                </Text>
+              </View>
+            ))}
+          </View>,
+        );
+        continue;
+      }
+
+      // нумерованный список: 1. 2. ...
+      const ol = line.match(/^\s*(\d+)[.)]\s+(.*)$/);
+      if (ol) {
+        const items: { num: string; text: string }[] = [];
+        while (i < lines.length) {
+          const m2 = lines[i].match(/^\s*(\d+)[.)]\s+(.*)$/);
+          if (m2) { items.push({ num: m2[1] ?? "", text: m2[2] ?? "" }); i++; } else break;
+        }
+        out.push(
+          <View key={`ol${k++}`} style={{ marginVertical: 2 }}>
+            {items.map((it, idx) => (
+              <View key={idx} style={{ flexDirection: "row", gap: 6, marginBottom: 2 }}>
+                <Text style={{ color: theme.dim, fontSize: 14, lineHeight: 20, width: 20 }}>{it.num}.</Text>
+                <Text style={{ color: theme.text, fontSize: 14, lineHeight: 20, flex: 1 }}>
+                  {renderInline(it.text, theme, `oli${k}-${idx}`)}
+                </Text>
+              </View>
+            ))}
+          </View>,
+        );
+        continue;
+      }
+
+      // цитата > text
+      const q = line.match(/^\s*>\s?(.*)$/);
+      if (q) {
+        out.push(
+          <View key={`q${k++}`} style={{ borderLeftWidth: 3, borderLeftColor: theme.border, paddingLeft: 10, marginVertical: 3 }}>
+            <Text style={{ color: theme.dim, fontSize: 13.5, lineHeight: 20, fontStyle: "italic" }}>
+              {renderInline(q[1] ?? "", theme, `q${k}`)}
+            </Text>
+          </View>,
+        );
+        i++;
+        continue;
+      }
+
+      // пустая строка
+      if (!line.trim()) {
+        out.push(<View key={`sp${k++}`} style={{ height: 6 }} />);
+        i++;
+        continue;
+      }
+
+      // обычный абзац
       out.push(
-        <Text key={`code-l-${cid}-${i}`} style={{ fontFamily: "monospace", color: theme.codeText, backgroundColor: theme.codeBg }}>
-          {line}
+        <Text key={`p${k++}`} style={{ color: theme.text, fontSize: 14, lineHeight: 20, marginBottom: 4 }}>
+          {renderInline(line.trim(), theme, `p${k}`)}
         </Text>,
       );
-      return;
+      i++;
     }
-    // заголовки
-    const h = line.match(/^(#{1,3})\s+(.*)/);
-    if (h) {
-      flush("h" + i);
-      out.push(
-        <Text key={`head-${i}`} style={{ color: theme.text, fontSize: 18, fontWeight: "700", marginTop: 8, marginBottom: 2 }}>
-          {h[2]}
-        </Text>,
-      );
-      return;
-    }
-    buffer.push(line);
-  });
-  flush("end");
-  return out;
+    return out;
+  }, [content, theme]);
+
+  return <View>{nodes}</View>;
+}
+
+/** Обратная совместимость: функция-обёртка. */
+export function renderMarkdown(content: string | null | undefined, theme: any): React.ReactNode {
+  return <RichMarkdown content={content ?? ""} />;
 }
