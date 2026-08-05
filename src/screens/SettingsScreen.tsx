@@ -151,7 +151,7 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
           {isSynced ? (
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Text style={{ color: theme.ok, fontSize: 14 }}>✓</Text>
+                <Text style={{ color: theme.ok, fontSize: 13 }}>●</Text>
                 <Text style={{ color: theme.text, fontSize: 14, fontWeight: "600" }}>{t("sync_done")}</Text>
               </View>
               <Pressable onPress={logout}><Text style={{ color: theme.danger, fontSize: 13 }}>{t("delete")}</Text></Pressable>

@@ -198,7 +198,7 @@ export function BottomSheet({
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
             <Text style={{ color: theme.text, fontSize: 16, fontWeight: "700" }}>{title}</Text>
             <Pressable onPress={onClose} hitSlop={10}>
-              <Text style={{ color: theme.mute, fontSize: 16 }}>✕</Text>
+              <Text style={{ color: theme.mute, fontSize: 16 }}>×</Text>
             </Pressable>
           </View>
           <ScrollView bounces={false} keyboardShouldPersistTaps="handled">
