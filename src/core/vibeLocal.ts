@@ -115,6 +115,13 @@ export async function renameProject(id: string, newName: string): Promise<void> 
 
 /* ── Files ─────────────────────────────────────────────── */
 
+/** Безопасный путь: блокируем выход за пределы проекта (.., абсолютные пути). */
+export function safeRel(rel: string): string {
+  const parts = rel.split("/").filter(Boolean);
+  if (parts.some((p) => p === "..")) throw new Error("Недопустимый путь");
+  return parts.join("/");
+}
+
 export async function listFiles(projectId: string): Promise<VibeFileEntry[]> {
   const dir = projectDir(projectId);
   if (!dir.exists) return [];
@@ -135,10 +142,50 @@ export async function listFiles(projectId: string): Promise<VibeFileEntry[]> {
   return out;
 }
 
+const FILE_EXT = /\.([a-zA-Z0-9]+)$/;
+
+/** Дерево файлов (для терминала tree / контекста агента). */
+export async function treeFiles(projectId: string): Promise<string> {
+  const files = await listFiles(projectId);
+  if (files.length === 0) return "(пусто)";
+  return files.map((f) => `${f.name} (${f.size} B)`).join("\n");
+}
+
+/** Информация о файле/папке. */
+export async function statPath(projectId: string, rel: string): Promise<{ isDir: boolean; name: string; size: number } | null> {
+  const clean = safeRel(rel);
+  const dir = projectDir(projectId);
+  const parts = clean.split("/").filter(Boolean);
+  if (parts.length === 0) return null;
+  const file = parts[parts.length - 1];
+  const parent = new Directory(dir, ...parts.slice(0, -1));
+  if (!parent.exists) return null;
+  for (const item of parent.list()) {
+    if (item.name === file) {
+      if (item instanceof File) return { isDir: false, name: file, size: item.size ?? 0 };
+      if (item instanceof Directory) return { isDir: true, name: file, size: 0 };
+    }
+  }
+  return null;
+}
+
+/** Прочитать файл по точному пути (без рекурсии) — inner. */
+async function readFileInner(projectId: string, rel: string): Promise<string> {
+  const dir = projectDir(projectId);
+  const f = new File(dir, ...rel.split("/").filter(Boolean));
+  if (!f.exists) throw new Error("Файл не найден: " + rel);
+  return await f.text();
+}
+
+export async function readFile(projectId: string, relPath: string): Promise<string> {
+  return readFileInner(projectId, safeRel(relPath));
+}
+
 /** Пишет файл в проект, создавая промежуточные папки. */
 export async function writeFile(projectId: string, relPath: string, content: string): Promise<void> {
+  const clean = safeRel(relPath);
   const dir = await ensureProjectDir(projectId);
-  const parts = relPath.split("/").filter(Boolean);
+  const parts = clean.split("/").filter(Boolean);
   const fileName = parts.pop();
   if (!fileName) return;
   let cur = dir;
@@ -152,17 +199,68 @@ export async function writeFile(projectId: string, relPath: string, content: str
   await f.write(content);
 }
 
-export async function readFile(projectId: string, relPath: string): Promise<string> {
+export async function createDir(projectId: string, rel: string): Promise<void> {
+  const clean = safeRel(rel);
   const dir = projectDir(projectId);
-  const f = new File(dir, ...relPath.split("/").filter(Boolean));
-  if (!f.exists) throw new Error("File not found: " + relPath);
-  return await f.text();
+  const parts = clean.split("/").filter(Boolean);
+  if (parts.length === 0) return;
+  let cur = dir;
+  for (const seg of parts) {
+    const next = new Directory(cur, seg);
+    if (!next.exists) next.create({ idempotent: true, intermediates: true });
+    cur = next;
+  }
+}
+
+export async function renameFile(projectId: string, rel: string, newName: string): Promise<void> {
+  const clean = safeRel(rel);
+  const cleanNew = safeRel(newName);
+  if (cleanNew.includes("/")) throw new Error("Новое имя не может содержать /");
+  const dir = projectDir(projectId);
+  const src = new File(dir, ...clean.split("/").filter(Boolean));
+  if (!src.exists) throw new Error("Файл не найден: " + rel);
+  const parts = clean.split("/").filter(Boolean);
+  parts.pop();
+  const parent = new Directory(dir, ...parts);
+  const dst = new File(parent, cleanNew);
+  if (dst.exists) throw new Error("Файл уже существует: " + newName);
+  await src.move(dst);
+}
+
+export async function moveFile(projectId: string, rel: string, targetDir: string): Promise<void> {
+  const clean = safeRel(rel);
+  const cleanTarget = safeRel(targetDir);
+  const dir = projectDir(projectId);
+  const src = new File(dir, ...clean.split("/").filter(Boolean));
+  if (!src.exists) throw new Error("Файл не найден: " + rel);
+  const parts = clean.split("/").filter(Boolean);
+  const fileName = parts.pop();
+  if (!fileName) return;
+  const target = new Directory(dir, ...cleanTarget.split("/").filter(Boolean));
+  if (!target.exists) target.create({ idempotent: true, intermediates: true });
+  const dst = new File(target, fileName);
+  if (dst.exists) throw new Error("Файл уже существует");
+  await src.move(dst);
+}
+
+export async function copyFile(projectId: string, rel: string, targetRel: string): Promise<void> {
+  const content = await readFile(projectId, rel);
+  await writeFile(projectId, targetRel, content);
 }
 
 export async function deleteFile(projectId: string, relPath: string): Promise<void> {
+  const clean = safeRel(relPath);
   const dir = projectDir(projectId);
-  const f = new File(dir, ...relPath.split("/").filter(Boolean));
+  const f = new File(dir, ...clean.split("/").filter(Boolean));
   if (f.exists) f.delete();
+}
+
+/** Рекурсивное удаление папки (для rm -r, только внутри проекта). */
+export async function deleteDirRecursive(projectId: string, rel: string): Promise<void> {
+  const clean = safeRel(rel);
+  const dir = projectDir(projectId);
+  const d = new Directory(dir, ...clean.split("/").filter(Boolean));
+  if (d.exists) d.delete();
 }
 
 /* ── Chat history ──────────────────────────────────────── */
