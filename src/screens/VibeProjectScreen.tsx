@@ -11,6 +11,8 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   FlatList,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -18,17 +20,26 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { MaterialIcons } from "@expo/vector-icons";
+import * as Clipboard from "expo-clipboard";
+import { Paths } from "expo-file-system";
 import { useApp, genId } from "../store/AppStore";
 import { renderMarkdown } from "../components/Markdown";
-import { BottomSheet } from "../components/ui";
+import { Sheet } from "../design-system/components/Sheet";
+import { IconButton } from "../design-system/components/IconButton";
+import { Button } from "../design-system/components/Button";
+import { showToast } from "../design-system/components/Toast";
+import { formatBytes } from "../design-system/tokens";
 import {
   VibeMsg,
   VibeFileEntry,
+  deleteFile,
   listFiles,
   loadMessages,
   readFile,
   saveMessages,
   vibeChat,
+  writeFile,
 } from "../core/vibeLocal";
 
 export function VibeProjectScreen({ route, navigation }: { route: any; navigation: any }) {
@@ -50,6 +61,9 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
   const model =
     state.models.find((m) => m.modelName === state.sessions.find((s) => s.id === state.activeSessionId)?.modelId) ??
     state.models[0];
+
+  // Путь хранения файлов проекта — показываем пользователю (B18)
+  const storagePath = `${Paths.document}/vibe/${projectId}/`;
 
   const loadMsgs = useCallback(async () => {
     const msgs = await loadMessages(projectId);
@@ -162,27 +176,42 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       {/* header */}
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingBottom: 8, paddingTop: insets.top + 6, borderBottomWidth: 1, borderBottomColor: theme.border }}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={8} style={{ width: 32, height: 32, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: theme.border, borderRadius: 9, backgroundColor: theme.surface }}>
-          <Text style={{ color: theme.dim, fontSize: 14 }}>←</Text>
-        </Pressable>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingBottom: 8, paddingTop: insets.top + 4, borderBottomWidth: 1, borderBottomColor: theme.border }}>
+        <IconButton name="arrow-back" onPress={() => navigation.goBack()} accessibilityLabel={t("back")} />
         <View style={{ flex: 1 }}>
           <Text style={{ color: theme.text, fontSize: 14, fontWeight: "600" }}>{projectName}</Text>
-          <Text style={{ color: theme.mute, fontSize: 10, fontFamily: "monospace" }}>
-            {model ? model.displayName : "…"} · на устройстве
+          <Text numberOfLines={1} style={{ color: theme.mute, fontSize: 9.5, fontFamily: "monospace" }}>
+            {model ? model.displayName : "…"} · {storagePath}
           </Text>
         </View>
       </View>
 
       {/* tabs */}
       <View style={{ flexDirection: "row", gap: 6, paddingHorizontal: 14, paddingVertical: 8 }}>
-        {(["chat", "files"] as const).map((m) => (
+        {([["chat", "chat-bubble-outline"], ["files", "folder", "list"]] as const).map(([m, icon, activeIcon]) => (
           <Pressable
             key={m}
             onPress={() => setMode(m)}
-            style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: mode === m ? theme.accent : theme.border, backgroundColor: mode === m ? theme.accent : theme.surface }}
+            android_ripple={{ color: theme.ripple }}
+            style={({ pressed }) => ({
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 5,
+              paddingVertical: 7,
+              paddingHorizontal: 12,
+              borderRadius: 8,
+              borderWidth: 1,
+              borderColor: mode === m ? theme.accent : theme.border,
+              backgroundColor: mode === m ? theme.accentDim : theme.surface,
+              opacity: pressed ? 0.8 : 1,
+            })}
           >
-            <Text style={{ color: mode === m ? (theme.name === "dark" ? "#1c1202" : "#fdf9f2") : theme.dim, fontSize: 10, fontWeight: "600" }}>
+            <MaterialIcons
+              name={mode === m ? (activeIcon as any) : (icon as any)}
+              size={14}
+              color={mode === m ? theme.accentHi : theme.dim}
+            />
+            <Text style={{ color: mode === m ? theme.accentHi : theme.dim, fontSize: 11, fontWeight: "600" }}>
               {m === "chat" ? "Чат" : "Файлы"}
             </Text>
           </Pressable>
@@ -199,25 +228,27 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
             onContentSizeChange={scrollBottom}
             renderItem={({ item }) => <VibeBubble msg={item} theme={theme} />}
           />
-          <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8, paddingHorizontal: 14, paddingBottom: insets.bottom + 8, borderTopWidth: 1, borderTopColor: theme.border, paddingTop: 8 }}>
-            <TextInput
-              value={text}
-              onChangeText={setText}
-              placeholder="Инструкция агенту…"
-              placeholderTextColor={theme.mute}
-              multiline
-              style={{ flex: 1, backgroundColor: theme.surface, borderColor: theme.border, borderWidth: 1, borderRadius: 12, paddingHorizontal: 13, paddingVertical: 9, fontSize: 14, color: theme.text, maxHeight: 90, minHeight: 40 }}
-            />
-            {busy ? (
-              <Pressable onPress={stop} style={{ height: 40, paddingHorizontal: 12, borderRadius: 12, backgroundColor: theme.danger, alignItems: "center", justifyContent: "center" }}>
-                <Text style={{ color: "#fff", fontSize: 12, fontWeight: "700" }}>{t("stop")}</Text>
-              </Pressable>
-            ) : (
-              <Pressable onPress={send} style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: theme.accent, alignItems: "center", justifyContent: "center" }}>
-                <Text style={{ color: theme.name === "dark" ? "#1c1202" : "#fdf9f2", fontSize: 18 }}>→</Text>
-              </Pressable>
-            )}
-          </View>
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
+            <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8, paddingHorizontal: 12, paddingBottom: insets.bottom + 8, borderTopWidth: 1, borderTopColor: theme.border, paddingTop: 8 }}>
+              <TextInput
+                value={text}
+                onChangeText={setText}
+                placeholder="Инструкция агенту…"
+                placeholderTextColor={theme.mute}
+                multiline
+                style={{ flex: 1, backgroundColor: theme.surface, borderColor: theme.border, borderWidth: 1, borderRadius: 12, paddingHorizontal: 13, paddingVertical: 9, fontSize: 14, color: theme.text, maxHeight: 90, minHeight: 44 }}
+              />
+              {busy ? (
+                <Pressable onPress={stop} style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: theme.danger, alignItems: "center", justifyContent: "center" }}>
+                  <MaterialIcons name="stop" size={20} color="#fff" />
+                </Pressable>
+              ) : (
+                <Pressable onPress={send} disabled={!text.trim()} style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: text.trim() ? theme.accent : theme.surface2, alignItems: "center", justifyContent: "center" }}>
+                  <MaterialIcons name="send" size={20} color={text.trim() ? theme.onAccent : theme.mute} />
+                </Pressable>
+              )}
+            </View>
+          </KeyboardAvoidingView>
         </>
       )}
 
@@ -239,24 +270,35 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
           renderItem={({ item }) => (
             <Pressable
               onPress={() => viewFile(item.name)}
-              style={{ flexDirection: "row", alignItems: "center", gap: 9, padding: 10, borderRadius: 9, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface, marginBottom: 6 }}
+              onLongPress={() => Alert.alert("Файл", item.name, [
+                { text: t("cancel"), style: "cancel" },
+                { text: "Удалить", style: "destructive", onPress: async () => {
+                  try { await deleteFile(projectId, item.name); showToast("ok", "Файл удалён"); loadFiles(); }
+                  catch (e: any) { showToast("err", String(e?.message || e)); }
+                } },
+              ])}
+              style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 9, padding: 10, borderRadius: 9, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface, marginBottom: 6, opacity: pressed ? 0.85 : 1 })}
             >
-              <Text style={{ color: theme.accentHi, fontFamily: "monospace", fontSize: 11 }}>▸</Text>
+              <MaterialIcons name="insert-drive-file" size={16} color={theme.accentHi} />
               <Text style={{ flex: 1, color: theme.text, fontSize: 12, fontFamily: "monospace" }}>{item.name}</Text>
-              <Text style={{ color: theme.mute, fontSize: 9, fontFamily: "monospace" }}>{item.size} B</Text>
+              <Text style={{ color: theme.mute, fontSize: 9.5, fontFamily: "monospace" }}>{formatBytes(item.size)}</Text>
             </Pressable>
           )}
         />
       )}
 
       {/* file viewer modal */}
-      <BottomSheet visible={showFile} onClose={() => setShowFile(false)} title="Файл">
-        <ScrollView style={{ maxHeight: "70%", backgroundColor: theme.codeBg, borderRadius: 10, padding: 12 }}>
+      <Sheet visible={showFile} onClose={() => setShowFile(false)} title="Файл" snapPoints={["70%"]}>
+        <View style={{ flexDirection: "row", justifyContent: "space-around", marginBottom: 10 }}>
+          <Button title="Копировать" variant="secondary" onPress={() => fileContent && Clipboard.setStringAsync(fileContent).then(() => showToast("ok", "Скопировано"))} />
+          <Button title="Закрыть" variant="secondary" onPress={() => setShowFile(false)} />
+        </View>
+        <ScrollView style={{ maxHeight: "72%", backgroundColor: theme.codeBg, borderRadius: 10, padding: 12 }}>
           <Text selectable style={{ color: theme.codeText, fontFamily: "monospace", fontSize: 12, lineHeight: 18 }}>
-            {fileContent}
+            {fileContent ?? "(пусто)"}
           </Text>
         </ScrollView>
-      </BottomSheet>
+      </Sheet>
     </View>
   );
 }
@@ -264,8 +306,13 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
 function VibeBubble({ msg, theme }: { msg: VibeMsg; theme: any }) {
   if (msg.streaming) {
     return (
-      <View style={{ alignSelf: "flex-start", marginBottom: 8, paddingHorizontal: 13, paddingVertical: 8, borderRadius: 12, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface, borderStyle: "dashed" }}>
-        <Text style={{ color: theme.dim, fontSize: 12 }}>▊ агент работает…</Text>
+      <View style={{ alignSelf: "flex-start", marginBottom: 8, paddingHorizontal: 13, paddingVertical: 8, borderRadius: 12, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }}>
+        <View style={{ flexDirection: "row", gap: 4, alignItems: "center" }}>
+          {[0, 1, 2].map((i) => (
+            <View key={i} style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: theme.accentHi }} />
+          ))}
+        </View>
+        <Text style={{ color: theme.dim, fontSize: 11, marginTop: 5 }}>агент работает…</Text>
       </View>
     );
   }

@@ -6,29 +6,36 @@
  */
 import React from "react";
 import { StatusBar } from "expo-status-bar";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { NavigationContainer, DefaultTheme, DarkTheme } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { Text } from "react-native";
+import { MaterialIcons } from "@expo/vector-icons";
 
 import { AppProvider, useApp } from "./src/store/AppStore";
 import { ChatScreen } from "./src/screens/ChatScreen";
 import { VibeScreen } from "./src/screens/VibeScreen";
 import { VibeProjectScreen } from "./src/screens/VibeProjectScreen";
 import { SettingsScreen } from "./src/screens/SettingsScreen";
+import { ToastHost } from "./src/design-system/components/Toast";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
-function TabIcon({ name, focused, theme }: { name: string; focused: boolean; theme: any }) {
-  // Символы из базового набора Unicode — гарантированно есть в шрифте Android.
-  // (⌘/✎/☰ рендерятся на Android как пустые квадраты)
-  const icons: Record<string, string> = { Chat: "●", Vibe: "◆", Settings: "⚙" };
+function TabIcon({ route, focused }: { route: string; focused: boolean }) {
+  const { theme } = useApp();
+  const icons: Record<string, keyof typeof MaterialIcons.glyphMap> = {
+    Chat: "chat-bubble-outline",
+    Vibe: "code",
+    Settings: "settings",
+  };
   return (
-    <Text style={{ color: focused ? theme.accentHi : theme.mute, fontSize: 15 }}>
-      {icons[name] ?? "•"}
-    </Text>
+    <MaterialIcons
+      name={focused && route === "Chat" ? "chat-bubble" : icons[route] ?? "circle"}
+      size={22}
+      color={focused ? theme.accentHi : theme.mute}
+    />
   );
 }
 
@@ -42,11 +49,12 @@ function MainTabs() {
           backgroundColor: theme.bg,
           borderTopColor: theme.border,
           paddingTop: 4,
+          height: 60,
         },
         tabBarActiveTintColor: theme.accentHi,
         tabBarInactiveTintColor: theme.mute,
         tabBarLabelStyle: { fontSize: 10, fontWeight: "600", letterSpacing: 0.4, textTransform: "uppercase" },
-        tabBarIcon: ({ focused }) => <TabIcon name={route.name} focused={focused} theme={theme} />,
+        tabBarIcon: ({ focused }) => <TabIcon route={route.name} focused={focused} />,
       })}
     >
       <Tab.Screen name="Chat" component={ChatScreen} />
@@ -85,16 +93,19 @@ function ThemedApp() {
     <>
       <StatusBar style={theme.name === "dark" ? "light" : "dark"} />
       <RootNav />
+      <ToastHost />
     </>
   );
 }
 
 export default function App() {
   return (
-    <SafeAreaProvider>
-      <AppProvider>
-        <ThemedApp />
-      </AppProvider>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <AppProvider>
+          <ThemedApp />
+        </AppProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }

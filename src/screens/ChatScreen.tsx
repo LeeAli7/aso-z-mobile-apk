@@ -6,6 +6,8 @@ import React, { useCallback, useRef, useState } from "react";
 import {
   Alert,
   FlatList,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   Share,
   Text,
@@ -14,11 +16,16 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
+import { MaterialIcons } from "@expo/vector-icons";
 
 import { useApp, genId, Msg, Session } from "../store/AppStore";
 import { ModelInfo, streamChat } from "../core/gateway";
-import { BottomSheet, CapBadge } from "../components/ui";
+import { CapBadge } from "../components/ui";
 import { renderMarkdown } from "../components/Markdown";
+import { IconButton, IconName } from "../design-system/components/IconButton";
+import { Sheet } from "../design-system/components/Sheet";
+import { Button } from "../design-system/components/Button";
+import { showToast } from "../design-system/components/Toast";
 
 export function ChatScreen() {
   const { state, theme, dispatch, t, newSession, setActive, deleteSession } = useApp();
@@ -160,19 +167,15 @@ export function ChatScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       {/* header */}
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingBottom: 10, paddingTop: insets.top + 6, borderBottomWidth: 1, borderBottomColor: theme.border, backgroundColor: theme.bg }}>
-        <Pressable onPress={() => setSessionsOpen(true)} hitSlop={8} style={{ width: 34, height: 34, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: theme.border, borderRadius: 10, backgroundColor: theme.surface }}>
-          <Text style={{ color: theme.dim, fontSize: 16 }}>≡</Text>
-        </Pressable>
-        <Pressable onPress={() => setModelsOpen(true)} style={{ flex: 1 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingBottom: 8, paddingTop: insets.top + 4, borderBottomWidth: 1, borderBottomColor: theme.border, backgroundColor: theme.bg }}>
+        <IconButton name="menu" onPress={() => setSessionsOpen(true)} accessibilityLabel={t("sessions")} />
+        <Pressable onPress={() => setModelsOpen(true)} style={{ flex: 1, paddingVertical: 6, paddingLeft: 6 }}>
           <Text style={{ color: theme.text, fontSize: 14, fontWeight: "600" }}>
             <Text style={{ color: theme.accentHi }}>● </Text>{modelName}
           </Text>
           <Text numberOfLines={1} style={{ color: theme.mute, fontSize: 10.5, marginTop: 1 }}>{active?.name ?? t("chat_title")}</Text>
         </Pressable>
-        <Pressable onPress={handleNewSession} hitSlop={8} style={{ width: 34, height: 34, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: theme.border, borderRadius: 10, backgroundColor: theme.surface }}>
-          <Text style={{ color: theme.dim, fontSize: 16 }}>＋</Text>
-        </Pressable>
+        <IconButton name="add" onPress={handleNewSession} accessibilityLabel={t("newSession")} />
       </View>
 
       {/* messages */}
@@ -204,29 +207,31 @@ export function ChatScreen() {
       )}
 
       {/* input */}
-      <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8, paddingHorizontal: 14, paddingTop: 6, paddingBottom: insets.bottom + 8, borderTopWidth: 1, borderTopColor: theme.border, backgroundColor: theme.bg }}>
-        <TextInput
-          value={text}
-          onChangeText={setText}
-          placeholder={t("message_placeholder")}
-          placeholderTextColor={theme.mute}
-          multiline
-          style={{ flex: 1, backgroundColor: theme.surface, borderColor: theme.border, borderWidth: 1, borderRadius: 12, paddingHorizontal: 13, paddingVertical: 9, fontSize: 14, color: theme.text, maxHeight: 90, minHeight: 40 }}
-        />
-        {streaming ? (
-          <Pressable onPress={() => { stopRef.current = true; setStreaming(false); abortRef.current?.abort(); }} style={{ height: 40, paddingHorizontal: 12, borderRadius: 12, backgroundColor: theme.danger, alignItems: "center", justifyContent: "center" }}>
-            <Text style={{ color: "#fff", fontSize: 12, fontWeight: "700" }}>{t("stop")}</Text>
-          </Pressable>
-        ) : (
-          <Pressable onPress={send} style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: theme.accent, alignItems: "center", justifyContent: "center" }}>
-            <Text style={{ color: theme.name === "dark" ? "#1c1202" : "#fdf9f2", fontSize: 18 }}>→</Text>
-          </Pressable>
-        )}
-      </View>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={0}>
+        <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8, paddingHorizontal: 12, paddingTop: 6, paddingBottom: insets.bottom + 8, borderTopWidth: 1, borderTopColor: theme.border, backgroundColor: theme.bg }}>
+          <TextInput
+            value={text}
+            onChangeText={setText}
+            placeholder={t("message_placeholder")}
+            placeholderTextColor={theme.mute}
+            multiline
+            style={{ flex: 1, backgroundColor: theme.surface, borderColor: theme.border, borderWidth: 1, borderRadius: 12, paddingHorizontal: 13, paddingVertical: 9, fontSize: 14, color: theme.text, maxHeight: 90, minHeight: 44 }}
+          />
+          {streaming ? (
+            <Pressable onPress={() => { stopRef.current = true; setStreaming(false); abortRef.current?.abort(); }} style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: theme.danger, alignItems: "center", justifyContent: "center" }}>
+              <MaterialIcons name="stop" size={20} color="#fff" />
+            </Pressable>
+          ) : (
+            <Pressable onPress={send} disabled={!text.trim()} style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: text.trim() ? theme.accent : theme.surface2, alignItems: "center", justifyContent: "center" }}>
+              <MaterialIcons name="send" size={20} color={text.trim() ? theme.onAccent : theme.mute} />
+            </Pressable>
+          )}
+        </View>
+      </KeyboardAvoidingView>
 
       {/* ── Sessions sheet ── */}
-      <BottomSheet visible={sessionsOpen} onClose={() => setSessionsOpen(false)} title={t("sessions")}>
-        <PrimaryBtn title={"＋ " + t("newSession")} onPress={handleNewSession} theme={theme} />
+      <Sheet visible={sessionsOpen} onClose={() => setSessionsOpen(false)} title={t("sessions")} snapPoints={["60%"]}>
+        <Button title={"＋ " + t("newSession")} onPress={handleNewSession} fullWidth />
         {sessionList.map((s) => (
           <Pressable
             key={s.id}
@@ -247,10 +252,10 @@ export function ChatScreen() {
             </Pressable>
           </Pressable>
         ))}
-      </BottomSheet>
+      </Sheet>
 
       {/* ── Models sheet ── */}
-      <BottomSheet visible={modelsOpen} onClose={() => setModelsOpen(false)} title={t("model_select")}>
+      <Sheet visible={modelsOpen} onClose={() => setModelsOpen(false)} title={t("model_select")} snapPoints={["60%"]}>
         {state.models.map((m) => {
           const on = model?.modelName === m.modelName;
           return (
@@ -277,16 +282,8 @@ export function ChatScreen() {
             </Pressable>
           );
         })}
-      </BottomSheet>
+      </Sheet>
     </View>
-  );
-}
-
-function PrimaryBtn({ title, onPress, theme }: { title: string; onPress: () => void; theme: any }) {
-  return (
-    <Pressable onPress={onPress} style={{ backgroundColor: theme.accent, borderRadius: 11, paddingVertical: 13, alignItems: "center", justifyContent: "center" }}>
-      <Text style={{ color: theme.name === "dark" ? "#1c1202" : "#fdf9f2", fontSize: 14, fontWeight: "600" }}>{title}</Text>
-    </Pressable>
   );
 }
 
@@ -297,8 +294,12 @@ function Bubble({ msg, theme, onCopy, onShare }: { msg: Msg; theme: any; onCopy:
   if (msg.streaming) {
     return (
       <View style={containerStyle}>
-        <View style={{ paddingHorizontal: 13, paddingVertical: 9, borderRadius: 14, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface, borderStyle: "dashed" }}>
-          <Text style={{ color: theme.dim, fontSize: 12 }}>▊</Text>
+        <View style={{ paddingHorizontal: 14, paddingVertical: 11, borderRadius: 14, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }}>
+          <View style={{ flexDirection: "row", gap: 4, alignItems: "center" }}>
+            {[0, 1, 2].map((i) => (
+              <View key={i} style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: theme.accentHi }} />
+            ))}
+          </View>
         </View>
       </View>
     );
@@ -321,9 +322,15 @@ function Bubble({ msg, theme, onCopy, onShare }: { msg: Msg; theme: any; onCopy:
           renderMarkdown(msg.content, theme)
         )}
       </View>
-      <View style={{ flexDirection: "row", justifyContent: user ? "flex-end" : "flex-start", marginTop: 4, gap: 12 }}>
-        <Pressable onPress={onCopy} hitSlop={8}><Text style={{ color: theme.mute, fontSize: 11 }}>copy</Text></Pressable>
-        <Pressable onPress={onShare} hitSlop={8}><Text style={{ color: theme.mute, fontSize: 11 }}>share</Text></Pressable>
+      <View style={{ flexDirection: "row", justifyContent: user ? "flex-end" : "flex-start", marginTop: 4, gap: 14 }}>
+        <Pressable onPress={onCopy} hitSlop={10} accessibilityLabel="Копировать" style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+          <MaterialIcons name="content-copy" size={12} color={theme.mute} />
+          <Text style={{ color: theme.mute, fontSize: 10.5 }}>Копировать</Text>
+        </Pressable>
+        <Pressable onPress={onShare} hitSlop={10} accessibilityLabel="Поделиться" style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+          <MaterialIcons name="share" size={12} color={theme.mute} />
+          <Text style={{ color: theme.mute, fontSize: 10.5 }}>Поделиться</Text>
+        </Pressable>
       </View>
     </View>
   );
