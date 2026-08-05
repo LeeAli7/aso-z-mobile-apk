@@ -171,7 +171,7 @@ function ProviderForm({ visible, onClose, onSaved }: { visible: boolean; onClose
         <Input label="Название" placeholder="Мой GPT" value={name} onChangeText={setName} autoCapitalize="none" />
         <Input
           label="Endpoint (полный URL)"
-          placeholder={"https://api.example.com/v1/" + "chat/" + "completions"}
+          placeholder="https://api.example.com/v1/…"
           value={baseUrl}
           onChangeText={setBaseUrl}
           autoCapitalize="none"
