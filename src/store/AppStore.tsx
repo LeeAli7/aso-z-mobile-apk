@@ -17,6 +17,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Theme, ThemeName, themes } from "../theme/tokens";
 import { Lang } from "../i18n";
 import { ModelInfo, loadModels } from "../core/gateway";
+import { listCustomProviders, providerToModel } from "../core/providers";
 import { loadApiBase } from "../core/env";
 
 /* ── Types ─────────────────────────────────────────────── */
@@ -51,6 +52,7 @@ interface State {
   theme: ThemeName;
   lang: Lang;
   models: ModelInfo[];
+  customModels: ModelInfo[];
   sessions: Session[];
   activeSessionId: string | null;
   syncing: boolean;
@@ -66,6 +68,7 @@ type Action =
   | { type: "SET_THEME"; theme: ThemeName }
   | { type: "SET_LANG"; lang: Lang }
   | { type: "SET_MODELS"; models: ModelInfo[] }
+  | { type: "SET_CUSTOM_MODELS"; models: ModelInfo[] }
   | { type: "SET_SYNC"; status: string; syncing?: boolean }
   | { type: "SET_DEVICE"; deviceId: string }
   | { type: "ADD_SESSION"; session: Session }
@@ -92,6 +95,7 @@ const initialState: State = {
   theme: "dark",
   lang: "ru",
   models: [],
+  customModels: [],
   sessions: [],
   activeSessionId: null,
   syncing: false,
@@ -114,6 +118,8 @@ function reducer(state: State, action: Action): State {
       return { ...state, lang: action.lang };
     case "SET_MODELS":
       return { ...state, models: action.models };
+    case "SET_CUSTOM_MODELS":
+      return { ...state, customModels: action.models };
     case "SET_SYNC":
       return { ...state, syncStatus: action.status, syncing: action.syncing ?? state.syncing };
     case "SET_DEVICE":
@@ -242,6 +248,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       } catch {}
       dispatch({ type: "SET_MODELS", models: loadModels() });
+      // кастомные провайдеры пользователя (SecureStore)
+      const customs = await listCustomProviders().catch(() => []);
+      dispatch({ type: "SET_CUSTOM_MODELS", models: customs.map(providerToModel) });
       dispatch({ type: "SET_READY" });
     })();
   }, []);
