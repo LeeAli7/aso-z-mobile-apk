@@ -74,6 +74,7 @@ type Action =
   | { type: "SET_ACTIVE"; sessionId: string | null }
   | { type: "ADD_MSG"; sessionId: string; msg: Msg }
   | { type: "UPDATE_MSG"; sessionId: string; msgId: string; patch: Partial<Msg> }
+  | { type: "DELETE_MSG"; sessionId: string; msgId: string }
   | { type: "DELETE_SESSION"; sessionId: string };
 
 function genId(): string {
@@ -155,6 +156,15 @@ function reducer(state: State, action: Action): State {
                 ),
                 updatedAt: Date.now(),
               }
+            : s,
+        ),
+      };
+    case "DELETE_MSG":
+      return {
+        ...state,
+        sessions: state.sessions.map((s) =>
+          s.id === action.sessionId
+            ? { ...s, messages: s.messages.filter((m) => m.id !== action.msgId), updatedAt: Date.now() }
             : s,
         ),
       };
