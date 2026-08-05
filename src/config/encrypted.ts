@@ -9,18 +9,18 @@ export const ENCRYPTED_PROVIDERS = [
   {
     e: "KQcbKgIDVw5BEQwxBBhHVx5TX24JCjReT0kOTQkIK0gUTF9AXlM1GgA0Ag==",
     m: [
-      { n: "deepseek-v4-flash-free", d: "Aso Math", tier: "flash", prem: true },
-      { n: "north-mini-code-free", d: "Aso Code", tier: "code", prem: false },
-      { n: "nemotron-3-ultra-free", d: "Aso Super", tier: "ultra", prem: false },
-      { n: "mimo-v2.5-free", d: "Aso Multi", tier: "ultra", prem: true, caps: ["V", "S", "D", "W"] },
+      { n: "JRYKKgJcHUoDF11yARtCQVgfUDMWCg==", d: "Aso Math", tier: "flash", prem: true },
+      { n: "LxwdLhkUFUhACEQ8CBNGH1ZAUyQ=", d: "Aso Code", tier: "code", prem: false },
+      { n: "LxYCNQVLF08DUkQqCwNRUx1URCQW", d: "Aso Super", tier: "ultra", prem: false },
+      { n: "LBoCNVxPSg8bTA8tAhI=", d: "Aso Multi", tier: "ultra", prem: true, caps: ["V", "S", "D", "W"] },
     ],
   },
   // gateway B — 2 модели
   {
     e: "KQcbKgIDVw5PEQBxDB5PXR5TX24SHzNeVghEQBMGKhMSUR1TWlc1XAw1HEkURFoIBjEU",
     m: [
-      { n: "stepfun/step-3.7-flash:free", d: "Aso", tier: "flash", prem: false, caps: ["V"] },
-      { n: "nvidia/nemotron-3-ultra-550b-a55b:free", d: "Aso Ultra", tier: "ultra", prem: true },
+      { n: "MgcKKhdMFg5dFQwvSkQNBR1UWiAAB2AXSx1E", d: "Aso", tier: "flash", prem: false, caps: ["V"] },
+      { n: "LwUGPhhYV09LDAYrFRhNHwMfQy0HHTtcDE0RTEwIalIVGVRCV1M=", d: "Aso Ultra", tier: "ultra", prem: true },
     ],
   },
 ] as const;
