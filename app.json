@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "Aso",
+    "name": "Aso-z",
     "slug": "aso-z-mobile",
-    "version": "1.0.0",
+    "version": "1.5.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",

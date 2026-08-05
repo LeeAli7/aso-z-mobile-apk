@@ -41,6 +41,10 @@ const PROJECTS_KEY = "vibe:projects";
 const MSGS_PREFIX = "vibe:msgs:";
 
 function genId(): string {
+  try {
+    const c = (globalThis as any).crypto;
+    if (c?.randomUUID) return c.randomUUID().replace(/-/g, "").slice(0, 16);
+  } catch {}
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
