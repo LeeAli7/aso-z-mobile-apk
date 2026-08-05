@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "Aso",
+    "slug": "aso-z-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "backgroundColor": "#1c1917"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#1c1917",
+        "foregroundImage": "./assets/adaptive-icon.png"
+      },
+      "package": "app.aso.zmobile",
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Aso запрашивает доступ к фото для анализа изображений"
+        }
+      ]
+    ]
+  }
+}
