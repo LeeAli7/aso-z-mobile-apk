@@ -27,6 +27,9 @@ jobs:
       - name: Install deps
         run: npm ci
 
+      - name: Type check
+        run: npx tsc --noEmit
+
       - name: Expo prebuild (android)
         run: npx expo prebuild --platform android --no-install
 

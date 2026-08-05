@@ -19,6 +19,10 @@ export interface CustomProvider {
 const KEY = "aso_custom_providers";
 
 function genId(): string {
+  try {
+    const c = (globalThis as any).crypto;
+    if (c?.randomUUID) return c.randomUUID().replace(/-/g, "").slice(0, 16);
+  } catch {}
   return "p_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 }
 
