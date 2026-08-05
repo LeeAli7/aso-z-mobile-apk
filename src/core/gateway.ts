@@ -1,8 +1,8 @@
 /**
- * Прямой канал к провайдерам (opencode / kilo).
+ * Прямой канал к провайдерам.
  *
  * Приложение бьёт НАПРЯМУЮ в upstream — мимо нашего сервера вообще.
- * URL разшифровываются в рантайме через src/core/crypto.ts.
+ * URL расшифровываются в рантайме через src/core/crypto.ts.
  * Модели описаны в src/config/encrypted.ts (без открытых имён).
  */
 import { ENCRYPTED_PROVIDERS } from "../config/encrypted";
@@ -67,7 +67,7 @@ export async function streamChat(
   // Нативные платформы: прямой запрос к провайдеру (никакого сервера в цепочке).
   // Web (dev-проверка): fetch к провайдеру блокируется CORS, поэтому идём через
   // dev-прокси нашего backend — ТОЛЬКО для браузерной отладки UI, не для продакшена.
-  let endpoint = model.baseUrl.replace(/\/+$/, "") + "/chat/completions";
+  let endpoint = model.baseUrl.replace(/\/+$/, "");
   if (Platform.OS === "web") {
     endpoint = `${config.apiBase}/api/mobile/gw?url=${encodeURIComponent(endpoint)}`;
   }
