@@ -42,7 +42,7 @@ export function loadModels(): ModelInfo[] {
     const baseUrl = decrypt(prov.e as unknown as string);
     (prov.m as unknown as Array<Record<string, unknown>>).forEach((m) => {
       out.push({
-        modelName: String(m.n),
+        modelName: decrypt(String(m.n)),
         displayName: String(m.d),
         tier: String(m.tier),
         premium: Boolean(m.prem),
