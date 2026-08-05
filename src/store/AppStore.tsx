@@ -69,6 +69,7 @@ type Action =
   | { type: "SET_SYNC"; status: string; syncing?: boolean }
   | { type: "SET_DEVICE"; deviceId: string }
   | { type: "ADD_SESSION"; session: Session }
+  | { type: "UPDATE_SESSION"; sessionId: string; patch: Partial<Session> }
   | { type: "SET_SESSIONS"; sessions: Session[] }
   | { type: "SET_ACTIVE"; sessionId: string | null }
   | { type: "ADD_MSG"; sessionId: string; msg: Msg }
@@ -123,6 +124,13 @@ function reducer(state: State, action: Action): State {
         ...state,
         sessions: [action.session, ...state.sessions],
         activeSessionId: action.session.id,
+      };
+    case "UPDATE_SESSION":
+      return {
+        ...state,
+        sessions: state.sessions.map((s) =>
+          s.id === action.sessionId ? { ...s, ...action.patch, updatedAt: Date.now() } : s,
+        ),
       };
     case "SET_ACTIVE":
       return { ...state, activeSessionId: action.sessionId };
