@@ -17,6 +17,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Theme, ThemeName, themes } from "../theme/tokens";
 import { Lang } from "../i18n";
 import { ModelInfo, loadModels } from "../core/gateway";
+import { loadApiBase } from "../core/env";
 
 /* ── Types ─────────────────────────────────────────────── */
 
@@ -195,6 +196,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
+        await loadApiBase();
         const [tok, th, lg, dev, sessRaw] = await Promise.all([
           SecureStore.getItemAsync(KEYS.token),
           AsyncStorage.getItem(KEYS.theme),

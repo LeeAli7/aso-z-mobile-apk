@@ -20,7 +20,7 @@ export const ENCRYPTED_PROVIDERS = [
     e: "KQcbKgIDVw5PEQBxDB5PXR5TX24SHzNeVghEQBMGKhMSUR1TWlc1XAw1HEkURFoIBjEU",
     m: [
       { n: "stepfun/step-3.7-flash:free", d: "Aso", tier: "flash", prem: false, caps: ["V"] },
-      { n: "poolside/laguna-m.1:free", d: "Aso Ultra", tier: "ultra", prem: true },
+      { n: "nvidia/nemotron-3-ultra-550b-a55b:free", d: "Aso Ultra", tier: "ultra", prem: true },
     ],
   },
 ] as const;
