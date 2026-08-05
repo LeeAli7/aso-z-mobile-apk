@@ -41,7 +41,8 @@ export function ChatScreen() {
   const listRef = useRef<FlatList<Msg>>(null);
 
   const active = state.sessions.find((s) => s.id === state.activeSessionId) ?? null;
-  const model = state.models.find((m) => m.modelName === active?.modelId) ?? state.models[0];
+  const allModels = [...state.models, ...state.customModels];
+  const model = allModels.find((m) => m.modelName === active?.modelId) ?? allModels[0];
   const modelName = model?.displayName ?? "Aso";
 
   const scrollBottom = () =>
@@ -315,7 +316,7 @@ export function ChatScreen() {
 
       {/* ── Models sheet ── */}
       <Sheet visible={modelsOpen} onClose={() => setModelsOpen(false)} title={t("model_select")} snapPoints={["60%"]}>
-        {state.models.map((m) => {
+        {allModels.map((m) => {
           const on = model?.modelName === m.modelName;
           return (
             <Pressable

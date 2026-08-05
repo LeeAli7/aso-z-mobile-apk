@@ -18,6 +18,7 @@ import { ChatScreen } from "./src/screens/ChatScreen";
 import { VibeScreen } from "./src/screens/VibeScreen";
 import { VibeProjectScreen } from "./src/screens/VibeProjectScreen";
 import { SettingsScreen } from "./src/screens/SettingsScreen";
+import { ProvidersScreen } from "./src/screens/ProvidersScreen";
 import { ToastHost } from "./src/design-system/components/Toast";
 
 const Tab = createBottomTabNavigator();
@@ -82,6 +83,7 @@ function RootNav() {
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Main" component={MainTabs} />
         <Stack.Screen name="VibeProject" component={VibeProjectScreen} />
+        <Stack.Screen name="Providers" component={ProvidersScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

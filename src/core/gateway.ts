@@ -20,8 +20,14 @@ export interface ModelInfo {
   caps: string[];
   /** Расшифрованный base URL провайдера */
   baseUrl: string;
-  /** Индекс провайдера в конфиге */
+  /** Индекс провайдера в конфиге (-1 = кастомный) */
   providerIdx: number;
+  /** API-ключ (только кастомные провайдеры) */
+  apiKey?: string | null;
+  /** System prompt (только кастомные) */
+  systemPrompt?: string;
+  /** Температура (только кастомные) */
+  temperature?: number;
 }
 
 export interface ChatMessage {
@@ -85,10 +91,22 @@ export async function streamChat(
   const payload = {
     model: model.modelName,
     messages,
-    temperature: 0.7,
+    temperature: model.temperature ?? 0.7,
     max_tokens: 4096,
     stream: true,
   };
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    // Нужен browser-like UA: иначе Cloudflare на upstream режет запросы
+    // с не-браузерной сигнатурой (okhttp/python/curl) ответом 403/400.
+    "User-Agent":
+      "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36",
+    Accept: "text/event-stream",
+  };
+  if (model.apiKey) headers.Authorization = `Bearer ${model.apiKey}`;
+  if (model.systemPrompt && !messages.some((m) => m.role === "system")) {
+    messages = [{ role: "system", content: model.systemPrompt }, ...messages];
+  }
 
   // Retry для 429/503 — до начала стрима (exponential backoff 1.5с → 3с).
   const maxRetries = 2;
@@ -97,14 +115,7 @@ export async function streamChat(
     try {
       resp = await fetch(endpoint, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          // Нужен browser-like UA: иначе Cloudflare на upstream режет запросы
-          // с не-браузерной сигнатурой (okhttp/python/curl) ответом 403/400.
-          "User-Agent":
-            "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36",
-          Accept: "text/event-stream",
-        },
+        headers,
         body: JSON.stringify(payload),
         signal: ctrl.signal,
       });

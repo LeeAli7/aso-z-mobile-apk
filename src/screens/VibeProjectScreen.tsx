@@ -58,9 +58,10 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
   const abortRef = useRef<AbortController | null>(null);
   const listRef = useRef<FlatList<VibeMsg>>(null);
 
+  const allModels = [...state.models, ...state.customModels];
   const model =
-    state.models.find((m) => m.modelName === state.sessions.find((s) => s.id === state.activeSessionId)?.modelId) ??
-    state.models[0];
+    allModels.find((m) => m.modelName === state.sessions.find((s) => s.id === state.activeSessionId)?.modelId) ??
+    allModels[0];
 
   // Путь хранения файлов проекта — показываем пользователю (B18)
   const storagePath = `${Paths.document}/vibe/${projectId}/`;

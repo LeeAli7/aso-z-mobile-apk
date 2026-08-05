@@ -227,6 +227,8 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
         {/* app settings */}
         <GroupLabel>{t("grp_app")}</GroupLabel>
         <View style={{ marginTop: 4, borderRadius: 15, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
+          <Row label="Провайдеры и модели" onPress={() => navigation.navigate("Providers")} value={`${state.models.length + state.customModels.length}`} theme={theme} />
+          <Divider theme={theme} />
           <Row label={t("language")} onPress={() => setLang(state.lang === "ru" ? "en" : "ru")} value={state.lang.toUpperCase()} theme={theme} />
           <Divider theme={theme} />
           <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 10, backgroundColor: theme.surface }}>
