@@ -5,12 +5,15 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { MaterialIcons } from "@expo/vector-icons";
 import { useApp } from "../store/AppStore";
 import { ThemeName } from "../theme/tokens";
 import { Lang } from "../i18n";
 import { TextField, PrimaryButton, GroupLabel, Toggle } from "../components/ui";
 import { requestSync, pollSync, fetchProfile } from "../core/sync";
 import { config, setApiBase } from "../core/env";
+import { showToast } from "../design-system/components/Toast";
+import { Button } from "../design-system/components/Button";
 
 export function SettingsScreen({ navigation }: { navigation: any }) {
   const { state, theme, dispatch, t } = useApp();
@@ -27,17 +30,30 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
   const doSync = useCallback(async () => {
     const uname = username.trim().replace(/^@/, "");
     if (!uname) return;
+    // сброс предыдущего опроса (гонки при повторной отправке)
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     setSyncing(true);
     setStatus("pending");
     dispatch({ type: "SET_SYNC", status: "pending", syncing: true });
     try {
       await requestSync(uname, state.deviceId);
-      // poll until approved
+      // таймаут ожидания подтверждения: 120 секунд
+      const deadline = Date.now() + 120_000;
       pollRef.current = setInterval(async () => {
+        if (Date.now() > deadline) {
+          if (pollRef.current) clearInterval(pollRef.current);
+          pollRef.current = null;
+          dispatch({ type: "SET_SYNC", status: "error", syncing: false });
+          setStatus("error");
+          setSyncing(false);
+          showToast("err", "Время ожидания истекло. Подтверди запрос в боте и попробуй снова.");
+          return;
+        }
         try {
           const res = await pollSync(state.deviceId);
           if (res.status === "approved" && res.token) {
             if (pollRef.current) clearInterval(pollRef.current);
+            pollRef.current = null;
             dispatch({ type: "SET_TOKEN", token: res.token });
             dispatch({ type: "SET_SYNC", status: "done", syncing: false });
             const profile = await fetchProfile(res.token);
@@ -53,11 +69,14 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
             });
             setStatus("done");
             setSyncing(false);
+            showToast("ok", "Аккаунт синхронизирован");
           } else if (res.status === "denied") {
             if (pollRef.current) clearInterval(pollRef.current);
+            pollRef.current = null;
             dispatch({ type: "SET_SYNC", status: "error", syncing: false });
             setStatus("error");
             setSyncing(false);
+            showToast("err", "Запрос отклонён в боте");
           }
         } catch {}
       }, 3000);
@@ -65,9 +84,16 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
       dispatch({ type: "SET_SYNC", status: "error", syncing: false });
       setStatus("error");
       setSyncing(false);
-      Alert.alert(t("sync_error"), String(e?.message || e));
+      showToast("err", String(e?.message || e));
     }
   }, [username, state.deviceId, dispatch, t]);
+
+  const cancelSync = useCallback(() => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    dispatch({ type: "SET_SYNC", status: "idle", syncing: false });
+    setStatus("idle");
+    setSyncing(false);
+  }, [dispatch]);
 
   useEffect(() => {
     // если уже есть токен — подтянуть профиль
@@ -165,9 +191,12 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
               <View style={{ height: 10 }} />
               <PrimaryButton title={t("sync_send")} onPress={doSync} disabled={syncing || !username.trim()} />
               {status === "pending" && (
-                <View style={{ marginTop: 10, flexDirection: "row", alignItems: "center", gap: 8, padding: 9, borderRadius: 10, borderWidth: 1, borderColor: "rgba(251,191,36,.3)", backgroundColor: "rgba(251,191,36,.07)" }}>
-                  <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: "#fbbf24" }} />
-                  <Text style={{ color: "#fbbf24", fontSize: 11 }}>{t("sync_pending")}</Text>
+                <View style={{ marginTop: 10, gap: 8 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 9, borderRadius: 10, borderWidth: 1, borderColor: "rgba(251,191,36,.3)", backgroundColor: "rgba(251,191,36,.07)" }}>
+                    <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: "#fbbf24" }} />
+                    <Text style={{ color: "#fbbf24", fontSize: 11 }}>{t("sync_pending")}</Text>
+                  </View>
+                  <Button title="Отменить" variant="ghost" onPress={cancelSync} />
                 </View>
               )}
               {status === "error" && (
@@ -212,10 +241,14 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
 
 function Row({ label, onPress, value, theme }: { label: string; onPress: () => void; value: string; theme: any }) {
   return (
-    <Pressable onPress={onPress} style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12, backgroundColor: theme.surface }}>
+    <Pressable
+      onPress={onPress}
+      android_ripple={{ color: theme.ripple }}
+      style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12, backgroundColor: theme.surface, opacity: pressed ? 0.85 : 1 })}
+    >
       <Text style={{ color: theme.text, fontSize: 13.5, flex: 1 }}>{label}</Text>
       <Text style={{ color: theme.accentHi, fontSize: 12, fontFamily: "monospace" }}>{value}</Text>
-      <Text style={{ color: theme.mute, fontSize: 13, marginLeft: 6 }}>›</Text>
+      <MaterialIcons name="chevron-right" size={18} color={theme.mute} />
     </Pressable>
   );
 }

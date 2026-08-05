@@ -103,6 +103,16 @@ export async function deleteProject(id: string): Promise<void> {
   await AsyncStorage.removeItem(MSGS_PREFIX + id);
 }
 
+/** Переименование проекта (файлы и чат не трогаем — только метаданные). */
+export async function renameProject(id: string, newName: string): Promise<void> {
+  const list = await listProjects();
+  const p = list.find((x) => x.id === id);
+  if (!p) throw new Error("Project not found");
+  p.name = newName.trim() || p.name;
+  p.updatedAt = Date.now();
+  await saveProjects(list);
+}
+
 /* ── Files ─────────────────────────────────────────────── */
 
 export async function listFiles(projectId: string): Promise<VibeFileEntry[]> {

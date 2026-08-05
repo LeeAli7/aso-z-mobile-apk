@@ -16,6 +16,10 @@ export interface Theme {
   accent: string;
   accentHi: string;
   accentDim: string;
+  /** Цвет текста НА accent-фоне (кнопки primary) */
+  onAccent: string;
+  /** Цвет ripple-эффекта (полупрозрачный) */
+  ripple: string;
   userBubble: string;
   userText: string;
   codeBg: string;
@@ -38,6 +42,8 @@ export const themes: Record<ThemeName, Theme> = {
     accent: "#d97706",
     accentHi: "#f59e0b",
     accentDim: "rgba(217,119,6,.13)",
+    onAccent: "#1c1202",
+    ripple: "rgba(255,255,255,.14)",
     userBubble: "#7c4a03",
     userText: "#ffe9c7",
     codeBg: "#171412",
@@ -58,6 +64,8 @@ export const themes: Record<ThemeName, Theme> = {
     accent: "#b4531f",
     accentHi: "#c45b2e",
     accentDim: "rgba(180,83,31,.09)",
+    onAccent: "#fff8ef",
+    ripple: "rgba(36,31,26,.12)",
     userBubble: "#e7dcc9",
     userText: "#4a3f2f",
     codeBg: "#f3eee5",
