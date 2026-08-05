@@ -215,7 +215,7 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
               </Pressable>
             ) : (
               <Pressable onPress={send} style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: theme.accent, alignItems: "center", justifyContent: "center" }}>
-                <Text style={{ color: theme.name === "dark" ? "#1c1202" : "#fdf9f2", fontSize: 16 }}>➤</Text>
+                <Text style={{ color: theme.name === "dark" ? "#1c1202" : "#fdf9f2", fontSize: 18 }}>→</Text>
               </Pressable>
             )}
           </View>
