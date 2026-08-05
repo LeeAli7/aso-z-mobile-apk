@@ -58,12 +58,23 @@ export function loadModels(): ModelInfo[] {
 /**
  * Стриминг chat completion напрямую к провайдеру.
  * Использует fetch + ReadableStream (RN 0.7x/0.8x поддерживает).
+ * signal — для отмены из UI (кнопка «Стоп»); таймаут 30 с — встроенный.
  */
 export async function streamChat(
   model: ModelInfo,
   messages: ChatMessage[],
   callbacks: StreamCallbacks,
+  signal?: AbortSignal,
 ): Promise<void> {
+  // Объединяем внешний signal + таймаут 30 с (backoff для 429/503 — ниже).
+  const ctrl = new AbortController();
+  if (signal) {
+    if (signal.aborted) ctrl.abort();
+    else signal.addEventListener("abort", () => ctrl.abort(), { once: true });
+  }
+  const timer = setTimeout(() => ctrl.abort(), 30_000);
+  ctrl.signal.addEventListener("abort", () => clearTimeout(timer), { once: true });
+
   // Нативные платформы: прямой запрос к провайдеру (никакого сервера в цепочке).
   // Web (dev-проверка): fetch к провайдеру блокируется CORS, поэтому идём через
   // dev-прокси нашего backend — ТОЛЬКО для браузерной отладки UI, не для продакшена.
@@ -79,20 +90,41 @@ export async function streamChat(
     stream: true,
   };
 
-  try {
-    const resp = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        // Нужен browser-like UA: иначе Cloudflare на upstream режет запросы
-        // с не-браузерной сигнатурой (okhttp/python/curl) ответом 403/400.
-        "User-Agent":
-          "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36",
-        Accept: "text/event-stream",
-      },
-      body: JSON.stringify(payload),
-    });
+  // Retry для 429/503 — до начала стрима (exponential backoff 1.5с → 3с).
+  const maxRetries = 2;
+  for (let attempt = 0; ; attempt++) {
+    let resp: Response;
+    try {
+      resp = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          // Нужен browser-like UA: иначе Cloudflare на upstream режет запросы
+          // с не-браузерной сигнатурой (okhttp/python/curl) ответом 403/400.
+          "User-Agent":
+            "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36",
+          Accept: "text/event-stream",
+        },
+        body: JSON.stringify(payload),
+        signal: ctrl.signal,
+      });
+    } catch (e: unknown) {
+      // Abort (Стоп/таймаут) — не ошибка для пользователя
+      if (ctrl.signal.aborted) {
+        callbacks.onDone("");
+        return;
+      }
+      const msg = e instanceof Error ? e.message : String(e);
+      callbacks.onError(msg);
+      return;
+    }
 
+    if (resp.status === 429 || resp.status === 503) {
+      if (attempt < maxRetries) {
+        await new Promise((r) => setTimeout(r, 1500 * Math.pow(2, attempt)));
+        continue;
+      }
+    }
     if (!resp.ok) {
       let detail = `HTTP ${resp.status}`;
       try {
@@ -115,9 +147,19 @@ export async function streamChat(
     let thinking = "";
 
     while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
+      let chunk: ReadableStreamReadResult<Uint8Array>;
+      try {
+        chunk = await reader.read();
+      } catch {
+        // abort во время чтения — завершаем тихо
+        if (ctrl.signal.aborted) {
+          callbacks.onDone("");
+          return;
+        }
+        throw new Error("stream read failed");
+      }
+      if (chunk.done) break;
+      buffer += decoder.decode(chunk.value, { stream: true });
 
       // Парсим SSE-строки "data: {...}"
       let idx;
@@ -166,9 +208,7 @@ export async function streamChat(
     }
     const finalClean = thinking && !full ? extractFromThinking(thinking) : full;
     callbacks.onDone(finalClean || full || "");
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    callbacks.onError(msg);
+    return;
   }
 }
 

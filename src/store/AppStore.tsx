@@ -191,6 +191,7 @@ const KEYS = {
   lang: "aso_lang",
   device: "aso_device",
   sessions: "aso_sessions",
+  active: "aso_active",
 };
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -205,12 +206,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       try {
         await loadApiBase();
-        const [tok, th, lg, dev, sessRaw] = await Promise.all([
+        const [tok, th, lg, dev, sessRaw, activeRaw] = await Promise.all([
           SecureStore.getItemAsync(KEYS.token),
           AsyncStorage.getItem(KEYS.theme),
           AsyncStorage.getItem(KEYS.lang),
           SecureStore.getItemAsync(KEYS.device),
           AsyncStorage.getItem(KEYS.sessions),
+          AsyncStorage.getItem(KEYS.active),
         ]);
         if (th === "light" || th === "dark") dispatch({ type: "SET_THEME", theme: th });
         if (lg === "ru" || lg === "en") dispatch({ type: "SET_LANG", lang: lg });
@@ -221,7 +223,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const sessions = JSON.parse(sessRaw) as Session[];
             if (Array.isArray(sessions)) {
               dispatch({ type: "SET_SESSIONS", sessions });
-              dispatch({ type: "SET_ACTIVE", sessionId: sessions[0]?.id ?? null });
+              const savedActive = activeRaw && sessions.some((s) => s.id === activeRaw)
+                ? activeRaw
+                : (sessions[0]?.id ?? null);
+              dispatch({ type: "SET_ACTIVE", sessionId: savedActive });
             }
           } catch {}
         }
@@ -232,10 +237,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // ── persist ──
+  // История чата сохраняется при ЛЮБОМ изменении сессий (не только new/delete),
+  // с debounce 400 мс — чтобы не писать AsyncStorage на каждый токен стрима.
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!state.ready) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      try {
+        // держим до 200 сессий, новые идут в начале массива → обрезаем хвост
+        AsyncStorage.setItem(
+          KEYS.sessions,
+          JSON.stringify(state.sessions.slice(0, 200)),
+        ).catch(() => {});
+        AsyncStorage.setItem(KEYS.active, state.activeSessionId ?? "").catch(() => {});
+      } catch {}
+    }, 400);
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+    };
+  }, [state.sessions, state.activeSessionId, state.ready]);
+
   const saveState = useCallback(() => {
     const s = stateRef.current;
     try {
-      AsyncStorage.setItem(KEYS.sessions, JSON.stringify(s.sessions.slice(0, 50))).catch(() => {});
+      AsyncStorage.setItem(KEYS.sessions, JSON.stringify(s.sessions.slice(0, 200))).catch(() => {});
     } catch {}
   }, []);
 
