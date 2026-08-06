@@ -160,6 +160,7 @@ export function providersToModels(providers: CustomProvider[]): ModelInfo[] {
     for (const m of p.models) {
       out.push({
         modelName: `${p.id}:${m.name}`,
+        apiModel: m.name,
         displayName: `${m.name}`,
         tier: "custom",
         premium: false,

@@ -9,7 +9,6 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Alert,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -27,16 +26,22 @@ import { renderMarkdown } from "../components/Markdown";
 import { Sheet } from "../design-system/components/Sheet";
 import { IconButton } from "../design-system/components/IconButton";
 import { Button } from "../design-system/components/Button";
+import { Input } from "../design-system/components/Input";
 import { showToast } from "../design-system/components/Toast";
 import { formatBytes } from "../design-system/tokens";
 import {
   VibeMsg,
   VibeFileEntry,
+  createDir,
+  deleteDirRecursive,
   deleteFile,
+  listDir,
   listFiles,
   loadMessages,
   projectStoragePath,
   readFile,
+  renameDir,
+  renameFile,
   saveMessages,
   vibeChat,
   writeFile,
@@ -137,9 +142,10 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
       },
       onDone: (cleanText, filesWritten) => {
         written = filesWritten;
+        const finalText = cleanText?.trim() || acc?.trim() || (stopRef.current ? "" : "Агент не ответил. Попробуй переформулировать запрос.");
         setMessages((m) =>
           m.map((x) =>
-            x.id === aiId ? { ...x, content: cleanText || acc, streaming: false } : x,
+            x.id === aiId ? { ...x, content: finalText, streaming: false } : x,
           ),
         );
         if (filesWritten.length > 0) loadFiles();
@@ -204,13 +210,82 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
         showToast("ok", "Файл сохранён");
         setEditOpen(false);
         loadFiles();
+        refreshDir();
       } catch (e: any) {
         showToast("err", String(e?.message || e));
       }
     }, [projectId, editName, editContent, loadFiles]);
 
+    // ── файловый менеджер: навигация по папкам + операции ──
+    const [currentDir, setCurrentDir] = useState("");
+    const [dirEntries, setDirEntries] = useState<{ name: string; isDir: boolean; size: number }[]>([]);
     const [newFileOpen, setNewFileOpen] = useState(false);
     const [newFileName, setNewFileName] = useState("");
+    const [newDirOpen, setNewDirOpen] = useState(false);
+    const [newDirName, setNewDirName] = useState("");
+    const [renameTarget, setRenameTarget] = useState<{ name: string; isDir: boolean } | null>(null);
+    const [renameValue, setRenameValue] = useState("");
+    const [deleteTarget, setDeleteTarget] = useState<{ name: string; isDir: boolean } | null>(null);
+    const [fileMenu, setFileMenu] = useState<{ name: string; isDir: boolean } | null>(null);
+
+    const refreshDir = useCallback(async () => {
+      try {
+        const entries = await listDir(projectId, currentDir);
+        setDirEntries(entries);
+      } catch {
+        setDirEntries([]);
+      }
+    }, [projectId, currentDir]);
+
+    useEffect(() => {
+      refreshDir();
+    }, [refreshDir]);
+
+    const openDir = useCallback((name: string) => {
+      const clean = name.replace(/\/$/, "");
+      setCurrentDir((prev) => (prev ? `${prev}/${clean}` : clean));
+    }, []);
+
+    const goUp = useCallback(() => {
+      setCurrentDir((prev) => {
+        const idx = prev.lastIndexOf("/");
+        return idx > 0 ? prev.slice(0, idx) : "";
+      });
+    }, []);
+
+    const fullRel = useCallback((name: string) => {
+      const clean = name.replace(/\/$/, "");
+      return currentDir ? `${currentDir}/${clean}` : clean;
+    }, [currentDir]);
+
+    const confirmRename = useCallback(async () => {
+      if (!renameTarget) return;
+      const newName = renameValue.trim();
+      if (!newName) return;
+      try {
+        if (renameTarget.isDir) await renameDir(projectId, fullRel(renameTarget.name), newName);
+        else await renameFile(projectId, fullRel(renameTarget.name), newName);
+        showToast("ok", "Переименовано");
+        setRenameTarget(null);
+        refreshDir();
+      } catch (e: any) {
+        showToast("err", String(e?.message || e));
+      }
+    }, [renameTarget, renameValue, projectId, fullRel, refreshDir]);
+
+    const confirmDelete = useCallback(async () => {
+      if (!deleteTarget) return;
+      try {
+        if (deleteTarget.isDir) await deleteDirRecursive(projectId, fullRel(deleteTarget.name));
+        else await deleteFile(projectId, fullRel(deleteTarget.name));
+        showToast("ok", "Удалено");
+        setDeleteTarget(null);
+        refreshDir();
+        loadFiles();
+      } catch (e: any) {
+        showToast("err", String(e?.message || e));
+      }
+    }, [deleteTarget, projectId, fullRel, refreshDir, loadFiles]);
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
@@ -320,41 +395,49 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
       {mode === "files" && (
         <>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, paddingVertical: 4 }}>
-            <Text style={{ color: theme.mute, fontSize: 11, fontFamily: "monospace" }}>
-              {files.length} файлов · на устройстве
-            </Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flex: 1 }}>
+              {currentDir !== "" && (
+                <Pressable onPress={goUp} hitSlop={8} style={{ flexDirection: "row", alignItems: "center", gap: 2, padding: 4, borderRadius: 7, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }}>
+                  <MaterialIcons name="arrow-upward" size={14} color={theme.accentHi} />
+                  <Text style={{ color: theme.accentHi, fontSize: 11, fontWeight: "600" }}>Наверх</Text>
+                </Pressable>
+              )}
+              <Text numberOfLines={1} style={{ color: theme.mute, fontSize: 11, fontFamily: "monospace", flex: 1 }}>
+                {currentDir ? `/${currentDir}/` : "/ · корень проекта"}
+              </Text>
+            </View>
+            <Pressable onPress={() => setNewDirOpen(true)} hitSlop={8} style={{ flexDirection: "row", alignItems: "center", gap: 3, padding: 5 }}>
+              <MaterialIcons name="create-new-folder" size={16} color={theme.accentHi} />
+              <Text style={{ color: theme.accentHi, fontSize: 11, fontWeight: "600" }}>папка</Text>
+            </Pressable>
             <Pressable onPress={() => setNewFileOpen(true)} hitSlop={8} style={{ flexDirection: "row", alignItems: "center", gap: 3, padding: 5 }}>
               <MaterialIcons name="add" size={16} color={theme.accentHi} />
               <Text style={{ color: theme.accentHi, fontSize: 11, fontWeight: "600" }}>файл</Text>
             </Pressable>
           </View>
           <FlatList
-            data={files}
-            keyExtractor={(f) => f.name}
+            data={dirEntries}
+            keyExtractor={(e) => e.name}
             contentContainerStyle={{ padding: 14, paddingTop: 6 }}
             ListEmptyComponent={
               <Text style={{ color: theme.dim, fontSize: 12, textAlign: "center", marginTop: 30 }}>
-                Пока пусто. Опиши задачу в чате — агент создаст файлы.
+                {currentDir ? "Папка пуста." : "Пока пусто. Опиши задачу в чате — агент создаст файлы."}
               </Text>
             }
-            renderItem={({ item }) => (
-              <Pressable
-                onPress={() => viewFile(item.name)}
-                onLongPress={() => Alert.alert("Файл", item.name, [
-                  { text: t("cancel"), style: "cancel" },
-                  { text: "Редактировать", onPress: () => startEdit(item.name) },
-                  { text: "Удалить", style: "destructive", onPress: async () => {
-                    try { await deleteFile(projectId, item.name); showToast("ok", "Файл удалён"); loadFiles(); }
-                    catch (e: any) { showToast("err", String(e?.message || e)); }
-                  } },
-                ])}
-                style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 9, padding: 10, borderRadius: 9, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface, marginBottom: 6, opacity: pressed ? 0.85 : 1 })}
-              >
-                <MaterialIcons name="insert-drive-file" size={16} color={theme.accentHi} />
-                <Text style={{ flex: 1, color: theme.text, fontSize: 12, fontFamily: "monospace" }}>{item.name}</Text>
-                <Text style={{ color: theme.mute, fontSize: 9.5, fontFamily: "monospace" }}>{formatBytes(item.size)}</Text>
-              </Pressable>
-            )}
+            renderItem={({ item }) => {
+              const rel = fullRel(item.name);
+              return (
+                <Pressable
+                  onPress={() => (item.isDir ? openDir(item.name) : viewFile(rel))}
+                  onLongPress={() => setFileMenu({ name: item.name, isDir: item.isDir })}
+                  style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 9, padding: 10, borderRadius: 9, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface, marginBottom: 6, opacity: pressed ? 0.85 : 1 })}
+                >
+                  <MaterialIcons name={item.isDir ? "folder" : "insert-drive-file"} size={16} color={item.isDir ? "#fbbf24" : theme.accentHi} />
+                  <Text style={{ flex: 1, color: theme.text, fontSize: 12, fontFamily: "monospace" }}>{item.name}</Text>
+                  <Text style={{ color: theme.mute, fontSize: 9.5, fontFamily: "monospace" }}>{item.isDir ? "" : formatBytes(item.size)}</Text>
+                </Pressable>
+              );
+            }}
           />
         </>
       )}
@@ -390,17 +473,18 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
 
       {/* new file sheet */}
       <Sheet visible={newFileOpen} onClose={() => setNewFileOpen(false)} title="Новый файл" snapPoints={["40%"]}>
-        <TextInput
+        <Input
           value={newFileName}
           onChangeText={setNewFileName}
-          placeholder="src/index.ts"
+          placeholder={currentDir ? `${currentDir}/имя.файла` : "src/index.ts"}
           placeholderTextColor={theme.mute}
           autoCapitalize="none"
           autoCorrect={false}
           onSubmitEditing={async () => {
             const name = newFileName.trim();
             if (!name) return;
-            try { await writeFile(projectId, name, ""); showToast("ok", "Файл создан"); setNewFileOpen(false); setNewFileName(""); loadFiles(); }
+            const rel = fullRel(name);
+            try { await writeFile(projectId, rel, ""); showToast("ok", "Файл создан"); setNewFileOpen(false); setNewFileName(""); refreshDir(); loadFiles(); }
             catch (e: any) { showToast("err", String(e?.message || e)); }
           }}
           style={{ backgroundColor: theme.surface, borderColor: theme.border, borderWidth: 1, borderRadius: 10, paddingHorizontal: 13, paddingVertical: 11, fontSize: 13, color: theme.text, fontFamily: "monospace", minHeight: 44 }}
@@ -409,9 +493,86 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
         <Button title="Создать" onPress={async () => {
           const name = newFileName.trim();
           if (!name) return;
-          try { await writeFile(projectId, name, ""); showToast("ok", "Файл создан"); setNewFileOpen(false); setNewFileName(""); loadFiles(); }
+          const rel = fullRel(name);
+          try { await writeFile(projectId, rel, ""); showToast("ok", "Файл создан"); setNewFileOpen(false); setNewFileName(""); refreshDir(); loadFiles(); }
           catch (e: any) { showToast("err", String(e?.message || e)); }
         }} />
+      </Sheet>
+
+      {/* new dir sheet */}
+      <Sheet visible={newDirOpen} onClose={() => setNewDirOpen(false)} title="Новая папка" snapPoints={["36%"]}>
+        <Input
+          value={newDirName}
+          onChangeText={setNewDirName}
+          placeholder="имя-папки"
+          autoFocus
+          autoCapitalize="none"
+          autoCorrect={false}
+          onSubmitEditing={async () => {
+            const name = newDirName.trim();
+            if (!name) return;
+            const rel = fullRel(name);
+            try { await createDir(projectId, rel); showToast("ok", "Папка создана"); setNewDirOpen(false); setNewDirName(""); refreshDir(); }
+            catch (e: any) { showToast("err", String(e?.message || e)); }
+          }}
+          style={{ marginTop: 4 }}
+        />
+        <View style={{ height: 10 }} />
+        <Button title="Создать" onPress={async () => {
+          const name = newDirName.trim();
+          if (!name) return;
+          const rel = fullRel(name);
+          try { await createDir(projectId, rel); showToast("ok", "Папка создана"); setNewDirOpen(false); setNewDirName(""); refreshDir(); }
+          catch (e: any) { showToast("err", String(e?.message || e)); }
+        }} />
+      </Sheet>
+
+      {/* file menu (long-press): открыть/редактировать/переименовать/удалить */}
+      <Sheet visible={!!fileMenu} onClose={() => setFileMenu(null)} title={fileMenu?.name ?? ""} snapPoints={["48%"]}>
+        {fileMenu && (
+          <>
+            {!fileMenu.isDir && (
+              <Button title="Открыть" variant="secondary" onPress={() => { const f = fileMenu; const rel = fullRel(f.name); setFileMenu(null); viewFile(rel); }} fullWidth style={{ marginTop: 6 }} />
+            )}
+            {!fileMenu.isDir && (
+              <Button title="Редактировать" variant="secondary" onPress={() => { const f = fileMenu; const rel = fullRel(f.name); setFileMenu(null); startEdit(rel); }} fullWidth style={{ marginTop: 6 }} />
+            )}
+            <Button title="Переименовать" variant="secondary" onPress={() => { setRenameValue(fileMenu.name.replace(/\/$/, "")); setRenameTarget(fileMenu); setFileMenu(null); }} fullWidth style={{ marginTop: 6 }} />
+            <Button title="Удалить" variant="danger" onPress={() => { setDeleteTarget(fileMenu); setFileMenu(null); }} fullWidth style={{ marginTop: 6 }} />
+          </>
+        )}
+      </Sheet>
+
+      {/* rename entry */}
+      <Sheet visible={!!renameTarget} onClose={() => setRenameTarget(null)} title="Переименовать" snapPoints={["36%"]}>
+        {renameTarget && (
+          <>
+            <Input
+              value={renameValue}
+              onChangeText={setRenameValue}
+              autoFocus
+              autoCapitalize="none"
+              autoCorrect={false}
+              onSubmitEditing={confirmRename}
+              style={{ marginTop: 4 }}
+            />
+            <View style={{ height: 10 }} />
+            <Button title="Сохранить" onPress={confirmRename} />
+          </>
+        )}
+      </Sheet>
+
+      {/* delete entry confirm */}
+      <Sheet visible={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="Удалить?" snapPoints={["34%"]}>
+        {deleteTarget && (
+          <>
+            <Text style={{ color: theme.dim, fontSize: 13, lineHeight: 19 }}>
+              {deleteTarget.isDir ? "Папка" : "Файл"} «{deleteTarget.name}» будет удалён безвозвратно.
+            </Text>
+            <View style={{ height: 10 }} />
+            <Button title="Удалить" variant="danger" onPress={confirmDelete} fullWidth />
+          </>
+        )}
       </Sheet>
     </View>
   );

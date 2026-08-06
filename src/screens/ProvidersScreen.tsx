@@ -83,16 +83,7 @@ export function ProvidersScreen({ navigation }: { navigation: any }) {
         contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
         ListHeaderComponent={
           <>
-            <Text style={{ color: theme.mute, fontSize: 10, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 6 }}>
-              Системные модели ({state.models.length})
-            </Text>
-            {state.models.map((m) => (
-              <View key={m.modelName} style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 10, borderRadius: 10, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface, marginBottom: 6 }}>
-                <MaterialIcons name="cloud-done" size={16} color={theme.accentHi} />
-                <Text style={{ color: theme.text, fontSize: 13, flex: 1 }}>{m.displayName}</Text>
-                <Text style={{ color: theme.mute, fontSize: 10, fontFamily: "monospace" }}>{m.tier.toUpperCase()}</Text>
-              </View>
-            ))}
+            <SystemProvider state={state} theme={theme} />
             <Text style={{ color: theme.mute, fontSize: 10, letterSpacing: 1.2, textTransform: "uppercase", marginTop: 14, marginBottom: 6 }}>
               Мои провайдеры ({customs.length})
             </Text>
@@ -329,5 +320,41 @@ function ModelForm({ provider, initial, onClose, onSaved }: { provider: CustomPr
         </View>
       </ScrollView>
     </Sheet>
+  );
+}
+
+/* ── Системный провайдер AsoAI (все системные модели в одном контейнере) ── */
+
+function SystemProvider({ state, theme }: { state: any; theme: any }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <View style={{ marginBottom: 8 }}>
+      <Pressable
+        onPress={() => setOpen((v) => !v)}
+        style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 12, borderRadius: 10, borderWidth: 1, borderColor: open ? theme.accent : theme.border, backgroundColor: theme.surface }}
+      >
+        <MaterialIcons name={open ? "expand-more" : "chevron-right"} size={18} color={theme.accentHi} />
+        <MaterialIcons name="cloud-done" size={17} color={theme.accentHi} />
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: theme.text, fontSize: 13.5, fontWeight: "600" }}>AsoAI</Text>
+          <Text style={{ color: theme.mute, fontSize: 10, fontFamily: "monospace" }}>системные модели · {state.models.length}</Text>
+        </View>
+      </Pressable>
+      {open && (
+        <View style={{ marginTop: 4, paddingLeft: 12 }}>
+          {state.models.map((m: any) => (
+            <View key={m.modelName} style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 9, borderRadius: 9, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface2, marginTop: 5 }}>
+              <MaterialIcons name="smart-toy" size={15} color={theme.accentHi} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: theme.text, fontSize: 12.5, fontWeight: "600" }}>{m.displayName}</Text>
+                <Text numberOfLines={1} style={{ color: theme.mute, fontSize: 9.5, fontFamily: "monospace" }}>
+                  {m.tier.toUpperCase()}{m.caps?.includes("V") ? " · vision" : ""}
+                </Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
   );
 }
