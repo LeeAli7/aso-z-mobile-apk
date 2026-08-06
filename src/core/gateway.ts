@@ -7,6 +7,7 @@
  */
 import { ENCRYPTED_PROVIDERS } from "../config/encrypted";
 import { decrypt } from "./crypto";
+import { normalizeChatUrl } from "./url";
 import { Platform } from "react-native";
 import { config } from "./env";
 
@@ -28,6 +29,10 @@ export interface ModelInfo {
   systemPrompt?: string;
   /** Температура (только кастомные) */
   temperature?: number;
+  /** Имя провайдера-родителя (только кастомные) */
+  providerName?: string;
+  /** Id провайдера-родителя (только кастомные) */
+  providerId?: string;
 }
 
 export interface ChatMessage {
@@ -84,7 +89,8 @@ export async function streamChat(
   // Нативные платформы: прямой запрос к провайдеру (никакого сервера в цепочке).
   // Web (dev-проверка): fetch к провайдеру блокируется CORS, поэтому идём через
   // dev-прокси нашего backend — ТОЛЬКО для браузерной отладки UI, не для продакшена.
-  let endpoint = model.baseUrl.replace(/\/+$/, "");
+  // normalizeChatUrl гарантирует, что POST уходит именно в /chat/completions (иначе 404).
+  let endpoint = normalizeChatUrl(model.baseUrl);
   if (Platform.OS === "web") {
     endpoint = `${config.apiBase}/api/mobile/gw?url=${encodeURIComponent(endpoint)}`;
   }

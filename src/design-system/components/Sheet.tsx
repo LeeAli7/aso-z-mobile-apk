@@ -1,10 +1,24 @@
 /**
- * Sheet — BottomSheet на @gorhom/bottom-sheet.
- * Свайп вниз, backdrop, snapPoints, скруглённые углы.
+ * Sheet — универсальная модальная панель снизу.
+ *
+ * Сделана на react-native Modal (не @gorhom/bottom-sheet) — работает
+ * одинаково надёжно на Android, iOS и web-экспорте, кнопки внизу
+ * никогда не обрезаются, контент скроллится.
+ *
+ * Плюсы Modal-подхода: нет зависимости от жестов/Reanimated,
+ * рендерится поверх всего, можно закрыть по backdrop.
  */
-import React, { useCallback, useEffect, useMemo, useRef } from "react";
-import { StyleSheet, Text, View } from "react-native";
-import BottomSheetBase, { BottomSheetBackdrop, BottomSheetScrollView } from "@gorhom/bottom-sheet";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Modal,
+  PanResponder,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useApp } from "../../store/AppStore";
 import { IconButton } from "./IconButton";
 import { radii } from "../tokens";
@@ -14,7 +28,7 @@ export function Sheet({
   onClose,
   title,
   children,
-  snapPoints = ["50%"],
+  snapPoints = ["60%"],
 }: {
   visible: boolean;
   onClose: () => void;
@@ -23,46 +37,103 @@ export function Sheet({
   snapPoints?: string[];
 }) {
   const { theme } = useApp();
-  const ref = useRef<BottomSheetBase>(null);
-  const points = useMemo(() => snapPoints, [snapPoints]);
+  const insets = useSafeAreaInsets();
+  const [offsetY, setOffsetY] = useState(0);
+  const offsetRef = useRef(0);
+  const startYRef = useRef(0);
+
+  // числовая высота панели из первого snapPoint (напр. "60%" -> 60)
+  const heightPct = useCallback(() => {
+    const raw = snapPoints[0] ?? "60%";
+    const n = parseFloat(raw);
+    return Number.isFinite(n) ? Math.min(95, Math.max(25, n)) : 60;
+  }, [snapPoints]);
+
+  // свайп вниз для закрытия (простой PanResponder)
+  const pan = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_evt, g) => Math.abs(g.dy) > 10 && g.dy > 0,
+      onPanResponderMove: (_evt, g) => {
+        offsetRef.current = Math.max(0, g.dy);
+        setOffsetY(offsetRef.current);
+      },
+      onPanResponderRelease: (_evt, g) => {
+        if (g.dy > 90) onClose();
+        else {
+          offsetRef.current = 0;
+          setOffsetY(0);
+        }
+      },
+    }),
+  ).current;
 
   useEffect(() => {
-    if (visible) {
-      ref.current?.snapToIndex(0);
-    } else {
-      ref.current?.close();
+    if (!visible) {
+      offsetRef.current = 0;
+      setOffsetY(0);
     }
   }, [visible]);
 
-  const renderBackdrop = useCallback(
-    (props: any) => (
-      <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} opacity={0.5} pressBehavior="close" />
-    ),
-    [],
-  );
-
-  if (!visible) return null;
-
   return (
-    <BottomSheetBase
-      ref={ref}
-      index={0}
-      snapPoints={points}
-      onClose={onClose}
-      enablePanDownToClose
-      backdropComponent={renderBackdrop}
-      backgroundStyle={{ backgroundColor: theme.surface, borderRadius: radii.xl }}
-      handleIndicatorStyle={{ backgroundColor: theme.surface2, width: 36, height: 4 }}
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+      statusBarTranslucent
     >
-      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 16, paddingBottom: 8 }}>
-        <Text style={{ color: theme.text, fontSize: 16, fontWeight: "700" }}>{title}</Text>
-        <IconButton name="close" onPress={onClose} size={18} haptic={false} accessibilityLabel="Закрыть" />
+      <View style={[styles.root, { backgroundColor: theme.scrim }]}>
+        {/* backdrop — тап закрывает */}
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Закрыть" />
+
+        {/* панель */}
+        <View
+          style={[
+            styles.panel,
+            {
+              height: `${heightPct()}%`,
+              backgroundColor: theme.surface,
+              borderTopLeftRadius: radii.xl,
+              borderTopRightRadius: radii.xl,
+              paddingBottom: insets.bottom + 8,
+              transform: [{ translateY: offsetY }],
+            },
+          ]}
+          {...pan.panHandlers}
+        >
+          {/* handle */}
+          <View style={{ alignItems: "center", paddingTop: 8, paddingBottom: 2 }}>
+            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.surface2 }} />
+          </View>
+
+          {/* header */}
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 16, paddingBottom: 8 }}>
+            <Text style={{ color: theme.text, fontSize: 16, fontWeight: "700" }}>{title}</Text>
+            <IconButton name="close" onPress={onClose} size={18} haptic={false} accessibilityLabel="Закрыть" />
+          </View>
+
+          {/* контент — скроллится, кнопки снизу всегда доступны */}
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ paddingHorizontal: 14, paddingBottom: 24 }}
+          >
+            {children}
+          </ScrollView>
+        </View>
       </View>
-      <BottomSheetScrollView contentContainerStyle={{ paddingHorizontal: 14, paddingBottom: 32 }}>
-        {children}
-      </BottomSheetScrollView>
-    </BottomSheetBase>
+    </Modal>
   );
 }
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  panel: {
+    width: "100%",
+    overflow: "hidden",
+  },
+});
 
 export { StyleSheet };

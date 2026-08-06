@@ -18,7 +18,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Theme, ThemeName, themes } from "../theme/tokens";
 import { Lang } from "../i18n";
 import { ModelInfo, loadModels } from "../core/gateway";
-import { listCustomProviders, providerToModel } from "../core/providers";
+import { listCustomProviders, providersToModels } from "../core/providers";
 import { loadApiBase } from "../core/env";
 
 /* ── Types ─────────────────────────────────────────────── */
@@ -261,7 +261,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: "SET_MODELS", models: loadModels() });
       // кастомные провайдеры пользователя (SecureStore)
       const customs = await listCustomProviders().catch(() => []);
-      dispatch({ type: "SET_CUSTOM_MODELS", models: customs.map(providerToModel) });
+      dispatch({ type: "SET_CUSTOM_MODELS", models: providersToModels(customs) });
       dispatch({ type: "SET_READY" });
     })();
   }, []);

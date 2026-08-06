@@ -48,9 +48,35 @@ function genId(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
+/**
+ * Web-совместимость: на экспорте в браузер expo-file-system не имеет
+ * нативного бэкенда (Directory/File кидают validatePath). Возвращаем
+ * false, чтобы UI не падал — на нативе всё работает.
+ */
+function fsSupported(): boolean {
+  try {
+    const d = new Directory(Paths.document, "vibe");
+    return typeof d.exists === "boolean";
+  } catch {
+    return false;
+  }
+}
+
 /** Корневая папка vibe: documentDirectory/vibe */
 function vibeRoot(): Directory {
   return new Directory(Paths.document, "vibe");
+}
+
+/**
+ * Человеко-читаемый путь хранения проекта. На web expo-file-system
+ * недоступен — возвращаем заглушку, чтобы UI не падал.
+ */
+export function projectStoragePath(projectId: string): string {
+  try {
+    return `${Paths.document}/vibe/${projectId}/`;
+  } catch {
+    return `на устройстве: vibe/${projectId}/`;
+  }
 }
 
 /** Папка конкретного проекта */
@@ -93,7 +119,7 @@ export async function createProject(name: string, desc: string): Promise<VibePro
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
-  await ensureProjectDir(p.id);
+  if (fsSupported()) await ensureProjectDir(p.id);
   list.unshift(p);
   await saveProjects(list);
   return p;
@@ -127,6 +153,7 @@ export function safeRel(rel: string): string {
 }
 
 export async function listFiles(projectId: string): Promise<VibeFileEntry[]> {
+  if (!fsSupported()) return [];
   const dir = projectDir(projectId);
   if (!dir.exists) return [];
   const out: VibeFileEntry[] = [];
