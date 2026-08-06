@@ -12,6 +12,7 @@ import {
   Platform,
   Pressable,
   Share,
+  StyleSheet,
   Text,
   TextInput,
   View,
@@ -31,7 +32,7 @@ import { Input } from "../design-system/components/Input";
 import { showToast } from "../design-system/components/Toast";
 
 export function ChatScreen() {
-  const { state, theme, dispatch, t, newSession, setActive, deleteSession } = useApp();
+  const { state, theme, dispatch, t, newSession, setActive, deleteSession, setDefaultModel } = useApp();
   const insets = useSafeAreaInsets();
 
   const [text, setText] = useState("");
@@ -43,6 +44,8 @@ export function ChatScreen() {
   const [renameTarget, setRenameTarget] = useState<Session | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<Session | null>(null);
+  const [editTarget, setEditTarget] = useState<Msg | null>(null);
+  const [editValue, setEditValue] = useState("");
   const stopRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const listRef = useRef<FlatList<Msg>>(null);
@@ -194,6 +197,83 @@ export function ChatScreen() {
     [state.sessions],
   );
 
+  // «Изменить» пользовательское сообщение: открываем sheet с текущим текстом
+  const startEdit = useCallback(
+    (m: Msg) => {
+      if (m.role !== "user") return;
+      setEditValue(m.content);
+      setEditTarget(m);
+    },
+    [],
+  );
+
+  /**
+   * Сохранить отредактированный вопрос и заново получить ответ.
+   * 1) обновляем текст user-сообщения,
+   * 2) удаляем все сообщения ПОСЛЕ него (старый ответ ИИ),
+   * 3) стримим новый ответ от модели.
+   */
+  const confirmEdit = useCallback(async () => {
+    if (!active || !editTarget) return;
+    const newText = editValue.trim();
+    if (!newText) return;
+    const sid = active.id;
+    const idx = active.messages.findIndex((m) => m.id === editTarget.id);
+    if (idx < 0) return;
+
+    // обновляем текст вопроса
+    dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: editTarget.id, patch: { content: newText } });
+    // удаляем всё, что идёт после вопроса (старый ответ и хвост)
+    for (const m of active.messages.slice(idx + 1)) {
+      dispatch({ type: "DELETE_MSG", sessionId: sid, msgId: m.id });
+    }
+    setEditTarget(null);
+    setEditValue("");
+    setStreaming(true);
+    stopRef.current = false;
+
+    // история: все до вопроса включительно, с отредактированным текстом
+    const history: { role: "user" | "assistant"; content: string }[] = active.messages
+      .slice(0, idx + 1)
+      .filter((m) => !m.streaming && !m.error)
+      .map((m, j) => ({
+        role: m.role,
+        content: j === idx ? newText : m.content,
+      }));
+
+    if (!model) return;
+    const aiId = genId();
+    dispatch({ type: "ADD_MSG", sessionId: sid, msg: { id: aiId, role: "assistant", content: "", streaming: true } });
+
+    let acc = "";
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    await streamChat(model, history, {
+      onToken: (tok) => {
+        if (stopRef.current) return;
+        acc += tok;
+        dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: aiId, patch: { content: acc } });
+        scrollBottom();
+      },
+      onDone: (clean) => {
+        setStreaming(false);
+        if (stopRef.current && !clean) return;
+        dispatch({
+          type: "UPDATE_MSG", sessionId: sid, msgId: aiId,
+          patch: { content: clean || acc || (stopRef.current ? "" : "(пусто)"), streaming: false },
+        });
+      },
+      onError: (err) => {
+        setStreaming(false);
+        if (stopRef.current) return;
+        dispatch({
+          type: "UPDATE_MSG", sessionId: sid, msgId: aiId,
+          patch: { streaming: false, error: err, content: acc || "" },
+        });
+      },
+    }, ctrl.signal);
+  }, [active, editTarget, editValue, model, dispatch, scrollBottom]);
+
   const confirmRename = useCallback(() => {
     if (!renameTarget) return;
     const name = renameValue.trim();
@@ -216,9 +296,11 @@ export function ChatScreen() {
         }});
         setActive(sid);
       }
+      // запоминаем выбранную модель для новых сессий (персист между запусками)
+      setDefaultModel(m.modelName);
       setModelsOpen(false);
     },
-    [active, dispatch, setActive, t],
+    [active, dispatch, setActive, setDefaultModel, t],
   );
 
   const sessionList = [...state.sessions]
@@ -249,7 +331,7 @@ export function ChatScreen() {
           contentContainerStyle={{ padding: 16, paddingBottom: 24 }}
           onContentSizeChange={scrollBottom}
           renderItem={({ item }) => (
-            <Bubble msg={item} theme={theme} onCopy={() => copyMsg(item)} onShare={() => shareMsg(item)} onLongPress={() => msgMenu(item)} />
+            <Bubble msg={item} theme={theme} onCopy={() => copyMsg(item)} onShare={() => shareMsg(item)} onEdit={() => startEdit(item)} onLongPress={() => msgMenu(item)} />
           )}
         />
       )}
@@ -265,7 +347,7 @@ export function ChatScreen() {
         behavior={Platform.OS === "ios" ? "padding" : Platform.OS === "android" ? "height" : undefined}
         keyboardVerticalOffset={Platform.OS === "ios" ? 0 : insets.top}
       >
-        <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8, paddingHorizontal: 12, paddingTop: 6, paddingBottom: insets.bottom + 8, borderTopWidth: 1, borderTopColor: theme.border, backgroundColor: theme.bg }}>
+        <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8, paddingHorizontal: 12, paddingTop: 6, paddingBottom: insets.bottom + 8, backgroundColor: theme.bg }}>
           {/* капсула ввода с кнопкой отправки ВНУТРИ (как на макете) */}
           <View style={{ flex: 1, flexDirection: "row", alignItems: "flex-end", backgroundColor: theme.surface2, borderRadius: 22, paddingLeft: 16, paddingRight: 5, paddingTop: 5, paddingBottom: 5, minHeight: 44 }}>
             <TextInput
@@ -282,9 +364,13 @@ export function ChatScreen() {
                 <MaterialIcons name="stop" size={18} color="#fff" />
               </Pressable>
             ) : (
-              <Pressable onPress={send} disabled={!text.trim()} style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: theme.accent, opacity: text.trim() ? 1 : 0.45, alignItems: "center", justifyContent: "center" }}>
-                <MaterialIcons name="send" size={17} color={theme.onAccent} style={{ transform: [{ rotate: "-30deg" }] }} />
-              </Pressable>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                {/* серебристая 4-конечная звездочка (как на макете) */}
+                <MaterialIcons name="auto-awesome" size={13} color="#e8e6e1" style={{ opacity: 0.9 }} />
+                <Pressable onPress={send} disabled={!text.trim()} style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: theme.accent, opacity: text.trim() ? 1 : 0.45, alignItems: "center", justifyContent: "center" }}>
+                  <MaterialIcons name="send" size={17} color={theme.onAccent} style={{ transform: [{ rotate: "-30deg" }] }} />
+                </Pressable>
+              </View>
             )}
           </View>
         </View>
@@ -370,6 +456,33 @@ export function ChatScreen() {
         )}
       </Sheet>
 
+      {/* ── Edit message (изменить отправленное сообщение) ── */}
+      <Sheet visible={!!editTarget} onClose={() => setEditTarget(null)} title="Изменить сообщение" snapPoints={["38%"]}>
+        {editTarget && (
+          <>
+            <Text style={{ color: theme.dim, fontSize: 12, marginBottom: 6 }}>
+              ИИ ответит заново на изменённый вопрос.
+            </Text>
+            <Input
+              value={editValue}
+              onChangeText={setEditValue}
+              placeholder="Новый текст сообщения"
+              multiline
+              autoFocus
+              style={{ minHeight: 80, marginTop: 2 }}
+            />
+            <View style={{ flexDirection: "row", gap: 8, marginTop: 14 }}>
+              <View style={{ flex: 1 }}>
+                <Button title="Отмена" variant="secondary" onPress={() => setEditTarget(null)} fullWidth />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Button title="Обновить и ответить" onPress={confirmEdit} disabled={!editValue.trim() || streaming} fullWidth />
+              </View>
+            </View>
+          </>
+        )}
+      </Sheet>
+
       {/* ── Rename session (in-app, Alert.prompt на Android не работает) ── */}
       <Sheet visible={!!renameTarget} onClose={() => setRenameTarget(null)} title="Переименовать сессию" snapPoints={["35%"]}>
         {renameTarget && (
@@ -417,7 +530,7 @@ export function ChatScreen() {
   );
 }
 
-function Bubble({ msg, theme, onCopy, onShare, onLongPress }: { msg: Msg; theme: any; onCopy: () => void; onShare: () => void; onLongPress?: () => void }) {
+function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress }: { msg: Msg; theme: any; onCopy: () => void; onShare: () => void; onEdit?: () => void; onLongPress?: () => void }) {
   const user = msg.role === "user";
   const align: "flex-end" | "flex-start" = user ? "flex-end" : "flex-start";
   const containerStyle = { alignSelf: align, maxWidth: "86%" as const, marginBottom: 10 };
@@ -467,15 +580,21 @@ function Bubble({ msg, theme, onCopy, onShare, onLongPress }: { msg: Msg; theme:
           <MaterialIcons name="share" size={12} color={theme.mute} />
           <Text style={{ color: theme.mute, fontSize: 10.5 }}>Поделиться</Text>
         </Pressable>
+        {/* «Изменить» — только иконка, без текста (значок сам объясняет) */}
+        {user && onEdit && (
+          <Pressable onPress={onEdit} hitSlop={10} accessibilityLabel="Изменить сообщение">
+            <MaterialIcons name="edit" size={12} color={theme.mute} />
+          </Pressable>
+        )}
       </View>
     </View>
   );
 }
 
-/* ── Пустое состояние чата: логотип + анимации (3-4 сек после входа/новой сессии) ── */
+/* ── Пустое состояние чата: круглое пульсирующее лого + бесконечные волны ── */
 
 // RN-web плохо дружит с Animated.loop (гасит opacity) — на web отдаём
-// статичный видимый блок, на нативе — полную анимацию.
+// статичный видимый блок, на нативе — полную бесконечную анимацию.
 const IS_NATIVE = Platform.OS === "android" || Platform.OS === "ios";
 
 function EmptyChat({ theme, hasSession }: { theme: any; hasSession: boolean }) {
@@ -485,17 +604,23 @@ function EmptyChat({ theme, hasSession }: { theme: any; hasSession: boolean }) {
   return <EmptyChatAnimated theme={theme} hasSession={hasSession} />;
 }
 
-/** Web-версия: всегда видна, без Animated (RN-web ломает loop-анимации). */
+/** Web-версия: лого всегда видно, волны статичны (RN-web ломает loop). */
 function EmptyChatStatic({ theme, hasSession }: { theme: any; hasSession: boolean }) {
   return (
     <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 40 }}>
-      <View style={{ width: 148, height: 148, alignItems: "center", justifyContent: "center", marginBottom: 24 }}>
-        <View style={{ position: "absolute", width: 148, height: 148, borderRadius: 74, backgroundColor: theme.accent, opacity: 0.45 }} />
-        <View style={{ position: "absolute", width: 176, height: 176, borderRadius: 88, borderWidth: 2, borderColor: theme.accentHi, opacity: 0.5 }} />
-        <Image source={require("../../assets/logo.png")} style={{ width: 116, height: 116, borderRadius: 26 }} />
+      <View style={{ width: 168, height: 168, alignItems: "center", justifyContent: "center", marginBottom: 26 }}>
+        {/* статичные волны */}
+        <View style={{ position: "absolute", width: 204, height: 204, borderRadius: 102, borderWidth: 1.5, borderColor: theme.accentHi, opacity: 0.35 }} />
+        <View style={{ position: "absolute", width: 178, height: 178, borderRadius: 89, borderWidth: 1.5, borderColor: theme.accent, opacity: 0.45 }} />
+        {/* свечение */}
+        <View style={{ position: "absolute", width: 152, height: 152, borderRadius: 76, backgroundColor: theme.accent, opacity: 0.4 }} />
+        <Image
+          source={require("../../assets/logo.png")}
+          style={{ width: 132, height: 132, borderRadius: 66 }}
+        />
       </View>
       <Text style={{ color: theme.text, fontSize: 20, fontWeight: "700", marginBottom: 8, letterSpacing: -0.3 }}>
-        Начни разговор
+        Привет! Чем займёмся сегодня?
       </Text>
       <Text style={{ color: theme.dim, fontSize: 13.5, textAlign: "center", lineHeight: 20, maxWidth: 260 }}>
         Задай вопрос или дай задачу — бот ответит в потоке.
@@ -509,113 +634,99 @@ function EmptyChatStatic({ theme, hasSession }: { theme: any; hasSession: boolea
   );
 }
 
-/** Нативная версия: полные анимации (пульс, свечение, кольцо, 3D-наклон). */
+/** Нативная версия: круглое лого, бесконечный пульс + расходящиеся волны. */
 function EmptyChatAnimated({ theme, hasSession }: { theme: any; hasSession: boolean }) {
   const fade = useRef(new Animated.Value(0)).current;
   const pulse = useRef(new Animated.Value(0)).current;
-  const spin = useRef(new Animated.Value(0)).current;
-  const ring = useRef(new Animated.Value(0)).current;
-  const tilt = useRef(new Animated.Value(0)).current;
+  const wave1 = useRef(new Animated.Value(0)).current;
+  const wave2 = useRef(new Animated.Value(0)).current;
+  const wave3 = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.timing(fade, { toValue: 1, duration: 500, useNativeDriver: true }).start();
 
+    // пульс логотипа — бесконечно
     const pulseLoop = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 950, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 0, duration: 950, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 1, duration: 1000, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: 1000, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
       ]),
     );
     pulseLoop.start();
 
-    const spinLoop = Animated.loop(
-      Animated.timing(spin, { toValue: 1, duration: 2400, easing: Easing.linear, useNativeDriver: true }),
-    );
-    spinLoop.start();
-
-    const ringLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(ring, { toValue: 1, duration: 2400, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-        Animated.timing(ring, { toValue: 0, duration: 2400, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-      ]),
-    );
-    ringLoop.start();
-
-    const tiltLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(tilt, { toValue: 1, duration: 1400, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-        Animated.timing(tilt, { toValue: 0, duration: 1400, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-      ]),
-    );
-    tiltLoop.start();
-
-    // ВСЁ исчезает через ~3.8с
-    const timer = setTimeout(() => {
-      pulseLoop.stop();
-      spinLoop.stop();
-      ringLoop.stop();
-      tiltLoop.stop();
-      Animated.timing(fade, { toValue: 0, duration: 700, useNativeDriver: true }).start();
-    }, 3800);
+    // волны: три кольца с фазовым сдвигом, бесконечно расходятся
+    const waveLoop = (w: Animated.Value, offset: number) => {
+      const loop = Animated.loop(
+        Animated.timing(w, { toValue: 1, duration: 2600, easing: Easing.linear, useNativeDriver: true }),
+      );
+      // старт с фазы offset (0/0.33/0.66)
+      w.setValue(offset);
+      loop.start();
+      return loop;
+    };
+    const wl1 = waveLoop(wave1, 0);
+    const wl2 = waveLoop(wave2, 0.33);
+    const wl3 = waveLoop(wave3, 0.66);
 
     return () => {
-      clearTimeout(timer);
       pulseLoop.stop();
-      spinLoop.stop();
-      ringLoop.stop();
-      tiltLoop.stop();
+      wl1.stop();
+      wl2.stop();
+      wl3.stop();
     };
-  }, [fade, pulse, spin, ring, tilt]);
+  }, [fade, pulse, wave1, wave2, wave3]);
 
-  const logoScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.07] });
-  const logoGlow = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.8] });
-  const ringOpacity = ring.interpolate({ inputRange: [0, 0.15, 1], outputRange: [0.85, 0.2, 0] });
-  const ringScale = ring.interpolate({ inputRange: [0, 1], outputRange: [1, 1.45] });
-  const rotate = spin.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
-  const tiltDeg = tilt.interpolate({ inputRange: [0, 1], outputRange: ["-7deg", "7deg"] });
+  const logoScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] });
+  const logoGlow = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.75] });
+
+  const wave = (w: Animated.Value) => ({
+    opacity: w.interpolate({ inputRange: [0, 0.12, 1], outputRange: [0.9, 0.4, 0] }),
+    scale: w.interpolate({ inputRange: [0, 1], outputRange: [1, 2.1] }),
+  });
 
   return (
-    <Animated.View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 40, opacity: fade }}>
-      <Animated.View style={{ width: 148, height: 148, alignItems: "center", justifyContent: "center", marginBottom: 24, transform: [{ perspective: 700 }, { rotateY: tiltDeg }] }}>
-        <View style={{ position: "absolute", width: 124, height: 124, borderRadius: 26, backgroundColor: "rgba(0,0,0,.55)", top: 10, left: 6, transform: [{ scale: logoScale }] }} />
-        <Animated.View
-          style={{
-            position: "absolute", width: 148, height: 148, borderRadius: 74,
-            backgroundColor: theme.accent, opacity: logoGlow,
-            transform: [{ scale: logoScale }],
-          }}
-        />
-        <Animated.View
-          style={{
-            position: "absolute", width: 176, height: 176, borderRadius: 88,
-            borderWidth: 2, borderColor: theme.accentHi,
-            opacity: ringOpacity, transform: [{ rotate }, { scale: ringScale }],
-          }}
-        />
-        <Animated.View
-          style={{
-            position: "absolute", width: 10, height: 10, borderRadius: 5,
-            backgroundColor: "#fbbf24", opacity: ringOpacity,
-            transform: [{ rotate }, { translateX: 82 }],
-          }}
-        />
-        <Animated.Image
-          source={require("../../assets/logo.png")}
-          style={{ width: 116, height: 116, borderRadius: 26, transform: [{ scale: logoScale }] }}
-        />
-      </Animated.View>
+    <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 40 }}>
+      <Animated.View style={{ opacity: fade, alignItems: "center" }}>
+        <View style={{ width: 168, height: 168, alignItems: "center", justifyContent: "center", marginBottom: 26 }}>
+          {/* бесконечные волны-кольца */}
+          {[wave1, wave2, wave3].map((w, i) => {
+            const s = wave(w);
+            return (
+              <Animated.View
+                key={i}
+                style={{
+                  position: "absolute", width: 132, height: 132, borderRadius: 66,
+                  borderWidth: 2, borderColor: theme.accentHi,
+                  opacity: s.opacity, transform: [{ scale: s.scale }],
+                }}
+              />
+            );
+          })}
+          {/* свечение-ореол */}
+          <Animated.View
+            style={{
+              position: "absolute", width: 152, height: 152, borderRadius: 76,
+              backgroundColor: theme.accent, opacity: logoGlow, transform: [{ scale: logoScale }],
+            }}
+          />
+          <Animated.Image
+            source={require("../../assets/logo.png")}
+            style={{ width: 132, height: 132, borderRadius: 66, transform: [{ scale: logoScale }] }}
+          />
+        </View>
 
-      <Text style={{ color: theme.text, fontSize: 20, fontWeight: "700", marginBottom: 8, letterSpacing: -0.3 }}>
-        Начни разговор
-      </Text>
-      <Text style={{ color: theme.dim, fontSize: 13.5, textAlign: "center", lineHeight: 20, maxWidth: 260 }}>
-        Задай вопрос или дай задачу — бот ответит в потоке.
-      </Text>
-      {hasSession && (
-        <Text style={{ color: theme.mute, fontSize: 11, marginTop: 14 }}>
-          Это новая сессия — первое сообщение начнёт её.
+        <Text style={{ color: theme.text, fontSize: 20, fontWeight: "700", marginBottom: 8, letterSpacing: -0.3 }}>
+          Привет! Чем займёмся сегодня?
         </Text>
-      )}
-    </Animated.View>
+        <Text style={{ color: theme.dim, fontSize: 13.5, textAlign: "center", lineHeight: 20, maxWidth: 260 }}>
+          Задай вопрос или дай задачу — бот ответит в потоке.
+        </Text>
+        {hasSession && (
+          <Text style={{ color: theme.mute, fontSize: 11, marginTop: 14 }}>
+            Это новая сессия — первое сообщение начнёт её.
+          </Text>
+        )}
+      </Animated.View>
+    </View>
   );
 }

@@ -169,6 +169,52 @@ export function RichMarkdown({ content }: { content: string }) {
         continue;
       }
 
+      // markdown-таблица: заголовок | ячейки |, разделитель |-|-|, строки
+      if (line.includes("|") && i + 1 < lines.length && /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i + 1]) && lines[i + 1].includes("-")) {
+        // собираем все строки таблицы подряд
+        const rows: string[][] = [];
+        const header = line.split("|").map((c) => c.trim());
+        rows.push(header.filter((_, idx) => idx > 0 || header.length > 2));
+        i += 2; // пропускаем заголовок и разделитель
+        while (i < lines.length && lines[i].includes("|")) {
+          const cells = lines[i].split("|").map((c) => c.trim());
+          rows.push(cells);
+          i++;
+        }
+        // нормализуем ширину строк
+        const width = Math.max(...rows.map((r) => r.length));
+        const norm = rows.map((r) => {
+          const c = [...r];
+          while (c.length < width) c.push("");
+          return c.slice(0, width);
+        });
+        const headerRow = norm[0];
+        const bodyRows = norm.slice(1);
+        out.push(
+          <View key={`tbl${k++}`} style={{ marginVertical: 6, borderWidth: 1, borderColor: theme.border, borderRadius: 10, overflow: "hidden" }}>
+            {/* шапка */}
+            <View style={{ flexDirection: "row", backgroundColor: theme.surface2, borderBottomWidth: 1, borderBottomColor: theme.border }}>
+              {headerRow.map((c, ci) => (
+                <View key={ci} style={{ flex: 1, paddingHorizontal: 8, paddingVertical: 6, borderRightWidth: ci < headerRow.length - 1 ? 1 : 0, borderRightColor: theme.border }}>
+                  <Text style={{ color: theme.text, fontSize: 12.5, fontWeight: "700" }}>{renderInline(c, theme, `th${k}-${ci}`)}</Text>
+                </View>
+              ))}
+            </View>
+            {/* тело */}
+            {bodyRows.map((row, ri) => (
+              <View key={ri} style={{ flexDirection: "row", backgroundColor: ri % 2 === 1 ? theme.surface : "transparent", borderBottomWidth: ri < bodyRows.length - 1 ? 1 : 0, borderBottomColor: theme.border }}>
+                {row.map((c, ci) => (
+                  <View key={ci} style={{ flex: 1, paddingHorizontal: 8, paddingVertical: 5, borderRightWidth: ci < row.length - 1 ? 1 : 0, borderRightColor: theme.border }}>
+                    <Text style={{ color: theme.text, fontSize: 12.5, lineHeight: 17 }}>{renderInline(c, theme, `td${k}-${ri}-${ci}`)}</Text>
+                  </View>
+                ))}
+              </View>
+            ))}
+          </View>,
+        );
+        continue;
+      }
+
       // цитата > text
       const q = line.match(/^\s*>\s?(.*)$/);
       if (q) {
