@@ -258,7 +258,10 @@ export function ChatScreen() {
       )}
 
       {/* input */}
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={0}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : Platform.OS === "android" ? "height" : undefined}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : insets.top}
+      >
         <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8, paddingHorizontal: 12, paddingTop: 6, paddingBottom: insets.bottom + 8, borderTopWidth: 1, borderTopColor: theme.border, backgroundColor: theme.bg }}>
           <TextInput
             value={text}
@@ -266,14 +269,15 @@ export function ChatScreen() {
             placeholder={t("message_placeholder")}
             placeholderTextColor={theme.mute}
             multiline
-            style={{ flex: 1, backgroundColor: theme.surface, borderColor: theme.border, borderWidth: 1, borderRadius: 12, paddingHorizontal: 13, paddingVertical: 9, fontSize: 14, color: theme.text, maxHeight: 90, minHeight: 44 }}
+            textAlignVertical="top"
+            style={{ flex: 1, backgroundColor: theme.surface2, borderRadius: 14, paddingHorizontal: 14, paddingTop: 11, paddingBottom: 11, fontSize: 14, color: theme.text, maxHeight: 100, minHeight: 44 }}
           />
           {streaming ? (
-            <Pressable onPress={() => { stopRef.current = true; setStreaming(false); abortRef.current?.abort(); }} style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: theme.danger, alignItems: "center", justifyContent: "center" }}>
+            <Pressable onPress={() => { stopRef.current = true; setStreaming(false); abortRef.current?.abort(); }} style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: theme.danger, alignItems: "center", justifyContent: "center" }}>
               <MaterialIcons name="stop" size={20} color="#fff" />
             </Pressable>
           ) : (
-            <Pressable onPress={send} disabled={!text.trim()} style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: text.trim() ? theme.accent : theme.surface2, alignItems: "center", justifyContent: "center" }}>
+            <Pressable onPress={send} disabled={!text.trim()} style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: text.trim() ? theme.accent : theme.surface2, alignItems: "center", justifyContent: "center" }}>
               <MaterialIcons name="send" size={20} color={text.trim() ? theme.onAccent : theme.mute} />
             </Pressable>
           )}

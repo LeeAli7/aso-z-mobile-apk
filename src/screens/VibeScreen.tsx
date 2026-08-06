@@ -110,8 +110,6 @@ export function VibeScreen({ navigation }: { navigation: any }) {
           icon="folder-open"
           title="Нет проектов"
           subtitle="Создай проект — агент напишет код, файлы сохранятся прямо на устройстве."
-          cta={t("newProject")}
-          onCta={() => {}}
         />
       ) : (
         <FlatList
