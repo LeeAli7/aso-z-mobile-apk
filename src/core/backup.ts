@@ -152,10 +152,20 @@ export async function exportBackupToFile(): Promise<{ ok: boolean; message: stri
     const fileUri = await StorageAccessFramework.createFileAsync(dirUri, name, EXPORT_MIME);
     await StorageAccessFramework.writeAsStringAsync(fileUri, json);
 
-    // показываем файл в системном Share (как ФАЙЛ, не как текст)
+    // показываем файл в системном Share.
+    // ВАЖНО: передаём ТОЛЬКО url (без message) — если передать и url и text,
+    // на Android многие получатели (Telegram) берут текст, а не файл.
+    if (!Share.share) {
+      return { ok: true, message: `Сохранено: ${name}` };
+    }
     try {
-      await Share.share({ url: fileUri, message: "Резервная копия Aso-z" });
-    } catch {}
+      await Share.share({ url: fileUri });
+    } catch {
+      // fallback: если share по url не поддержан — хотя бы сообщение
+      try {
+        await Share.share({ message: `Резервная копия Aso-z сохранена: Download/${name}` });
+      } catch {}
+    }
 
     return { ok: true, message: `Сохранено: ${name}` };
   } catch (e: any) {

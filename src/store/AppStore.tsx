@@ -56,6 +56,8 @@ interface State {
   customModels: ModelInfo[];
   sessions: Session[];
   activeSessionId: string | null;
+  /** Модель по умолчанию для новых сессий (персистится между запусками). */
+  defaultModelId: string | null;
   syncing: boolean;
   syncStatus: string; // idle | pending | done | error
   deviceId: string;
@@ -76,6 +78,7 @@ type Action =
   | { type: "UPDATE_SESSION"; sessionId: string; patch: Partial<Session> }
   | { type: "SET_SESSIONS"; sessions: Session[] }
   | { type: "SET_ACTIVE"; sessionId: string | null }
+  | { type: "SET_DEFAULT_MODEL"; modelId: string | null }
   | { type: "ADD_MSG"; sessionId: string; msg: Msg }
   | { type: "UPDATE_MSG"; sessionId: string; msgId: string; patch: Partial<Msg> }
   | { type: "DELETE_MSG"; sessionId: string; msgId: string }
@@ -103,6 +106,7 @@ const initialState: State = {
   customModels: [],
   sessions: [],
   activeSessionId: null,
+  defaultModelId: null,
   syncing: false,
   syncStatus: "idle",
   deviceId: "",
@@ -146,6 +150,8 @@ function reducer(state: State, action: Action): State {
       };
     case "SET_ACTIVE":
       return { ...state, activeSessionId: action.sessionId };
+    case "SET_DEFAULT_MODEL":
+      return { ...state, defaultModelId: action.modelId };
     case "ADD_MSG":
       return {
         ...state,
@@ -201,6 +207,7 @@ interface Store {
   newSession: () => string;
   setActive: (id: string) => void;
   deleteSession: (id: string) => void;
+  setDefaultModel: (modelId: string | null) => void;
   saveState: () => void;
 }
 
@@ -213,6 +220,7 @@ const KEYS = {
   device: "aso_device",
   sessions: "aso_sessions",
   active: "aso_active",
+  defaultModel: "aso_default_model",
 };
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -233,16 +241,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       try {
         await loadApiBase();
-        const [tok, th, lg, dev, sessRaw, activeRaw] = await Promise.all([
+        const [tok, th, lg, dev, sessRaw, activeRaw, defModelRaw] = await Promise.all([
           SecureStore.getItemAsync(KEYS.token),
           AsyncStorage.getItem(KEYS.theme),
           AsyncStorage.getItem(KEYS.lang),
           SecureStore.getItemAsync(KEYS.device),
           AsyncStorage.getItem(KEYS.sessions),
           AsyncStorage.getItem(KEYS.active),
+          AsyncStorage.getItem(KEYS.defaultModel),
         ]);
         if (th === "light" || th === "dark" || th === "system") dispatch({ type: "SET_THEME", theme: th });
         if (lg === "ru" || lg === "en") dispatch({ type: "SET_LANG", lang: lg });
+        if (defModelRaw) dispatch({ type: "SET_DEFAULT_MODEL", modelId: defModelRaw });
         dispatch({ type: "SET_TOKEN", token: tok });
         dispatch({ type: "SET_DEVICE", deviceId: dev || genDeviceId() });
         if (sessRaw) {
@@ -299,8 +309,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       AsyncStorage.setItem(KEYS.theme, state.theme).catch(() => {});
       AsyncStorage.setItem(KEYS.lang, state.lang).catch(() => {});
+      if (state.defaultModelId) {
+        AsyncStorage.setItem(KEYS.defaultModel, state.defaultModelId).catch(() => {});
+      }
     } catch {}
-  }, [state.theme, state.lang]);
+  }, [state.theme, state.lang, state.defaultModelId]);
 
   useEffect(() => {
     const s = stateRef.current;
@@ -322,7 +335,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       id: genId(),
       name: "New chat",
       messages: [],
-      modelId: null,
+      modelId: stateRef.current.defaultModelId,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -330,6 +343,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setTimeout(saveState, 0);
     return s.id;
   }, [saveState]);
+
+  const setDefaultModel = useCallback(
+    (modelId: string | null) => dispatch({ type: "SET_DEFAULT_MODEL", modelId }),
+    [],
+  );
 
   const setActive = useCallback((id: string) => dispatch({ type: "SET_ACTIVE", sessionId: id }), []);
   const deleteSession = useCallback((id: string) => {
@@ -345,6 +363,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     newSession,
     setActive,
     deleteSession,
+    setDefaultModel,
     saveState,
   };
 

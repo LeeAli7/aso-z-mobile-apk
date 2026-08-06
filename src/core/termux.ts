@@ -122,34 +122,75 @@ export async function exportProjectToShared(
         projDir = await StorageAccessFramework.makeDirectoryAsync(shareDir, projectId);
       }
 
-      // копируем все файлы проекта с сохранением расширения
+      // Гарантируем, что папка существует (SAF-аналог mkdir -p).
+      const ensureDir = async (dirUri: string): Promise<string> => {
+        try {
+          await StorageAccessFramework.readDirectoryAsync(dirUri);
+          return dirUri;
+        } catch {
+          const parent = dirUri.slice(0, dirUri.lastIndexOf("/"));
+          const name = dirUri.slice(dirUri.lastIndexOf("/") + 1);
+          const created = await StorageAccessFramework.makeDirectoryAsync(parent, name);
+          return created;
+        }
+      };
+
+      // Удаляем файл, если он уже существует (иначе createFileAsync
+      // плодит дубли и/или кидает SecurityException при перезаписи).
+      const removeIfExists = async (dirUri: string, name: string) => {
+        try {
+          const entries = await StorageAccessFramework.readDirectoryAsync(dirUri);
+          const hit = entries.find((u) => decodeURIComponent(u.split("/").pop() || "") === name);
+          if (hit) {
+            await StorageAccessFramework.deleteAsync(hit);
+          }
+        } catch {}
+      };
+
+      // копируем все файлы проекта с СОХРАНЕНИЕМ структуры папок
       const files = await listFiles(projectId);
       let copied = 0;
+      let skipped = 0;
       for (const f of files) {
+        const rel = f.name; // например "src/App.tsx"
+        const segments = rel.split("/").filter(Boolean);
+        const fileName = segments.pop();
+        if (!fileName) continue;
         try {
-          const content = await readFile(projectId, f.name);
-          const fileName = f.name.split("/").pop() || f.name;
+          // создаём вложенные папки
+          let curDir = projDir;
+          for (const seg of segments) {
+            curDir = await ensureDir(curDir + "/" + seg);
+          }
+          await removeIfExists(curDir, fileName);
           const fileUri = await StorageAccessFramework.createFileAsync(
-            projDir,
+            curDir,
             fileName,
             mimeFor(fileName),
           );
+          const content = await readFile(projectId, rel);
           await StorageAccessFramework.writeAsStringAsync(fileUri, content);
           copied++;
-        } catch {}
+        } catch (e: any) {
+          const msg = String(e?.message || e).toLowerCase();
+          if (msg.includes("permission") || msg.includes("security")) {
+            throw e; // пробросим — выше перезапросим папку
+          }
+          skipped++;
+        }
       }
-      return copied;
+      return { copied, skipped };
     };
 
-    let copied = 0;
+    let res = { copied: 0, skipped: 0 };
     try {
-      copied = await copy(dirUri);
+      res = await copy(dirUri);
     } catch (e: any) {
       // SecurityException / протухший URI — перезапрашиваем папку и ретраим один раз
       const msg = String(e?.message || e).toLowerCase();
       if (msg.includes("permission") || msg.includes("security") || msg.includes("no such")) {
         dirUri = await pickDir();
-        copied = await copy(dirUri);
+        res = await copy(dirUri);
       } else {
         throw e;
       }
@@ -157,8 +198,8 @@ export async function exportProjectToShared(
 
     return {
       ok: true,
-      message: copied > 0
-        ? `Экспортировано файлов: ${copied} → Download/${SHARE_DIR_NAME}/${projectId}`
+      message: res.copied > 0
+        ? `Экспортировано файлов: ${res.copied}${res.skipped ? ` (пропущено ${res.skipped})` : ""} → Download/${SHARE_DIR_NAME}/${projectId}`
         : "Папка проекта создана (файлов пока нет)",
       path: `/storage/emulated/0/Download/${SHARE_DIR_NAME}/${projectId}`,
     };
@@ -170,9 +211,9 @@ export async function exportProjectToShared(
 /**
  * Открыть проект в Termux.
  * 1) экспортируем в Download/AsoVibe/<id> (если ещё не выбран каталог — SAF-диалог);
- * 2) запускаем Termux — юзер попадает в shell проекта (TermuxActivity
- *    стартует в домашней директории; путь проекта показываем в сообщении,
- *    т.к. переключение cwd через Intent в обычном Termux недоступно).
+ * 2) запускаем Termux сразу в папке проекта через com.termux.RUN_COMMAND
+ *    (WORKDIR + bash), если Termux разрешил внешние команды;
+ *    иначе fallback: TermuxActivity + подсказка cd.
  */
 export async function openInTermux(projectId: string): Promise<{ ok: boolean; message: string }> {
   if (!nativeIntentsSupported()) {
@@ -181,34 +222,57 @@ export async function openInTermux(projectId: string): Promise<{ ok: boolean; me
   const exp = await exportProjectToShared(projectId);
   if (!exp.ok) return exp;
 
+  const projectPath = `/storage/emulated/0/Download/${SHARE_DIR_NAME}/${projectId}`;
+  const termuxDir = `/data/data/com.termux/files/home/storage/shared/Download/${SHARE_DIR_NAME}/${projectId}`;
+
   try {
-    // Запускаем Termux
-    await IntentLauncher.startActivityAsync("android.intent.action.MAIN", {
+    // Пытаемся открыть Termux сразу в директории проекта.
+    // Требует в Termux: Настройки → "Разрешить внешним приложениям выполнять команды".
+    await IntentLauncher.startActivityAsync("com.termux.RUN_COMMAND", {
       packageName: "com.termux",
-      className: "com.termux.app.TermuxActivity",
-      extra: {},
+      className: "com.termux.app.RunCommandService",
+      extra: {
+        "com.termux.RUN_COMMAND_PATH": "/data/data/com.termux/files/usr/bin/bash",
+        "com.termux.RUN_COMMAND_ARGUMENTS": ["-c", `cd "${termuxDir}" && exec bash`],
+        "com.termux.RUN_COMMAND_WORKDIR": termuxDir,
+        "com.termux.RUN_COMMAND_BACKGROUND": false,
+        "com.termux.RUN_COMMAND_SESSION_ACTION": "0",
+      },
     });
-    const cd = exp.path
-      ? `cd ~/storage/shared/Download/${SHARE_DIR_NAME}/${projectId}`
-      : "";
     return {
       ok: true,
-      message: cd
-        ? `Termux запущен. Файлы проекта уже в Download/${SHARE_DIR_NAME}/${projectId}.\nВ Termux выполни:\n${cd}`
-        : "Termux запущен",
+      message: `Termux открыт в папке проекта: Download/${SHARE_DIR_NAME}/${projectId}`,
     };
   } catch (e: any) {
     const msg = String(e?.message || e).toLowerCase();
     if (msg.includes("not found") || msg.includes("no activity") || msg.includes("unable to find")) {
       return { ok: false, message: "Termux не установлен. Поставь его из F-Droid: https://f-droid.org/packages/com.termux/" };
     }
-    return { ok: false, message: String(e?.message || e) };
+    // RUN_COMMAND не разрешён — fallback на обычный запуск + подсказка.
+    try {
+      await IntentLauncher.startActivityAsync("android.intent.action.MAIN", {
+        packageName: "com.termux",
+        className: "com.termux.app.TermuxActivity",
+      });
+      const cd = `cd ~/storage/shared/Download/${SHARE_DIR_NAME}/${projectId}`;
+      return {
+        ok: true,
+        message: `Termux запущен. Включи «Разрешить внешним приложениям выполнять команды» в настройках Termux, чтобы он открывался сразу в проекте.\nПока — выполни вручную:\n${cd}`,
+      };
+    } catch (e2: any) {
+      const m2 = String(e2?.message || e2).toLowerCase();
+      if (m2.includes("not found") || m2.includes("no activity") || m2.includes("unable to find")) {
+        return { ok: false, message: "Termux не установлен. Поставь его из F-Droid: https://f-droid.org/packages/com.termux/" };
+      }
+      return { ok: false, message: String(e2?.message || e2) };
+    }
   }
 }
 
 /**
  * Открыть папку проекта в системном файловом менеджере.
- * Экспортируем в Download/AsoVibe/<id> и открываем этот путь.
+ * Экспортируем в Download/AsoVibe/<id> и открываем ИМЕННО эту папку
+ * (DocumentsUI принимает content://…/document/primary:Download/AsoVibe/<id>).
  */
 export async function openFolderInFileManager(projectId: string): Promise<{ ok: boolean; message: string }> {
   if (!nativeIntentsSupported()) {
@@ -218,15 +282,34 @@ export async function openFolderInFileManager(projectId: string): Promise<{ ok: 
   if (!exp.ok) return exp;
 
   try {
+    // Прямой URI папки проекта в DocumentsUI
+    const docUri =
+      "content://com.android.externalstorage.documents/document/primary%3ADownload%2F" +
+      encodeURIComponent(SHARE_DIR_NAME) + "%2F" + encodeURIComponent(projectId);
     await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
-      data: "content://com.android.externalstorage.documents/root/primary",
+      data: docUri,
+      type: "*/*",
       flags: 1,
+      packageName: "com.android.documentsui",
+      className: "com.android.documentsui.files.FilesActivity",
     });
     return {
       ok: true,
-      message: `Файловый менеджер открыт. Проект: Download/${SHARE_DIR_NAME}/${projectId}`,
+      message: `Файловый менеджер открыт: Download/${SHARE_DIR_NAME}/${projectId}`,
     };
   } catch (e: any) {
-    return { ok: false, message: String(e?.message || e) };
+    // DocumentsUI не найден — fallback на общий корень
+    try {
+      await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
+        data: "content://com.android.externalstorage.documents/root/primary",
+        flags: 1,
+      });
+      return {
+        ok: true,
+        message: `Файловый менеджер открыт (корень). Проект: Download/${SHARE_DIR_NAME}/${projectId}`,
+      };
+    } catch (e2: any) {
+      return { ok: false, message: String(e2?.message || e2) };
+    }
   }
 }
