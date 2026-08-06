@@ -12,8 +12,10 @@ import { Platform } from "react-native";
 import { config } from "./env";
 
 export interface ModelInfo {
-  /** API model name (передаётся в body) */
+  /** Уникальный ключ модели (напр. "sys:deepseek-v4-flash-free" или кастомный). */
   modelName: string;
+  /** Реальное имя модели, которое уходит в API body (при отсутствии = modelName). */
+  apiModel?: string;
   /** Отображаемое имя (Aso / Aso Math ...) */
   displayName: string;
   tier: string;
@@ -95,7 +97,7 @@ export async function streamChat(
     endpoint = `${config.apiBase}/api/mobile/gw?url=${encodeURIComponent(endpoint)}`;
   }
   const payload = {
-    model: model.modelName,
+    model: model.apiModel ?? model.modelName,
     messages,
     temperature: model.temperature ?? 0.7,
     max_tokens: 4096,
@@ -162,6 +164,8 @@ export async function streamChat(
     let buffer = "";
     let full = "";
     let thinking = "";
+    let resText = "";
+    let streamEnded = false;
 
     while (true) {
       let chunk: ReadableStreamReadResult<Uint8Array>;
@@ -186,8 +190,9 @@ export async function streamChat(
         if (line.startsWith("data:")) line = line.slice(5).trim();
         if (line === "[DONE]") {
           const clean = thinking && !full ? extractFromThinking(thinking) : full;
-          callbacks.onDone(clean || full || "");
-          return;
+          resText = clean || full || "";
+          streamEnded = true;
+          break;
         }
         if (!line) continue;
         try {
@@ -206,9 +211,11 @@ export async function streamChat(
           // пропускаем не-JSON (keepalive и т.п.)
         }
       }
+      // [DONE] уже обработан во внутреннем цикле — выходим из внешнего
+      if (streamEnded) break;
     }
-    // добиваем хвост
-    if (buffer.trim()) {
+    // добиваем хвост (если поток завершился TCP-EOF без [DONE])
+    if (!streamEnded && buffer.trim()) {
       const line = buffer.trim();
       try {
         const obj = JSON.parse(line.replace(/^data:\s*/, ""));
@@ -223,8 +230,18 @@ export async function streamChat(
         }
       } catch {}
     }
-    const finalClean = thinking && !full ? extractFromThinking(thinking) : full;
-    callbacks.onDone(finalClean || full || "");
+    if (!resText && !full && thinking) resText = extractFromThinking(thinking);
+    if (!resText) resText = thinking && !full ? extractFromThinking(thinking) : full;
+
+    // ── РЕТРАЙ при пустом ответе ──
+    // Провайдер иногда молчит (пустое облачко). Если ответ не пришёл —
+    // переподсоединяемся (до maxRetries раз), чтобы не отдавать пустоту.
+    if ((!resText || !resText.trim()) && !ctrl.signal.aborted && attempt < maxRetries) {
+      await new Promise((r) => setTimeout(r, 1200));
+      continue;
+    }
+
+    callbacks.onDone(resText || "");
     return;
   }
 }

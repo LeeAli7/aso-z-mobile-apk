@@ -3,7 +3,7 @@
  * тема (светлая/тёмная/системная), язык, подписка/лимиты.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Pressable, ScrollView, Share, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -13,6 +13,7 @@ import { ThemeName } from "../theme/tokens";
 import { Lang } from "../i18n";
 import { TextField, PrimaryButton, GroupLabel } from "../components/ui";
 import { requestSync, pollSync, fetchProfile } from "../core/sync";
+import { exportBackupToFile, importBackupFromFile } from "../core/backup";
 import { config, setApiBase } from "../core/env";
 import { showToast } from "../design-system/components/Toast";
 import { Button } from "../design-system/components/Button";
@@ -136,12 +137,21 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
   }, [dispatch, t]);
 
   const exportData = useCallback(async () => {
-    try {
-      const sessionsRaw = await AsyncStorage.getItem(KEYS_SESSIONS).catch(() => null);
-      const text = `# Aso-z — экспорт данных\n\n${new Date().toISOString()}\n\n## Сессии\n\n${sessionsRaw ?? "[]"}\n`;
-      await Share.share({ message: text }).catch(() => {});
-    } catch (e: any) {
-      showToast("err", String(e?.message || e));
+    const res = await exportBackupToFile();
+    if (res.ok) showToast("ok", res.message);
+    else showToast("err", res.message);
+  }, []);
+
+  const importData = useCallback(async () => {
+    const res = await importBackupFromFile();
+    if (res.ok) {
+      showToast("ok", res.message);
+      // перечитываем всё из хранилища — максимально просто: полный рестарт состояния
+      setTimeout(() => {
+        if (globalThis.location) globalThis.location.reload();
+      }, 800);
+    } else {
+      showToast("err", res.message);
     }
   }, []);
 
@@ -279,6 +289,8 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
         <GroupLabel>Данные</GroupLabel>
         <View style={{ marginTop: 4, borderRadius: 15, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
           <Row label="Экспорт данных" onPress={exportData} value="" theme={theme} />
+          <Divider theme={theme} />
+          <Row label="Импорт данных" onPress={importData} value="" theme={theme} />
           <Divider theme={theme} />
           <Pressable
             onPress={wipeAll}

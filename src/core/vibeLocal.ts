@@ -243,6 +243,44 @@ export async function createDir(projectId: string, rel: string): Promise<void> {
   }
 }
 
+/** Содержимое папки: [{ name, isDir, size }] — для файлового менеджера. */
+export async function listDir(projectId: string, relDir: string): Promise<{ name: string; isDir: boolean; size: number }[]> {
+  if (!fsSupported()) return [];
+  const clean = safeRel(relDir);
+  const dir = projectDir(projectId);
+  const parts = clean.split("/").filter(Boolean);
+  const target = parts.length ? new Directory(dir, ...parts) : dir;
+  if (!target.exists) return [];
+  const out: { name: string; isDir: boolean; size: number }[] = [];
+  try {
+    for (const item of target.list()) {
+      if (item instanceof File) {
+        out.push({ name: item.name, isDir: false, size: item.size ?? 0 });
+      } else if (item instanceof Directory) {
+        out.push({ name: item.name + "/", isDir: true, size: 0 });
+      }
+    }
+  } catch {}
+  out.sort((a, b) => (a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1));
+  return out;
+}
+
+/** Переименование папки (только имя, без перемещения). */
+export async function renameDir(projectId: string, rel: string, newName: string): Promise<void> {
+  const clean = safeRel(rel);
+  const cleanNew = safeRel(newName);
+  if (cleanNew.includes("/")) throw new Error("Новое имя не может содержать /");
+  const dir = projectDir(projectId);
+  const parts = clean.split("/").filter(Boolean);
+  const dirName = parts.pop();
+  if (!dirName) throw new Error("Нельзя переименовать корень");
+  const src = new Directory(dir, ...parts, dirName);
+  if (!src.exists) throw new Error("Папка не найдена: " + rel);
+  const dst = new Directory(dir, ...parts, cleanNew);
+  if (dst.exists) throw new Error("Папка уже существует: " + newName);
+  await src.move(dst);
+}
+
 export async function renameFile(projectId: string, rel: string, newName: string): Promise<void> {
   const clean = safeRel(rel);
   const cleanNew = safeRel(newName);

@@ -2,10 +2,12 @@
  * Чат — основной экран. Прямой канал к провайдеру (core/gateway).
  * Сессии выезжают снизу (bottom sheet), модели — тоже sheet.
  */
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Alert,
+  Animated,
+  Easing,
   FlatList,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -25,6 +27,7 @@ import { renderMarkdown } from "../components/Markdown";
 import { IconButton, IconName } from "../design-system/components/IconButton";
 import { Sheet } from "../design-system/components/Sheet";
 import { Button } from "../design-system/components/Button";
+import { Input } from "../design-system/components/Input";
 import { showToast } from "../design-system/components/Toast";
 
 export function ChatScreen() {
@@ -36,6 +39,10 @@ export function ChatScreen() {
   const [modelsOpen, setModelsOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [streaming, setStreaming] = useState(false);
+  const [msgMenuTarget, setMsgMenuTarget] = useState<Msg | null>(null);
+  const [renameTarget, setRenameTarget] = useState<Session | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<Session | null>(null);
   const stopRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const listRef = useRef<FlatList<Msg>>(null);
@@ -139,27 +146,20 @@ export function ChatScreen() {
 
   const msgMenu = useCallback(
     (m: Msg) => {
-      const actions: { text: string; style?: "destructive" | "cancel"; onPress: () => void }[] = [
-        { text: "Копировать", onPress: () => copyMsg(m) },
-        { text: "Поделиться", onPress: () => shareMsg(m) },
-      ];
-      if (m.role === "assistant" && (m.error || m.content)) {
-        actions.push({ text: "Повторить", onPress: () => retryMsg(m) });
-      }
-      actions.push({
-        text: "Удалить",
-        style: "destructive",
-        onPress: () => {
-          if (active) {
-            dispatch({ type: "DELETE_MSG", sessionId: active.id, msgId: m.id });
-            showToast("ok", "Сообщение удалено");
-          }
-        },
-      });
-      actions.push({ text: "Отмена", style: "cancel", onPress: () => {} });
-      Alert.alert(m.role === "user" ? "Сообщение" : "Ответ", undefined, actions);
+      setMsgMenuTarget(m);
     },
-    [active, dispatch, retryMsg, copyMsg, shareMsg],
+    [],
+  );
+
+  const doDeleteMsg = useCallback(
+    (m: Msg) => {
+      if (active) {
+        dispatch({ type: "DELETE_MSG", sessionId: active.id, msgId: m.id });
+        showToast("ok", "Сообщение удалено");
+      }
+      setMsgMenuTarget(null);
+    },
+    [active, dispatch],
   );
 
   const handleNewSession = useCallback(() => {
@@ -171,29 +171,38 @@ export function ChatScreen() {
 
   const deleteSessionById = useCallback(
     (sid: string) => {
-      Alert.alert(t("delete"), undefined, [
-        { text: t("cancel"), style: "cancel" },
-        {
-          text: t("delete"), style: "destructive",
-          onPress: () => { deleteSession(sid); setSessionsOpen(false); },
-        },
-      ]);
+      const cur = state.sessions.find((s) => s.id === sid);
+      if (cur) setDeleteTarget(cur);
     },
-    [deleteSession, t],
+    [state.sessions],
   );
+
+  const confirmDeleteSession = useCallback(() => {
+    if (!deleteTarget) return;
+    deleteSession(deleteTarget.id);
+    setSessionsOpen(false);
+    setDeleteTarget(null);
+  }, [deleteTarget, deleteSession]);
 
   const renameSessionById = useCallback(
     (sid: string) => {
       const cur = state.sessions.find((s) => s.id === sid);
       if (!cur) return;
-      Alert.prompt(t("rename"), undefined, (name) => {
-        if (name && name.trim()) {
-          dispatch({ type: "UPDATE_SESSION", sessionId: sid, patch: { name: name.trim() } });
-        }
-      }, "plain-text", cur.name);
+      setRenameValue(cur.name);
+      setRenameTarget(cur);
     },
-    [state.sessions, dispatch, t],
+    [state.sessions],
   );
+
+  const confirmRename = useCallback(() => {
+    if (!renameTarget) return;
+    const name = renameValue.trim();
+    if (name) {
+      dispatch({ type: "UPDATE_SESSION", sessionId: renameTarget.id, patch: { name } });
+      showToast("ok", "Сессия переименована");
+    }
+    setRenameTarget(null);
+  }, [renameTarget, renameValue, dispatch]);
 
   const switchModel = useCallback(
     (m: ModelInfo) => {
@@ -231,13 +240,7 @@ export function ChatScreen() {
 
       {/* messages */}
       {(!active || active.messages.length === 0) ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 40 }}>
-          <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: theme.accent, alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
-            <Text style={{ color: "#1c1202", fontSize: 18, fontWeight: "700" }}>A</Text>
-          </View>
-          <Text style={{ color: theme.text, fontSize: 18, fontWeight: "700", marginBottom: 6 }}>{t("empty_chat_title")}</Text>
-          <Text style={{ color: theme.dim, fontSize: 13, textAlign: "center", lineHeight: 19 }}>{t("empty_chat_sub")}</Text>
-        </View>
+        <EmptyChat theme={theme} hasSession={!!active} />
       ) : (
         <FlatList
           ref={listRef}
@@ -263,24 +266,27 @@ export function ChatScreen() {
         keyboardVerticalOffset={Platform.OS === "ios" ? 0 : insets.top}
       >
         <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8, paddingHorizontal: 12, paddingTop: 6, paddingBottom: insets.bottom + 8, borderTopWidth: 1, borderTopColor: theme.border, backgroundColor: theme.bg }}>
-          <TextInput
-            value={text}
-            onChangeText={setText}
-            placeholder={t("message_placeholder")}
-            placeholderTextColor={theme.mute}
-            multiline
-            textAlignVertical="top"
-            style={{ flex: 1, backgroundColor: theme.surface2, borderRadius: 14, paddingHorizontal: 14, paddingTop: 11, paddingBottom: 11, fontSize: 14, color: theme.text, maxHeight: 100, minHeight: 44 }}
-          />
-          {streaming ? (
-            <Pressable onPress={() => { stopRef.current = true; setStreaming(false); abortRef.current?.abort(); }} style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: theme.danger, alignItems: "center", justifyContent: "center" }}>
-              <MaterialIcons name="stop" size={20} color="#fff" />
-            </Pressable>
-          ) : (
-            <Pressable onPress={send} disabled={!text.trim()} style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: text.trim() ? theme.accent : theme.surface2, alignItems: "center", justifyContent: "center" }}>
-              <MaterialIcons name="send" size={20} color={text.trim() ? theme.onAccent : theme.mute} />
-            </Pressable>
-          )}
+          {/* капсула ввода с кнопкой отправки ВНУТРИ (как на макете) */}
+          <View style={{ flex: 1, flexDirection: "row", alignItems: "flex-end", backgroundColor: theme.surface2, borderRadius: 22, paddingLeft: 16, paddingRight: 5, paddingTop: 5, paddingBottom: 5, minHeight: 44 }}>
+            <TextInput
+              value={text}
+              onChangeText={setText}
+              placeholder={t("message_placeholder")}
+              placeholderTextColor={theme.mute}
+              multiline
+              textAlignVertical="top"
+              style={{ flex: 1, fontSize: 14, color: theme.text, maxHeight: 96, paddingTop: 8, paddingBottom: 8, marginRight: 6 }}
+            />
+            {streaming ? (
+              <Pressable onPress={() => { stopRef.current = true; setStreaming(false); abortRef.current?.abort(); }} style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: theme.danger, alignItems: "center", justifyContent: "center" }}>
+                <MaterialIcons name="stop" size={18} color="#fff" />
+              </Pressable>
+            ) : (
+              <Pressable onPress={send} disabled={!text.trim()} style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: theme.accent, opacity: text.trim() ? 1 : 0.45, alignItems: "center", justifyContent: "center" }}>
+                <MaterialIcons name="send" size={17} color={theme.onAccent} style={{ transform: [{ rotate: "-30deg" }] }} />
+              </Pressable>
+            )}
+          </View>
         </View>
       </KeyboardAvoidingView>
 
@@ -308,12 +314,14 @@ export function ChatScreen() {
                 {s.messages.length} · {new Date(s.updatedAt).toLocaleDateString()}
               </Text>
             </View>
-            <Pressable onPress={() => renameSessionById(s.id)} hitSlop={8} style={{ padding: 4 }}>
-              <Text style={{ color: theme.dim, fontSize: 13 }}>{t("rename")}</Text>
-            </Pressable>
-            <Pressable onPress={() => deleteSessionById(s.id)} hitSlop={8} style={{ padding: 4 }}>
-              <Text style={{ color: theme.danger, fontSize: 13 }}>{t("delete")}</Text>
-            </Pressable>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Pressable onPress={() => renameSessionById(s.id)} hitSlop={8} style={{ width: 34, height: 34, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: theme.surface2 }} accessibilityLabel="Переименовать">
+                <MaterialIcons name="edit" size={16} color={theme.accentHi} />
+              </Pressable>
+              <Pressable onPress={() => deleteSessionById(s.id)} hitSlop={8} style={{ width: 34, height: 34, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: theme.surface2 }} accessibilityLabel="Удалить">
+                <MaterialIcons name="delete-outline" size={17} color={theme.danger} />
+              </Pressable>
+            </View>
           </Pressable>
         ))}
       </Sheet>
@@ -346,6 +354,64 @@ export function ChatScreen() {
             </Pressable>
           );
         })}
+      </Sheet>
+
+      {/* ── Message actions sheet (in-app, не системный Alert) ── */}
+      <Sheet visible={!!msgMenuTarget} onClose={() => setMsgMenuTarget(null)} title={msgMenuTarget?.role === "user" ? "Сообщение" : "Ответ"} snapPoints={["40%"]}>
+        {msgMenuTarget && (
+          <>
+            {msgMenuTarget.role === "assistant" && (msgMenuTarget.error || msgMenuTarget.content) && (
+              <Button title="Повторить запрос" variant="secondary" onPress={() => { const m = msgMenuTarget; setMsgMenuTarget(null); retryMsg(m); }} fullWidth style={{ marginTop: 6 }} />
+            )}
+            <Button title="Копировать" variant="secondary" onPress={() => { copyMsg(msgMenuTarget); setMsgMenuTarget(null); }} fullWidth style={{ marginTop: 6 }} />
+            <Button title="Поделиться" variant="secondary" onPress={() => { shareMsg(msgMenuTarget); setMsgMenuTarget(null); }} fullWidth style={{ marginTop: 6 }} />
+            <Button title="Удалить сообщение" variant="danger" onPress={() => doDeleteMsg(msgMenuTarget)} fullWidth style={{ marginTop: 6 }} />
+          </>
+        )}
+      </Sheet>
+
+      {/* ── Rename session (in-app, Alert.prompt на Android не работает) ── */}
+      <Sheet visible={!!renameTarget} onClose={() => setRenameTarget(null)} title="Переименовать сессию" snapPoints={["35%"]}>
+        {renameTarget && (
+          <>
+            <Input
+              value={renameValue}
+              onChangeText={setRenameValue}
+              placeholder="Название сессии"
+              autoFocus
+              returnKeyType="done"
+              onSubmitEditing={confirmRename}
+              style={{ marginTop: 4 }}
+            />
+            <View style={{ flexDirection: "row", gap: 8, marginTop: 14 }}>
+              <View style={{ flex: 1 }}>
+                <Button title="Отмена" variant="secondary" onPress={() => setRenameTarget(null)} fullWidth />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Button title="Сохранить" onPress={confirmRename} fullWidth />
+              </View>
+            </View>
+          </>
+        )}
+      </Sheet>
+
+      {/* ── Delete session confirm (in-app) ── */}
+      <Sheet visible={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="Удалить сессию?" snapPoints={["32%"]}>
+        {deleteTarget && (
+          <>
+            <Text style={{ color: theme.dim, fontSize: 13, lineHeight: 19 }}>
+              «{deleteTarget.name}» и все её сообщения будут удалены безвозвратно.
+            </Text>
+            <View style={{ flexDirection: "row", gap: 8, marginTop: 14 }}>
+              <View style={{ flex: 1 }}>
+                <Button title="Отмена" variant="secondary" onPress={() => setDeleteTarget(null)} fullWidth />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Button title="Удалить" variant="danger" onPress={confirmDeleteSession} fullWidth />
+              </View>
+            </View>
+          </>
+        )}
       </Sheet>
     </View>
   );
@@ -403,5 +469,105 @@ function Bubble({ msg, theme, onCopy, onShare, onLongPress }: { msg: Msg; theme:
         </Pressable>
       </View>
     </View>
+  );
+}
+
+/* ── Пустое состояние чата: логотип + анимации (3-4 сек после входа/новой сессии) ── */
+
+function EmptyChat({ theme, hasSession }: { theme: any; hasSession: boolean }) {
+  // opacity всего блока: появление при входе, плавное исчезновение ~3.5с
+  const fade = useRef(new Animated.Value(0)).current;
+  // пульс логотипа (мягкое дыхание)
+  const pulse = useRef(new Animated.Value(0)).current;
+  // вращение кольца вокруг логотипа
+  const spin = useRef(new Animated.Value(0)).current;
+  // масштаб кольца (расширение)
+  const ring = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    // появление: fade in
+    Animated.timing(fade, { toValue: 1, duration: 450, useNativeDriver: true }).start();
+
+    // пульс: бесконечный loop 0 -> 1 -> 0
+    const pulseLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: 900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      ]),
+    );
+    pulseLoop.start();
+
+    // кольцо: вращение (быстрое) + расширение (медленное), бесконечный loop
+    const spinLoop = Animated.loop(
+      Animated.timing(spin, { toValue: 1, duration: 2600, easing: Easing.linear, useNativeDriver: true }),
+    );
+    spinLoop.start();
+    const ringLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(ring, { toValue: 1, duration: 2600, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(ring, { toValue: 0, duration: 2600, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      ]),
+    );
+    ringLoop.start();
+
+    // ВСЁ исчезает через ~3.5с: логотип растворяется, кольцо останавливается
+    const timer = setTimeout(() => {
+      pulseLoop.stop();
+      spinLoop.stop();
+      ringLoop.stop();
+      Animated.timing(fade, { toValue: 0, duration: 700, useNativeDriver: true }).start();
+    }, 3500);
+
+    return () => {
+      clearTimeout(timer);
+      pulseLoop.stop();
+      spinLoop.stop();
+      ringLoop.stop();
+    };
+  }, [fade, pulse, spin, ring]);
+
+  const logoScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] });
+  const logoGlow = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.75] });
+  const ringOpacity = ring.interpolate({ inputRange: [0, 0.15, 1], outputRange: [0.8, 0.15, 0] });
+  const ringScale = ring.interpolate({ inputRange: [0, 1], outputRange: [1, 1.5] });
+  const rotate = spin.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
+
+  return (
+    <Animated.View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 40, opacity: fade }}>
+      {/* логотип: новая иконка + свечение + пульс + кольцо */}
+      <View style={{ width: 132, height: 132, alignItems: "center", justifyContent: "center", marginBottom: 22 }}>
+        <Animated.View
+          style={{
+            position: "absolute", width: 132, height: 132, borderRadius: 66,
+            backgroundColor: theme.accent, opacity: logoGlow,
+            transform: [{ scale: logoScale }],
+          }}
+        />
+        {/* вращающееся кольцо (тонкая оранжевая линия вокруг) */}
+        <Animated.View
+          style={{
+            position: "absolute", width: 162, height: 162, borderRadius: 81,
+            borderWidth: 1.5, borderColor: theme.accentHi,
+            opacity: ringOpacity, transform: [{ rotate }, { scale: ringScale }],
+          }}
+        />
+        <Animated.Image
+          source={require("../../assets/logo.png")}
+          style={{ width: 108, height: 108, borderRadius: 24, transform: [{ scale: logoScale }] }}
+        />
+      </View>
+
+      <Text style={{ color: theme.text, fontSize: 20, fontWeight: "700", marginBottom: 8, letterSpacing: -0.3 }}>
+        Начни разговор
+      </Text>
+      <Text style={{ color: theme.dim, fontSize: 13.5, textAlign: "center", lineHeight: 20, maxWidth: 260 }}>
+        Задай вопрос или дай задачу — бот ответит в потоке.
+      </Text>
+      {hasSession && (
+        <Text style={{ color: theme.mute, fontSize: 11, marginTop: 14 }}>
+          Это новая сессия — первое сообщение начнёт её.
+        </Text>
+      )}
+    </Animated.View>
   );
 }

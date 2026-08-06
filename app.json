@@ -7,14 +7,14 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "splash": {
-      "backgroundColor": "#1c1917"
+      "backgroundColor": "#050505"
     },
     "ios": {
       "supportsTablet": true
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#1c1917",
+        "backgroundColor": "#050505",
         "foregroundImage": "./assets/adaptive-icon.png"
       },
       "package": "app.aso.zmobile",
