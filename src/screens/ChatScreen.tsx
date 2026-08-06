@@ -474,88 +474,136 @@ function Bubble({ msg, theme, onCopy, onShare, onLongPress }: { msg: Msg; theme:
 
 /* ── Пустое состояние чата: логотип + анимации (3-4 сек после входа/новой сессии) ── */
 
+// RN-web плохо дружит с Animated.loop (гасит opacity) — на web отдаём
+// статичный видимый блок, на нативе — полную анимацию.
+const IS_NATIVE = Platform.OS === "android" || Platform.OS === "ios";
+
 function EmptyChat({ theme, hasSession }: { theme: any; hasSession: boolean }) {
-  // opacity всего блока: появление при входе, плавное исчезновение ~3.5с
+  if (!IS_NATIVE) {
+    return <EmptyChatStatic theme={theme} hasSession={hasSession} />;
+  }
+  return <EmptyChatAnimated theme={theme} hasSession={hasSession} />;
+}
+
+/** Web-версия: всегда видна, без Animated (RN-web ломает loop-анимации). */
+function EmptyChatStatic({ theme, hasSession }: { theme: any; hasSession: boolean }) {
+  return (
+    <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 40 }}>
+      <View style={{ width: 148, height: 148, alignItems: "center", justifyContent: "center", marginBottom: 24 }}>
+        <View style={{ position: "absolute", width: 148, height: 148, borderRadius: 74, backgroundColor: theme.accent, opacity: 0.45 }} />
+        <View style={{ position: "absolute", width: 176, height: 176, borderRadius: 88, borderWidth: 2, borderColor: theme.accentHi, opacity: 0.5 }} />
+        <Image source={require("../../assets/logo.png")} style={{ width: 116, height: 116, borderRadius: 26 }} />
+      </View>
+      <Text style={{ color: theme.text, fontSize: 20, fontWeight: "700", marginBottom: 8, letterSpacing: -0.3 }}>
+        Начни разговор
+      </Text>
+      <Text style={{ color: theme.dim, fontSize: 13.5, textAlign: "center", lineHeight: 20, maxWidth: 260 }}>
+        Задай вопрос или дай задачу — бот ответит в потоке.
+      </Text>
+      {hasSession && (
+        <Text style={{ color: theme.mute, fontSize: 11, marginTop: 14 }}>
+          Это новая сессия — первое сообщение начнёт её.
+        </Text>
+      )}
+    </View>
+  );
+}
+
+/** Нативная версия: полные анимации (пульс, свечение, кольцо, 3D-наклон). */
+function EmptyChatAnimated({ theme, hasSession }: { theme: any; hasSession: boolean }) {
   const fade = useRef(new Animated.Value(0)).current;
-  // пульс логотипа (мягкое дыхание)
   const pulse = useRef(new Animated.Value(0)).current;
-  // вращение кольца вокруг логотипа
   const spin = useRef(new Animated.Value(0)).current;
-  // масштаб кольца (расширение)
   const ring = useRef(new Animated.Value(0)).current;
+  const tilt = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    // появление: fade in
-    Animated.timing(fade, { toValue: 1, duration: 450, useNativeDriver: true }).start();
+    Animated.timing(fade, { toValue: 1, duration: 500, useNativeDriver: true }).start();
 
-    // пульс: бесконечный loop 0 -> 1 -> 0
     const pulseLoop = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 0, duration: 900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 1, duration: 950, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: 950, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
       ]),
     );
     pulseLoop.start();
 
-    // кольцо: вращение (быстрое) + расширение (медленное), бесконечный loop
     const spinLoop = Animated.loop(
-      Animated.timing(spin, { toValue: 1, duration: 2600, easing: Easing.linear, useNativeDriver: true }),
+      Animated.timing(spin, { toValue: 1, duration: 2400, easing: Easing.linear, useNativeDriver: true }),
     );
     spinLoop.start();
+
     const ringLoop = Animated.loop(
       Animated.sequence([
-        Animated.timing(ring, { toValue: 1, duration: 2600, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-        Animated.timing(ring, { toValue: 0, duration: 2600, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(ring, { toValue: 1, duration: 2400, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(ring, { toValue: 0, duration: 2400, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
       ]),
     );
     ringLoop.start();
 
-    // ВСЁ исчезает через ~3.5с: логотип растворяется, кольцо останавливается
+    const tiltLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(tilt, { toValue: 1, duration: 1400, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(tilt, { toValue: 0, duration: 1400, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      ]),
+    );
+    tiltLoop.start();
+
+    // ВСЁ исчезает через ~3.8с
     const timer = setTimeout(() => {
       pulseLoop.stop();
       spinLoop.stop();
       ringLoop.stop();
+      tiltLoop.stop();
       Animated.timing(fade, { toValue: 0, duration: 700, useNativeDriver: true }).start();
-    }, 3500);
+    }, 3800);
 
     return () => {
       clearTimeout(timer);
       pulseLoop.stop();
       spinLoop.stop();
       ringLoop.stop();
+      tiltLoop.stop();
     };
-  }, [fade, pulse, spin, ring]);
+  }, [fade, pulse, spin, ring, tilt]);
 
-  const logoScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] });
-  const logoGlow = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.75] });
-  const ringOpacity = ring.interpolate({ inputRange: [0, 0.15, 1], outputRange: [0.8, 0.15, 0] });
-  const ringScale = ring.interpolate({ inputRange: [0, 1], outputRange: [1, 1.5] });
+  const logoScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.07] });
+  const logoGlow = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.8] });
+  const ringOpacity = ring.interpolate({ inputRange: [0, 0.15, 1], outputRange: [0.85, 0.2, 0] });
+  const ringScale = ring.interpolate({ inputRange: [0, 1], outputRange: [1, 1.45] });
   const rotate = spin.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
+  const tiltDeg = tilt.interpolate({ inputRange: [0, 1], outputRange: ["-7deg", "7deg"] });
 
   return (
     <Animated.View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 40, opacity: fade }}>
-      {/* логотип: новая иконка + свечение + пульс + кольцо */}
-      <View style={{ width: 132, height: 132, alignItems: "center", justifyContent: "center", marginBottom: 22 }}>
+      <Animated.View style={{ width: 148, height: 148, alignItems: "center", justifyContent: "center", marginBottom: 24, transform: [{ perspective: 700 }, { rotateY: tiltDeg }] }}>
+        <View style={{ position: "absolute", width: 124, height: 124, borderRadius: 26, backgroundColor: "rgba(0,0,0,.55)", top: 10, left: 6, transform: [{ scale: logoScale }] }} />
         <Animated.View
           style={{
-            position: "absolute", width: 132, height: 132, borderRadius: 66,
+            position: "absolute", width: 148, height: 148, borderRadius: 74,
             backgroundColor: theme.accent, opacity: logoGlow,
             transform: [{ scale: logoScale }],
           }}
         />
-        {/* вращающееся кольцо (тонкая оранжевая линия вокруг) */}
         <Animated.View
           style={{
-            position: "absolute", width: 162, height: 162, borderRadius: 81,
-            borderWidth: 1.5, borderColor: theme.accentHi,
+            position: "absolute", width: 176, height: 176, borderRadius: 88,
+            borderWidth: 2, borderColor: theme.accentHi,
             opacity: ringOpacity, transform: [{ rotate }, { scale: ringScale }],
+          }}
+        />
+        <Animated.View
+          style={{
+            position: "absolute", width: 10, height: 10, borderRadius: 5,
+            backgroundColor: "#fbbf24", opacity: ringOpacity,
+            transform: [{ rotate }, { translateX: 82 }],
           }}
         />
         <Animated.Image
           source={require("../../assets/logo.png")}
-          style={{ width: 108, height: 108, borderRadius: 24, transform: [{ scale: logoScale }] }}
+          style={{ width: 116, height: 116, borderRadius: 26, transform: [{ scale: logoScale }] }}
         />
-      </View>
+      </Animated.View>
 
       <Text style={{ color: theme.text, fontSize: 20, fontWeight: "700", marginBottom: 8, letterSpacing: -0.3 }}>
         Начни разговор
