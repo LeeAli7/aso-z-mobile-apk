@@ -29,6 +29,11 @@ export interface Msg {
   content: string;
   streaming?: boolean;
   error?: string;
+  /** Поток раздумий (reasoning_content) — как отдельный блок в стиле Kimi. */
+  thinking?: string;
+  /** Карточка инструмента (терминал/файл/поиск) — как в Kimi. */
+  tool?: string;
+  toolState?: "loading" | "done" | "error";
 }
 
 export interface Session {
@@ -39,6 +44,8 @@ export interface Session {
   modelId: string | null;
   createdAt: number;
   updatedAt: number;
+  /** Привязка к vibe-проекту: агент знает контекст проекта, файлы пишутся в него. */
+  projectId?: string | null;
 }
 
 interface State {

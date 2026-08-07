@@ -197,7 +197,7 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
         {/* profile */}
         <View style={{ flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderRadius: 15, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }}>
           <View style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: theme.accent, alignItems: "center", justifyContent: "center" }}>
-            <Text style={{ color: "#1c1202", fontSize: 16, fontWeight: "700" }}>{state.profile?.username?.slice(0, 2).toUpperCase() || "A"}</Text>
+            <Text style={{ color: theme.onAccent, fontSize: 16, fontWeight: "700" }}>{state.profile?.username?.slice(0, 2).toUpperCase() || "A"}</Text>
           </View>
           <View style={{ flex: 1 }}>
             <Text style={{ color: theme.text, fontSize: 15, fontWeight: "600" }}>
@@ -208,7 +208,7 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
             </Text>
           </View>
           {state.profile?.premium && (
-            <Text style={{ color: "#fbbf24", fontSize: 9, letterSpacing: 1, borderWidth: 1, borderColor: "rgba(251,191,36,.4)", paddingHorizontal: 7, paddingVertical: 3, borderRadius: 5 }}>PREMIUM</Text>
+            <Text style={{ color: theme.warn, fontSize: 9, letterSpacing: 1, borderWidth: 1, borderColor: theme.warn + "66", paddingHorizontal: 7, paddingVertical: 3, borderRadius: 5 }}>PREMIUM</Text>
           )}
         </View>
 
@@ -248,9 +248,9 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
               <PrimaryButton title={t("sync_send")} onPress={doSync} disabled={syncing || !username.trim()} />
               {status === "pending" && (
                 <View style={{ marginTop: 10, gap: 8 }}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 9, borderRadius: 10, borderWidth: 1, borderColor: "rgba(251,191,36,.3)", backgroundColor: "rgba(251,191,36,.07)" }}>
-                    <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: "#fbbf24" }} />
-                    <Text style={{ color: "#fbbf24", fontSize: 11 }}>{t("sync_pending")}</Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 9, borderRadius: 10, borderWidth: 1, borderColor: theme.warn + "55", backgroundColor: theme.warn + "12" }}>
+                    <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: theme.warn }} />
+                    <Text style={{ color: theme.warn, fontSize: 11 }}>{t("sync_pending")}</Text>
                   </View>
                   <Button title="Отменить" variant="ghost" onPress={cancelSync} />
                 </View>

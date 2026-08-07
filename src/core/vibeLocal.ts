@@ -30,6 +30,8 @@ export interface VibeMsg {
   tool?: string;
   result?: string;
   streaming?: boolean;
+  /** Поток раздумий (reasoning_content) — блок «Обдумывание…» в стиле Kimi. */
+  thinking?: string;
 }
 
 export interface VibeFileEntry {
@@ -365,6 +367,7 @@ const SYSTEM_PROMPT = `Ты — агент-кодер в локальном пр
 export interface VibeChatCallbacks {
   onToken: (text: string) => void;
   onTool: (label: string) => void;
+  onThinking?: (text: string) => void;
   onDone: (cleanText: string, writtenFiles: string[]) => void;
   onError: (message: string) => void;
 }
@@ -416,6 +419,7 @@ export async function vibeChat(
         callbacks.onTool("пишу " + fm[1].trim());
       }
     },
+    onThinking: (thinking) => callbacks.onThinking?.(thinking),
     onDone: async (clean) => {
       const body = clean || acc;
       const blocks = parseFileBlocks(body);

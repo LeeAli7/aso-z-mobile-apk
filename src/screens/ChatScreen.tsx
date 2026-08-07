@@ -25,6 +25,20 @@ import { useApp, genId, Msg, Session } from "../store/AppStore";
 import { ModelInfo, streamChat } from "../core/gateway";
 import { CapBadge } from "../components/ui";
 import { renderMarkdown } from "../components/Markdown";
+import { ThinkingBlock } from "../components/kimi/ThinkingBlock";
+import { ToolCard } from "../components/kimi/ToolCard";
+import {
+  VibeProject,
+  listProjects,
+  createProject,
+  deleteProject,
+  renameProject,
+  treeFiles,
+  listFiles,
+  parseFileBlocks,
+  writeFile,
+} from "../core/vibeLocal";
+import { openInTermux, openFolderInFileManager } from "../core/termux";
 import { IconButton, IconName } from "../design-system/components/IconButton";
 import { Sheet } from "../design-system/components/Sheet";
 import { Button } from "../design-system/components/Button";
@@ -46,6 +60,14 @@ export function ChatScreen() {
   const [deleteTarget, setDeleteTarget] = useState<Session | null>(null);
   const [editTarget, setEditTarget] = useState<Msg | null>(null);
   const [editValue, setEditValue] = useState("");
+  // ── окно проектов (всё в одном чате, как в Kimi) ──
+  const [projects, setProjects] = useState<VibeProject[]>([]);
+  const [projectsOpen, setProjectsOpen] = useState(false);
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
+  const [newProjectName, setNewProjectName] = useState("");
+  const [newProjectDesc, setNewProjectDesc] = useState("");
+  const [projectMenu, setProjectMenu] = useState<VibeProject | null>(null);
+  const [projectRenameValue, setProjectRenameValue] = useState("");
   const stopRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const listRef = useRef<FlatList<Msg>>(null);
@@ -54,9 +76,79 @@ export function ChatScreen() {
   const allModels = [...state.models, ...state.customModels];
   const model = allModels.find((m) => m.modelName === active?.modelId) ?? allModels[0];
   const modelName = model?.displayName ?? "Aso";
+  // Активный vibe-проект сессии (контекст агента).
+  const activeProject = active?.projectId
+    ? projects.find((p) => p.id === active.projectId) ?? null
+    : null;
 
   const scrollBottom = () =>
     setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 60);
+
+  // ── Проекты: окно «всё в одном чате» ──
+  const loadProjects = useCallback(async () => {
+    try {
+      const list = await listProjects();
+      const withFiles = await Promise.all(
+        list.map(async (p) => {
+          const files = await listFiles(p.id).catch(() => []);
+          return { ...p, fileCount: files.length };
+        }),
+      );
+      setProjects(withFiles as any);
+    } catch {}
+  }, []);
+
+  const openProjectsSheet = useCallback(() => {
+    loadProjects();
+    setProjectsOpen(true);
+  }, [loadProjects]);
+
+  /**
+   * Выбор проекта: находим/создаём сессию, привязанную к проекту.
+   * Каждый проект = свой вайбкод (своя история). «Без проекта» = обычный чат.
+   */
+  const selectProject = useCallback(
+    (p: VibeProject | null) => {
+      setProjectsOpen(false);
+      if (!p) {
+        // отвязать: только если у сессии нет проекта — вернуть в обычный чат
+        if (active?.projectId) {
+          dispatch({ type: "UPDATE_SESSION", sessionId: active.id, patch: { projectId: null } });
+        }
+        return;
+      }
+      // уже открыта сессия этого проекта?
+      let sid = state.sessions.find((s) => s.projectId === p.id)?.id;
+      if (!sid) {
+        sid = genId();
+        dispatch({
+          type: "ADD_SESSION",
+          session: {
+            id: sid, name: p.name, messages: [], modelId: null,
+            createdAt: Date.now(), updatedAt: Date.now(), projectId: p.id,
+          },
+        });
+      }
+      setActive(sid);
+      setText("");
+    },
+    [active, dispatch, state.sessions, setActive],
+  );
+
+  const createNewProject = useCallback(async () => {
+    const n = newProjectName.trim();
+    if (!n) return;
+    try {
+      const p = await createProject(n, newProjectDesc);
+      setNewProjectName("");
+      setNewProjectDesc("");
+      setNewProjectOpen(false);
+      loadProjects();
+      selectProject(p);
+    } catch (e: any) {
+      showToast("err", String(e?.message || e));
+    }
+  }, [newProjectName, newProjectDesc, loadProjects, selectProject]);
 
   const copyMsg = (m: Msg) => Clipboard.setStringAsync(m.content).catch(() => {});
   const shareMsg = (m: Msg) => Share.share({ message: m.content }).catch(() => {});
@@ -93,25 +185,71 @@ export function ChatScreen() {
         { role: "user", content },
       ];
 
+      // ── Контекст проекта (как в Kimi: выбрал проект → агент знает, о чём речь) ──
+      const proj = cur?.projectId ? projects.find((p) => p.id === cur.projectId) : null;
+      let chatMessages: { role: "system" | "user" | "assistant"; content: string }[] = history;
+      if (proj) {
+        const tree = await treeFiles(proj.id).catch(() => "(ошибка чтения)");
+        const ctx =
+          `Ты работаешь в проекте «${proj.name}».` +
+          (proj.desc ? `\nОписание: ${proj.desc}` : "") +
+          `\nФайлы проекта:\n${tree}` +
+          `\n\nКогда нужно создать или изменить файл — выводи блок в формате:\n[FILE: путь/имя.файла]\n\`\`\`язык\nсодержимое\n\`\`\`\nПосле блоков дай краткое резюме (2-4 предложения).`;
+        chatMessages = [{ role: "system", content: ctx }, ...history];
+      }
+
       const aiId = genId();
       dispatch({ type: "ADD_MSG", sessionId: sid, msg: { id: aiId, role: "assistant", content: "", streaming: true } });
 
       let acc = "";
+      let written: string[] = [];
       const ctrl = new AbortController();
       abortRef.current = ctrl;
-      await streamChat(model, history, {
+      await streamChat(model, chatMessages, {
         onToken: (tok) => {
           if (stopRef.current) return;
           acc += tok;
           dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: aiId, patch: { content: acc } });
           scrollBottom();
+          // tool-событие: агент начал писать файл — карточка как в Kimi
+          if (proj) {
+            const fm = acc.match(/\[FILE:\s*([^\n\]]+)\]/);
+            if (fm && !written.includes("__showed_" + fm[1])) {
+              written.push("__showed_" + fm[1]);
+              dispatch({
+                type: "ADD_MSG",
+                sessionId: sid,
+                msg: { id: genId(), role: "assistant", content: "", tool: "пишу " + fm[1].trim() },
+              });
+            }
+          }
         },
-        onDone: (clean) => {
+        onThinking: (thinking) => {
+          if (stopRef.current) return;
+          dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: aiId, patch: { thinking } });
+        },
+        onDone: async (clean) => {
           setStreaming(false);
           if (stopRef.current && !clean) return; // отменено пользователем — не трогаем
+          let finalText = clean || acc || (stopRef.current ? "" : "(пусто)");
+          if (proj) {
+            const blocks = parseFileBlocks(finalText || acc);
+            for (const b of blocks) {
+              try {
+                await writeFile(proj.id, b.path, b.content);
+              } catch (e: any) {
+                dispatch({
+                  type: "UPDATE_MSG", sessionId: sid, msgId: aiId,
+                  patch: { streaming: false, error: `не удалось записать ${b.path}: ${e?.message || e}`, content: acc || "" },
+                });
+                return;
+              }
+            }
+            finalText = (finalText || acc).replace(/\[FILE:[^\]]+\]\s*```[^\n]*\n[\s\S]*?```/g, "").trim() || acc;
+          }
           dispatch({
             type: "UPDATE_MSG", sessionId: sid, msgId: aiId,
-            patch: { content: clean || acc || (stopRef.current ? "" : "(пусто)"), streaming: false },
+            patch: { content: finalText, streaming: false },
           });
         },
         onError: (err) => {
@@ -255,6 +393,10 @@ export function ChatScreen() {
         dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: aiId, patch: { content: acc } });
         scrollBottom();
       },
+      onThinking: (thinking) => {
+        if (stopRef.current) return;
+        dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: aiId, patch: { thinking } });
+      },
       onDone: (clean) => {
         setStreaming(false);
         if (stopRef.current && !clean) return;
@@ -317,8 +459,64 @@ export function ChatScreen() {
           </Text>
           <Text numberOfLines={1} style={{ color: theme.mute, fontSize: 10.5, marginTop: 1 }}>{active?.name ?? t("chat_title")}</Text>
         </Pressable>
+        {activeProject && (
+          <>
+            <IconButton
+              name="folder-open"
+              size={17}
+              onPress={async () => {
+                if (!activeProject) return;
+                const r = await openFolderInFileManager(activeProject.id);
+                if (!r.ok) showToast("err", r.message);
+              }}
+              accessibilityLabel="Открыть папку проекта"
+            />
+            <IconButton
+              name="terminal"
+              size={17}
+              onPress={async () => {
+                if (!activeProject) return;
+                const r = await openInTermux(activeProject.id);
+                if (!r.ok) showToast("err", r.message);
+              }}
+              accessibilityLabel="Открыть проект в Termux"
+            />
+          </>
+        )}
         <IconButton name="add" onPress={handleNewSession} accessibilityLabel={t("newSession")} />
       </View>
+
+      {/* чип проекта — выбор/смена проекта прямо из чата (как Kimi) */}
+      <Pressable
+        onPress={openProjectsSheet}
+        style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: theme.bg }}
+      >
+        <MaterialIcons name="folder" size={13} color={activeProject ? theme.accentHi : theme.mute} />
+        <Text
+          numberOfLines={1}
+          style={{
+            flex: 1,
+            color: activeProject ? theme.accentHi : theme.mute,
+            fontSize: 11.5,
+            fontWeight: activeProject ? "600" : "400",
+          }}
+        >
+          {activeProject
+            ? `${activeProject.name}${(activeProject as any).fileCount ? ` · ${(activeProject as any).fileCount} файлов` : ""}`
+            : "Выбрать проект…"}
+        </Text>
+        {activeProject ? (
+          <Pressable
+            onPress={() => selectProject(null)}
+            hitSlop={8}
+            accessibilityLabel="Отвязать проект"
+          >
+            <MaterialIcons name="close" size={14} color={theme.mute} />
+          </Pressable>
+        ) : (
+          <MaterialIcons name="chevron-right" size={14} color={theme.mute} />
+        )}
+      </Pressable>
 
       {/* messages */}
       {(!active || active.messages.length === 0) ? (
@@ -435,11 +633,169 @@ export function ChatScreen() {
                 </View>
               )}
               {m.premium && (
-                <Text style={{ color: "#fbbf24", fontSize: 8.5, letterSpacing: 1, borderWidth: 1, borderColor: "rgba(251,191,36,.4)", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5 }}>{t("premium")}</Text>
+                <Text style={{ color: theme.warn, fontSize: 8.5, letterSpacing: 1, borderWidth: 1, borderColor: theme.warn + "66", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5 }}>{t("premium")}</Text>
               )}
             </Pressable>
           );
         })}
+      </Sheet>
+
+      {/* ── Проекты sheet (окно проектов — как Kimi: выбор/создание/контекст) ── */}
+      <Sheet visible={projectsOpen} onClose={() => setProjectsOpen(false)} title="Проекты" snapPoints={["78%"]}>
+        {!newProjectOpen ? (
+          <Button
+            title={"＋ Новый проект"}
+            onPress={() => setNewProjectOpen(true)}
+            fullWidth
+          />
+        ) : (
+          <View>
+            <Input
+              value={newProjectName}
+              onChangeText={setNewProjectName}
+              placeholder="Название проекта"
+              autoFocus
+              style={{ marginTop: 2 }}
+            />
+            <View style={{ height: 8 }} />
+            <Input
+              value={newProjectDesc}
+              onChangeText={setNewProjectDesc}
+              placeholder="Описание (что это за проект?)"
+              multiline
+              style={{ minHeight: 60 }}
+            />
+            <View style={{ height: 8 }} />
+            <Button
+              title="Создать и открыть"
+              onPress={createNewProject}
+              disabled={!newProjectName.trim()}
+              fullWidth
+            />
+            <Button
+              title="Отмена"
+              variant="ghost"
+              onPress={() => { setNewProjectOpen(false); setNewProjectName(""); setNewProjectDesc(""); }}
+              fullWidth
+              style={{ marginTop: 6 }}
+            />
+          </View>
+        )}
+
+        {/* обычный чат без проекта */}
+        <Pressable
+          onPress={() => selectProject(null)}
+          style={{
+            flexDirection: "row", alignItems: "center", gap: 10,
+            padding: 12, borderRadius: 11, borderWidth: 1,
+            borderColor: !activeProject ? theme.accent : theme.border,
+            backgroundColor: !activeProject ? theme.accentDim : theme.surface,
+            marginTop: 10,
+          }}
+        >
+          <MaterialIcons name="chat-bubble-outline" size={18} color={!activeProject ? theme.accentHi : theme.mute} />
+          <Text style={{ flex: 1, color: !activeProject ? theme.accentHi : theme.text, fontSize: 13, fontWeight: "600" }}>
+            Без проекта
+          </Text>
+          <Text style={{ color: theme.mute, fontSize: 10 }}>обычный чат</Text>
+        </Pressable>
+
+        <Text style={{ color: theme.mute, fontSize: 11, marginTop: 14, marginBottom: 4 }}>
+          {projects.length === 0 ? "Пока нет проектов — создай первый." : `${projects.length} проект(ов)`}
+        </Text>
+        {projects.map((p) => {
+          const on = activeProject?.id === p.id;
+          return (
+            <Pressable
+              key={p.id}
+              onPress={() => selectProject(p)}
+              style={{
+                flexDirection: "row", alignItems: "center", gap: 10,
+                padding: 12, borderRadius: 11, borderWidth: 1,
+                borderColor: on ? theme.accent : theme.border,
+                backgroundColor: on ? theme.accentDim : theme.surface,
+                marginTop: 8,
+              }}
+            >
+              <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: on ? theme.accentDim : theme.surface2, alignItems: "center", justifyContent: "center" }}>
+                <MaterialIcons name="folder" size={18} color={on ? theme.accentHi : theme.dim} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text numberOfLines={1} style={{ color: theme.text, fontSize: 13, fontWeight: "500" }}>{p.name}</Text>
+                {p.desc ? <Text numberOfLines={1} style={{ color: theme.mute, fontSize: 10.5, marginTop: 1 }}>{p.desc}</Text> : null}
+                <Text style={{ color: theme.mute, fontSize: 9.5, marginTop: 2, fontFamily: "monospace" }}>
+                  {(p as any).fileCount ?? 0} файлов
+                </Text>
+              </View>
+              {on && <MaterialIcons name="check-circle" size={16} color={theme.accentHi} />}
+              <Pressable
+                onPress={() => { setProjectMenu(p); setProjectRenameValue(p.name); }}
+                hitSlop={8}
+                style={{ width: 30, height: 30, borderRadius: 8, alignItems: "center", justifyContent: "center" }}
+                accessibilityLabel="Меню проекта"
+              >
+                <MaterialIcons name="more-vert" size={17} color={theme.dim} />
+              </Pressable>
+            </Pressable>
+          );
+        })}
+      </Sheet>
+
+      {/* ── Меню проекта (переименовать/удалить) ── */}
+      <Sheet visible={!!projectMenu} onClose={() => setProjectMenu(null)} title={projectMenu?.name ?? ""} snapPoints={["36%"]}>
+        {projectMenu && (
+          <>
+            <Input
+              value={projectRenameValue}
+              onChangeText={setProjectRenameValue}
+              placeholder="Новое название"
+              autoFocus
+              style={{ marginTop: 2 }}
+            />
+            <View style={{ height: 10 }} />
+            <Button
+              title="Переименовать"
+              variant="secondary"
+              onPress={async () => {
+                const nm = projectRenameValue.trim();
+                if (nm && nm !== projectMenu.name) {
+                  try {
+                    await renameProject(projectMenu.id, nm);
+                    dispatch({ type: "UPDATE_SESSION", sessionId: projectMenu.id, patch: { name: nm } });
+                    showToast("ok", "Проект переименован");
+                  } catch (e: any) {
+                    showToast("err", String(e?.message || e));
+                  }
+                }
+                setProjectMenu(null);
+                loadProjects();
+              }}
+              fullWidth
+            />
+            <Button
+              title="Удалить проект"
+              variant="danger"
+              onPress={async () => {
+                const p = projectMenu;
+                setProjectMenu(null);
+                try {
+                  await deleteProject(p.id);
+                  // сессии этого проекта больше не существуют
+                  if (state.sessions.some((s) => s.projectId === p.id)) {
+                    const sid = state.sessions.find((s) => s.projectId === p.id)?.id;
+                    if (sid) dispatch({ type: "DELETE_SESSION", sessionId: sid });
+                  }
+                  showToast("ok", "Проект удалён");
+                  loadProjects();
+                } catch (e: any) {
+                  showToast("err", String(e?.message || e));
+                }
+              }}
+              fullWidth
+              style={{ marginTop: 6 }}
+            />
+          </>
+        )}
       </Sheet>
 
       {/* ── Message actions sheet (in-app, не системный Alert) ── */}
@@ -534,6 +890,14 @@ function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress }: { msg: Msg
   const user = msg.role === "user";
   const align: "flex-end" | "flex-start" = user ? "flex-end" : "flex-start";
   const containerStyle = { alignSelf: align, maxWidth: "86%" as const, marginBottom: 10 };
+  // Карточка инструмента — до контента, слева (как у Kimi).
+  if (msg.tool) {
+    return (
+      <View style={containerStyle}>
+        <ToolCard tool={msg.tool} state={msg.toolState ?? "loading"} theme={theme} />
+      </View>
+    );
+  }
   if (msg.streaming) {
     return (
       <View style={containerStyle}>
@@ -567,7 +931,16 @@ function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress }: { msg: Msg
         {user ? (
           <Text style={{ color: theme.userText, fontSize: 14, lineHeight: 20 }}>{msg.content}</Text>
         ) : (
-          renderMarkdown(msg.content, theme)
+          <>
+            {msg.thinking ? (
+              <ThinkingBlock
+                text={msg.thinking}
+                status={msg.streaming ? "thinking" : "done"}
+                theme={theme}
+              />
+            ) : null}
+            {renderMarkdown(msg.content, theme)}
+          </>
         )}
       </View>
       </Pressable>
