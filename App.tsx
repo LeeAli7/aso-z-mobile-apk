@@ -1,69 +1,24 @@
 /**
- * Aso-z Mobile — точка входа.
- * 3 таба: Чат / Vibe / Настройки + стек VibeProject.
- * LLM-запросы идут напрямую к провайдерам (core/gateway);
- * наш сервер используется только для синхрона аккаунта.
+ * Aso-z Mobile — входная точка.
+ * По ТЗ: ОДИН экран (чат = редактор = терминал). Никаких нижних табов.
+ *  - ChatScreen — единственный главный экран (всё в одном треде).
+ *  - Settings/Providers/VibeProject открываются поверх из бургер-меню чата.
  */
 import React from "react";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { NavigationContainer, DefaultTheme, DarkTheme } from "@react-navigation/native";
-import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { MaterialIcons } from "@expo/vector-icons";
 
 import { AppProvider, useApp } from "./src/store/AppStore";
 import { ChatScreen } from "./src/screens/ChatScreen";
-import { VibeScreen } from "./src/screens/VibeScreen";
 import { VibeProjectScreen } from "./src/screens/VibeProjectScreen";
 import { SettingsScreen } from "./src/screens/SettingsScreen";
 import { ProvidersScreen } from "./src/screens/ProvidersScreen";
 import { ToastHost } from "./src/design-system/components/Toast";
 
-const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
-
-function TabIcon({ route, focused }: { route: string; focused: boolean }) {
-  const { theme } = useApp();
-  const icons: Record<string, keyof typeof MaterialIcons.glyphMap> = {
-    Chat: "chat-bubble-outline",
-    Vibe: "code",
-    Settings: "settings",
-  };
-  return (
-    <MaterialIcons
-      name={focused && route === "Chat" ? "chat-bubble" : icons[route] ?? "circle"}
-      size={22}
-      color={focused ? theme.accentHi : theme.mute}
-    />
-  );
-}
-
-function MainTabs() {
-  const { theme } = useApp();
-  return (
-    <Tab.Navigator
-      screenOptions={({ route }) => ({
-        headerShown: false,
-        tabBarStyle: {
-          backgroundColor: theme.bg,
-          borderTopColor: theme.border,
-          paddingTop: 4,
-          height: 60,
-        },
-        tabBarActiveTintColor: theme.accentHi,
-        tabBarInactiveTintColor: theme.mute,
-        tabBarLabelStyle: { fontSize: 10, fontWeight: "600", letterSpacing: 0.4, textTransform: "uppercase" },
-        tabBarIcon: ({ focused }) => <TabIcon route={route.name} focused={focused} />,
-      })}
-    >
-      <Tab.Screen name="Chat" component={ChatScreen} />
-      <Tab.Screen name="Vibe" component={VibeScreen} />
-      <Tab.Screen name="Settings" component={SettingsScreen} />
-    </Tab.Navigator>
-  );
-}
 
 function RootNav() {
   const { theme } = useApp();
@@ -81,8 +36,9 @@ function RootNav() {
   return (
     <NavigationContainer theme={navTheme}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="Main" component={MainTabs} />
+        <Stack.Screen name="Main" component={ChatScreen} />
         <Stack.Screen name="VibeProject" component={VibeProjectScreen} />
+        <Stack.Screen name="Settings" component={SettingsScreen} />
         <Stack.Screen name="Providers" component={ProvidersScreen} />
       </Stack.Navigator>
     </NavigationContainer>
