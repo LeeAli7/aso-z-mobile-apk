@@ -10,6 +10,7 @@ import React, { useMemo, useState } from "react";
 import { Linking, Pressable, Text, View } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useApp } from "../store/AppStore";
+import { fonts } from "../theme/tokens";
 import { showToast } from "../design-system/components/Toast";
 import * as Clipboard from "expo-clipboard";
 
@@ -96,7 +97,7 @@ function renderInline(text: string, theme: any, keyPrefix: string): React.ReactN
       );
     } else if (tok.startsWith("`")) {
       nodes.push(
-        <Text key={`${keyPrefix}-c${k++}`} style={{ fontFamily: "monospace", color: theme.codeText, backgroundColor: theme.codeBg, paddingHorizontal: 3, borderRadius: 4 }}>
+        <Text key={`${keyPrefix}-c${k++}`} style={{ fontFamily: fonts.mono, color: theme.codeText, backgroundColor: theme.codeBg, paddingHorizontal: 3, borderRadius: 4 }}>
           {tok.slice(1, -1)}
         </Text>,
       );
@@ -133,7 +134,7 @@ function CodeBlock({ code, lang, theme }: { code: string; lang: string; theme: a
   return (
     <View style={{ marginVertical: 6, borderRadius: 10, overflow: "hidden", borderWidth: 1, borderColor: theme.border, backgroundColor: theme.codeBg }}>
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 10, paddingVertical: 5, backgroundColor: theme.surface2 }}>
-        <Text style={{ color: theme.mute, fontSize: 9.5, fontFamily: "monospace" }}>{lang || "code"}</Text>
+        <Text style={{ color: theme.mute, fontSize: 9.5, fontFamily: fonts.mono }}>{lang || "code"}</Text>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
           <Pressable
             hitSlop={8}
@@ -157,9 +158,9 @@ function CodeBlock({ code, lang, theme }: { code: string; lang: string; theme: a
           </Pressable>
         </View>
       </View>
-      <Text selectable style={{ color: theme.codeText, fontFamily: "monospace", fontSize: 12, lineHeight: 17, padding: 10 }}>
+      <Text selectable style={{ color: theme.codeText, fontFamily: fonts.mono, fontSize: 12, lineHeight: 17, padding: 10 }}>
         {tokens.map((t, i) => (
-          <Text key={i} style={{ color: t.color, fontFamily: "monospace", fontSize: 12 }}>
+          <Text key={i} style={{ color: t.color, fontFamily: fonts.mono, fontSize: 12 }}>
             {t.text}
           </Text>
         ))}
