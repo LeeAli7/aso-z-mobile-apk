@@ -35,6 +35,17 @@ export interface Theme {
   purple: string;
 }
 
+export const fonts = {
+  /** Основной текст (MiSansLatin — кириллица падает на системный, это ок). */
+  sansMedium: "MiSansLatin-Medium",
+  sansDemi: "MiSansLatin-Demibold",
+  /** Моноширинный для кода и терминал-меток (Geist Mono — фирменный шрифт Kimi). */
+  mono: "GeistMono",
+  monoItalic: "GeistMono-Italic",
+  /** Пиксельный, для ретро-заголовков. */
+  pixel: "PixelifySans",
+} as const;
+
 export const themes: Record<"light" | "dark", Theme> = {
   dark: {
     name: "dark",

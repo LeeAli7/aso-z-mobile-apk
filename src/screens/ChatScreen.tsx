@@ -27,12 +27,11 @@ import { CapBadge } from "../components/ui";
 import { renderMarkdown } from "../components/Markdown";
 import { ThinkingBlock } from "../components/kimi/ThinkingBlock";
 import { ToolCard } from "../components/kimi/ToolCard";
+import { StorageSheet } from "../components/kimi/StorageSheet";
+import { fonts } from "../theme/tokens";
 import {
   VibeProject,
   listProjects,
-  createProject,
-  deleteProject,
-  renameProject,
   treeFiles,
   listFiles,
   parseFileBlocks,
@@ -40,6 +39,7 @@ import {
 } from "../core/vibeLocal";
 import { openInTermux, openFolderInFileManager } from "../core/termux";
 import { IconButton, IconName } from "../design-system/components/IconButton";
+import { GlassPressable } from "../design-system/components/Glass";
 import { Sheet } from "../design-system/components/Sheet";
 import { Button } from "../design-system/components/Button";
 import { Input } from "../design-system/components/Input";
@@ -60,14 +60,9 @@ export function ChatScreen() {
   const [deleteTarget, setDeleteTarget] = useState<Session | null>(null);
   const [editTarget, setEditTarget] = useState<Msg | null>(null);
   const [editValue, setEditValue] = useState("");
-  // ── окно проектов (всё в одном чате, как в Kimi) ──
+  // ── окно хранилища (проекты + файлы + инструкции, как у Hermes) ──
   const [projects, setProjects] = useState<VibeProject[]>([]);
-  const [projectsOpen, setProjectsOpen] = useState(false);
-  const [newProjectOpen, setNewProjectOpen] = useState(false);
-  const [newProjectName, setNewProjectName] = useState("");
-  const [newProjectDesc, setNewProjectDesc] = useState("");
-  const [projectMenu, setProjectMenu] = useState<VibeProject | null>(null);
-  const [projectRenameValue, setProjectRenameValue] = useState("");
+  const [storageOpen, setStorageOpen] = useState(false);
   const stopRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const listRef = useRef<FlatList<Msg>>(null);
@@ -98,9 +93,9 @@ export function ChatScreen() {
     } catch {}
   }, []);
 
-  const openProjectsSheet = useCallback(() => {
+  const openStorageSheet = useCallback(() => {
     loadProjects();
-    setProjectsOpen(true);
+    setStorageOpen(true);
   }, [loadProjects]);
 
   /**
@@ -109,7 +104,7 @@ export function ChatScreen() {
    */
   const selectProject = useCallback(
     (p: VibeProject | null) => {
-      setProjectsOpen(false);
+      setStorageOpen(false);
       if (!p) {
         // отвязать: только если у сессии нет проекта — вернуть в обычный чат
         if (active?.projectId) {
@@ -134,21 +129,6 @@ export function ChatScreen() {
     },
     [active, dispatch, state.sessions, setActive],
   );
-
-  const createNewProject = useCallback(async () => {
-    const n = newProjectName.trim();
-    if (!n) return;
-    try {
-      const p = await createProject(n, newProjectDesc);
-      setNewProjectName("");
-      setNewProjectDesc("");
-      setNewProjectOpen(false);
-      loadProjects();
-      selectProject(p);
-    } catch (e: any) {
-      showToast("err", String(e?.message || e));
-    }
-  }, [newProjectName, newProjectDesc, loadProjects, selectProject]);
 
   const copyMsg = (m: Msg) => Clipboard.setStringAsync(m.content).catch(() => {});
   const shareMsg = (m: Msg) => Share.share({ message: m.content }).catch(() => {});
@@ -450,77 +430,53 @@ export function ChatScreen() {
     .filter((s) => !search.trim() || s.name.toLowerCase().includes(search.trim().toLowerCase()));
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      {/* header */}
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingBottom: 8, paddingTop: insets.top + 4, borderBottomWidth: 1, borderBottomColor: theme.border, backgroundColor: theme.bg }}>
-        <IconButton name="menu" onPress={() => setSessionsOpen(true)} accessibilityLabel={t("sessions")} />
-        <Pressable onPress={() => setModelsOpen(true)} style={{ flex: 1, paddingVertical: 6, paddingLeft: 6 }}>
-          <Text style={{ color: theme.text, fontSize: 14, fontWeight: "600" }}>
-            <Text style={{ color: theme.accentHi }}>● </Text>{modelName}
-          </Text>
-          <Text numberOfLines={1} style={{ color: theme.mute, fontSize: 10.5, marginTop: 1 }}>{active?.name ?? t("chat_title")}</Text>
-        </Pressable>
-        {activeProject && (
-          <>
-            <IconButton
-              name="folder-open"
-              size={17}
-              onPress={async () => {
-                if (!activeProject) return;
-                const r = await openFolderInFileManager(activeProject.id);
-                if (!r.ok) showToast("err", r.message);
-              }}
-              accessibilityLabel="Открыть папку проекта"
-            />
-            <IconButton
-              name="terminal"
-              size={17}
-              onPress={async () => {
-                if (!activeProject) return;
-                const r = await openInTermux(activeProject.id);
-                if (!r.ok) showToast("err", r.message);
-              }}
-              accessibilityLabel="Открыть проект в Termux"
-            />
-          </>
-        )}
-        <IconButton name="add" onPress={handleNewSession} accessibilityLabel={t("newSession")} />
-      </View>
+      {/* header: круглые кнопки + капсулы модель/проект (всё скруглённое, как Kimi) */}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingBottom: 10, paddingTop: insets.top + 6, backgroundColor: theme.bg }}>
+        <IconButton name="menu" size={19} onPress={() => setSessionsOpen(true)} accessibilityLabel={t("sessions")} />
 
-      {/* чип проекта — выбор/смена проекта прямо из чата (как Kimi) */}
-      <Pressable
-        onPress={openProjectsSheet}
-        style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: theme.bg }}
-      >
-        <MaterialIcons name="folder" size={13} color={activeProject ? theme.accentHi : theme.mute} />
-        <Text
-          numberOfLines={1}
-          style={{
-            flex: 1,
-            color: activeProject ? theme.accentHi : theme.mute,
-            fontSize: 11.5,
-            fontWeight: activeProject ? "600" : "400",
-          }}
+        {/* капсула модели — стекло */}
+        <GlassPressable
+          onPress={() => setModelsOpen(true)}
+          radius={22}
+          style={{ flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 14, height: 44 }}
+          accessibilityLabel={t("model_select")}
         >
-          {activeProject
-            ? `${activeProject.name}${(activeProject as any).fileCount ? ` · ${(activeProject as any).fileCount} файлов` : ""}`
-            : "Выбрать проект…"}
-        </Text>
-        {activeProject ? (
-          <Pressable
-            onPress={() => selectProject(null)}
-            hitSlop={8}
-            accessibilityLabel="Отвязать проект"
-          >
-            <MaterialIcons name="close" size={14} color={theme.mute} />
-          </Pressable>
-        ) : (
-          <MaterialIcons name="chevron-right" size={14} color={theme.mute} />
-        )}
-      </Pressable>
+          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.accentHi }} />
+          <Text style={{ color: theme.text, fontSize: 13, fontWeight: "600", fontFamily: fonts.sansDemi }} numberOfLines={1}>
+            {modelName}
+          </Text>
+          <MaterialIcons name="keyboard-arrow-down" size={16} color={theme.mute} />
+        </GlassPressable>
+
+        {/* капсула хранилища (проекты + файлы + инструкции) — как хранилище Hermes */}
+        <GlassPressable
+          onPress={openStorageSheet}
+          radius={22}
+          style={{
+            flexDirection: "row", alignItems: "center", gap: 6,
+            paddingHorizontal: 12, height: 44, flexShrink: 1,
+          }}
+          accessibilityLabel="Хранилище"
+        >
+          <MaterialIcons name="inventory-2" size={15} color={activeProject ? theme.accentHi : theme.mute} />
+          <Text numberOfLines={1} style={{ color: activeProject ? theme.accentHi : theme.dim, fontSize: 12, fontFamily: fonts.mono, flexShrink: 1 }}>
+            {activeProject ? activeProject.name : "Хранилище"}
+          </Text>
+          {activeProject ? (
+            <Pressable onPress={() => selectProject(null)} hitSlop={8} accessibilityLabel="Отвязать проект">
+              <MaterialIcons name="close" size={14} color={theme.mute} />
+            </Pressable>
+          ) : (
+            <MaterialIcons name="keyboard-arrow-down" size={15} color={theme.mute} />
+          )}
+        </GlassPressable>
+
+        <IconButton name="add" size={19} onPress={handleNewSession} accessibilityLabel={t("newSession")} />
+      </View>
 
       {/* messages */}
       {(!active || active.messages.length === 0) ? (
-        <EmptyChat theme={theme} hasSession={!!active} />
+        <EmptyChat theme={theme} />
       ) : (
         <FlatList
           ref={listRef}
@@ -546,29 +502,48 @@ export function ChatScreen() {
         keyboardVerticalOffset={Platform.OS === "ios" ? 0 : insets.top}
       >
         <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8, paddingHorizontal: 12, paddingTop: 6, paddingBottom: insets.bottom + 8, backgroundColor: theme.bg }}>
-          {/* капсула ввода с кнопкой отправки ВНУТРИ (как на макете) */}
-          <View style={{ flex: 1, flexDirection: "row", alignItems: "flex-end", backgroundColor: theme.surface2, borderRadius: 22, paddingLeft: 16, paddingRight: 5, paddingTop: 5, paddingBottom: 5, minHeight: 44 }}>
+          {/* широкая капсула ввода: + | placeholder | микрофон|send по тексту */}
+          <View style={{ flex: 1, flexDirection: "row", alignItems: "center", backgroundColor: theme.surface2, borderRadius: 24, paddingLeft: 4, paddingRight: 4, paddingVertical: 4, minHeight: 48 }}>
+            <Pressable
+              onPress={() => showToast("info", "Прикрепить файл — скоро")}
+              hitSlop={6}
+              style={{ width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", backgroundColor: theme.surface }}
+              accessibilityLabel="Прикрепить"
+            >
+              <MaterialIcons name="add" size={20} color={theme.dim} />
+            </Pressable>
             <TextInput
               value={text}
               onChangeText={setText}
               placeholder={t("message_placeholder")}
               placeholderTextColor={theme.mute}
               multiline
-              textAlignVertical="top"
-              style={{ flex: 1, fontSize: 14, color: theme.text, maxHeight: 96, paddingTop: 8, paddingBottom: 8, marginRight: 6 }}
+              textAlignVertical="center"
+              style={{ flex: 1, fontSize: 14, color: theme.text, maxHeight: 92, paddingVertical: 8, marginHorizontal: 4, fontFamily: fonts.sansMedium }}
             />
             {streaming ? (
-              <Pressable onPress={() => { stopRef.current = true; setStreaming(false); abortRef.current?.abort(); }} style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: theme.danger, alignItems: "center", justifyContent: "center" }}>
+              <Pressable
+                onPress={() => { stopRef.current = true; setStreaming(false); abortRef.current?.abort(); }}
+                style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: theme.danger, alignItems: "center", justifyContent: "center" }}
+                accessibilityLabel="Остановить"
+              >
                 <MaterialIcons name="stop" size={18} color="#fff" />
               </Pressable>
+            ) : text.trim() ? (
+              <Pressable
+                onPress={send}
+                style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: theme.accent, alignItems: "center", justifyContent: "center" }}
+                accessibilityLabel="Отправить"
+              >
+                <MaterialIcons name="arrow-upward" size={19} color={theme.onAccent} />
+              </Pressable>
             ) : (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                {/* серебристая 4-конечная звездочка (как на макете) */}
-                <MaterialIcons name="auto-awesome" size={13} color="#e8e6e1" style={{ opacity: 0.9 }} />
-                <Pressable onPress={send} disabled={!text.trim()} style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: theme.accent, opacity: text.trim() ? 1 : 0.45, alignItems: "center", justifyContent: "center" }}>
-                  <MaterialIcons name="send" size={17} color={theme.onAccent} style={{ transform: [{ rotate: "-30deg" }] }} />
-                </Pressable>
-              </View>
+              <Pressable
+                style={{ width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", backgroundColor: theme.surface }}
+                accessibilityLabel="Голосовой ввод"
+              >
+                <MaterialIcons name="mic" size={18} color={theme.dim} />
+              </Pressable>
             )}
           </View>
         </View>
@@ -640,163 +615,13 @@ export function ChatScreen() {
         })}
       </Sheet>
 
-      {/* ── Проекты sheet (окно проектов — как Kimi: выбор/создание/контекст) ── */}
-      <Sheet visible={projectsOpen} onClose={() => setProjectsOpen(false)} title="Проекты" snapPoints={["78%"]}>
-        {!newProjectOpen ? (
-          <Button
-            title={"＋ Новый проект"}
-            onPress={() => setNewProjectOpen(true)}
-            fullWidth
-          />
-        ) : (
-          <View>
-            <Input
-              value={newProjectName}
-              onChangeText={setNewProjectName}
-              placeholder="Название проекта"
-              autoFocus
-              style={{ marginTop: 2 }}
-            />
-            <View style={{ height: 8 }} />
-            <Input
-              value={newProjectDesc}
-              onChangeText={setNewProjectDesc}
-              placeholder="Описание (что это за проект?)"
-              multiline
-              style={{ minHeight: 60 }}
-            />
-            <View style={{ height: 8 }} />
-            <Button
-              title="Создать и открыть"
-              onPress={createNewProject}
-              disabled={!newProjectName.trim()}
-              fullWidth
-            />
-            <Button
-              title="Отмена"
-              variant="ghost"
-              onPress={() => { setNewProjectOpen(false); setNewProjectName(""); setNewProjectDesc(""); }}
-              fullWidth
-              style={{ marginTop: 6 }}
-            />
-          </View>
-        )}
-
-        {/* обычный чат без проекта */}
-        <Pressable
-          onPress={() => selectProject(null)}
-          style={{
-            flexDirection: "row", alignItems: "center", gap: 10,
-            padding: 12, borderRadius: 11, borderWidth: 1,
-            borderColor: !activeProject ? theme.accent : theme.border,
-            backgroundColor: !activeProject ? theme.accentDim : theme.surface,
-            marginTop: 10,
-          }}
-        >
-          <MaterialIcons name="chat-bubble-outline" size={18} color={!activeProject ? theme.accentHi : theme.mute} />
-          <Text style={{ flex: 1, color: !activeProject ? theme.accentHi : theme.text, fontSize: 13, fontWeight: "600" }}>
-            Без проекта
-          </Text>
-          <Text style={{ color: theme.mute, fontSize: 10 }}>обычный чат</Text>
-        </Pressable>
-
-        <Text style={{ color: theme.mute, fontSize: 11, marginTop: 14, marginBottom: 4 }}>
-          {projects.length === 0 ? "Пока нет проектов — создай первый." : `${projects.length} проект(ов)`}
-        </Text>
-        {projects.map((p) => {
-          const on = activeProject?.id === p.id;
-          return (
-            <Pressable
-              key={p.id}
-              onPress={() => selectProject(p)}
-              style={{
-                flexDirection: "row", alignItems: "center", gap: 10,
-                padding: 12, borderRadius: 11, borderWidth: 1,
-                borderColor: on ? theme.accent : theme.border,
-                backgroundColor: on ? theme.accentDim : theme.surface,
-                marginTop: 8,
-              }}
-            >
-              <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: on ? theme.accentDim : theme.surface2, alignItems: "center", justifyContent: "center" }}>
-                <MaterialIcons name="folder" size={18} color={on ? theme.accentHi : theme.dim} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text numberOfLines={1} style={{ color: theme.text, fontSize: 13, fontWeight: "500" }}>{p.name}</Text>
-                {p.desc ? <Text numberOfLines={1} style={{ color: theme.mute, fontSize: 10.5, marginTop: 1 }}>{p.desc}</Text> : null}
-                <Text style={{ color: theme.mute, fontSize: 9.5, marginTop: 2, fontFamily: "monospace" }}>
-                  {(p as any).fileCount ?? 0} файлов
-                </Text>
-              </View>
-              {on && <MaterialIcons name="check-circle" size={16} color={theme.accentHi} />}
-              <Pressable
-                onPress={() => { setProjectMenu(p); setProjectRenameValue(p.name); }}
-                hitSlop={8}
-                style={{ width: 30, height: 30, borderRadius: 8, alignItems: "center", justifyContent: "center" }}
-                accessibilityLabel="Меню проекта"
-              >
-                <MaterialIcons name="more-vert" size={17} color={theme.dim} />
-              </Pressable>
-            </Pressable>
-          );
-        })}
-      </Sheet>
-
-      {/* ── Меню проекта (переименовать/удалить) ── */}
-      <Sheet visible={!!projectMenu} onClose={() => setProjectMenu(null)} title={projectMenu?.name ?? ""} snapPoints={["36%"]}>
-        {projectMenu && (
-          <>
-            <Input
-              value={projectRenameValue}
-              onChangeText={setProjectRenameValue}
-              placeholder="Новое название"
-              autoFocus
-              style={{ marginTop: 2 }}
-            />
-            <View style={{ height: 10 }} />
-            <Button
-              title="Переименовать"
-              variant="secondary"
-              onPress={async () => {
-                const nm = projectRenameValue.trim();
-                if (nm && nm !== projectMenu.name) {
-                  try {
-                    await renameProject(projectMenu.id, nm);
-                    dispatch({ type: "UPDATE_SESSION", sessionId: projectMenu.id, patch: { name: nm } });
-                    showToast("ok", "Проект переименован");
-                  } catch (e: any) {
-                    showToast("err", String(e?.message || e));
-                  }
-                }
-                setProjectMenu(null);
-                loadProjects();
-              }}
-              fullWidth
-            />
-            <Button
-              title="Удалить проект"
-              variant="danger"
-              onPress={async () => {
-                const p = projectMenu;
-                setProjectMenu(null);
-                try {
-                  await deleteProject(p.id);
-                  // сессии этого проекта больше не существуют
-                  if (state.sessions.some((s) => s.projectId === p.id)) {
-                    const sid = state.sessions.find((s) => s.projectId === p.id)?.id;
-                    if (sid) dispatch({ type: "DELETE_SESSION", sessionId: sid });
-                  }
-                  showToast("ok", "Проект удалён");
-                  loadProjects();
-                } catch (e: any) {
-                  showToast("err", String(e?.message || e));
-                }
-              }}
-              fullWidth
-              style={{ marginTop: 6 }}
-            />
-          </>
-        )}
-      </Sheet>
+      {/* ── Хранилище (проекты + файлы + инструкции — как хранилище Hermes) ── */}
+      <StorageSheet
+        visible={storageOpen}
+        onClose={() => setStorageOpen(false)}
+        activeProjectId={active?.projectId ?? null}
+        onSelectProject={selectProject}
+      />
 
       {/* ── Message actions sheet (in-app, не системный Alert) ── */}
       <Sheet visible={!!msgMenuTarget} onClose={() => setMsgMenuTarget(null)} title={msgMenuTarget?.role === "user" ? "Сообщение" : "Ответ"} snapPoints={["40%"]}>
@@ -964,142 +789,16 @@ function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress }: { msg: Msg
   );
 }
 
-/* ── Пустое состояние чата: круглое пульсирующее лого + бесконечные волны ── */
-
-// RN-web плохо дружит с Animated.loop (гасит opacity) — на web отдаём
-// статичный видимый блок, на нативе — полную бесконечную анимацию.
-const IS_NATIVE = Platform.OS === "android" || Platform.OS === "ios";
-
-function EmptyChat({ theme, hasSession }: { theme: any; hasSession: boolean }) {
-  if (!IS_NATIVE) {
-    return <EmptyChatStatic theme={theme} hasSession={hasSession} />;
-  }
-  return <EmptyChatAnimated theme={theme} hasSession={hasSession} />;
-}
-
-/** Web-версия: лого всегда видно, волны статичны (RN-web ломает loop). */
-function EmptyChatStatic({ theme, hasSession }: { theme: any; hasSession: boolean }) {
+/* ── Пустой экран: только приветственный текст (сверху, не по центру) ── */
+function EmptyChat({ theme }: { theme: any }) {
   return (
-    <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 40 }}>
-      <View style={{ width: 168, height: 168, alignItems: "center", justifyContent: "center", marginBottom: 26 }}>
-        {/* статичные волны */}
-        <View style={{ position: "absolute", width: 204, height: 204, borderRadius: 102, borderWidth: 1.5, borderColor: theme.accentHi, opacity: 0.35 }} />
-        <View style={{ position: "absolute", width: 178, height: 178, borderRadius: 89, borderWidth: 1.5, borderColor: theme.accent, opacity: 0.45 }} />
-        {/* свечение */}
-        <View style={{ position: "absolute", width: 152, height: 152, borderRadius: 76, backgroundColor: theme.accent, opacity: 0.4 }} />
-        <Image
-          source={require("../../assets/logo.png")}
-          style={{ width: 132, height: 132, borderRadius: 66 }}
-        />
-      </View>
-      <Text style={{ color: theme.text, fontSize: 20, fontWeight: "700", marginBottom: 8, letterSpacing: -0.3 }}>
-        Привет! Чем займёмся сегодня?
+    <View style={{ flex: 1, paddingTop: 46, paddingHorizontal: 22 }}>
+      <Text style={{ color: theme.text, fontSize: 24, fontWeight: "700", letterSpacing: -0.5, fontFamily: fonts.mono, lineHeight: 31 }}>
+        Привет!{"\n"}Чем займёмся сегодня?
       </Text>
-      <Text style={{ color: theme.dim, fontSize: 13.5, textAlign: "center", lineHeight: 20, maxWidth: 260 }}>
-        Задай вопрос или дай задачу — бот ответит в потоке.
+      <Text style={{ color: theme.dim, fontSize: 13.5, marginTop: 12, lineHeight: 21 }}>
+        Спроси что угодно — помогу с кодом, проектами и задачами.
       </Text>
-      {hasSession && (
-        <Text style={{ color: theme.mute, fontSize: 11, marginTop: 14 }}>
-          Это новая сессия — первое сообщение начнёт её.
-        </Text>
-      )}
-    </View>
-  );
-}
-
-/** Нативная версия: круглое лого, бесконечный пульс + расходящиеся волны. */
-function EmptyChatAnimated({ theme, hasSession }: { theme: any; hasSession: boolean }) {
-  const fade = useRef(new Animated.Value(0)).current;
-  const pulse = useRef(new Animated.Value(0)).current;
-  const wave1 = useRef(new Animated.Value(0)).current;
-  const wave2 = useRef(new Animated.Value(0)).current;
-  const wave3 = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.timing(fade, { toValue: 1, duration: 500, useNativeDriver: true }).start();
-
-    // пульс логотипа — бесконечно
-    const pulseLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 1000, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 0, duration: 1000, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-      ]),
-    );
-    pulseLoop.start();
-
-    // волны: три кольца с фазовым сдвигом, бесконечно расходятся
-    const waveLoop = (w: Animated.Value, offset: number) => {
-      const loop = Animated.loop(
-        Animated.timing(w, { toValue: 1, duration: 2600, easing: Easing.linear, useNativeDriver: true }),
-      );
-      // старт с фазы offset (0/0.33/0.66)
-      w.setValue(offset);
-      loop.start();
-      return loop;
-    };
-    const wl1 = waveLoop(wave1, 0);
-    const wl2 = waveLoop(wave2, 0.33);
-    const wl3 = waveLoop(wave3, 0.66);
-
-    return () => {
-      pulseLoop.stop();
-      wl1.stop();
-      wl2.stop();
-      wl3.stop();
-    };
-  }, [fade, pulse, wave1, wave2, wave3]);
-
-  const logoScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] });
-  const logoGlow = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.75] });
-
-  const wave = (w: Animated.Value) => ({
-    opacity: w.interpolate({ inputRange: [0, 0.12, 1], outputRange: [0.9, 0.4, 0] }),
-    scale: w.interpolate({ inputRange: [0, 1], outputRange: [1, 2.1] }),
-  });
-
-  return (
-    <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 40 }}>
-      <Animated.View style={{ opacity: fade, alignItems: "center" }}>
-        <View style={{ width: 168, height: 168, alignItems: "center", justifyContent: "center", marginBottom: 26 }}>
-          {/* бесконечные волны-кольца */}
-          {[wave1, wave2, wave3].map((w, i) => {
-            const s = wave(w);
-            return (
-              <Animated.View
-                key={i}
-                style={{
-                  position: "absolute", width: 132, height: 132, borderRadius: 66,
-                  borderWidth: 2, borderColor: theme.accentHi,
-                  opacity: s.opacity, transform: [{ scale: s.scale }],
-                }}
-              />
-            );
-          })}
-          {/* свечение-ореол */}
-          <Animated.View
-            style={{
-              position: "absolute", width: 152, height: 152, borderRadius: 76,
-              backgroundColor: theme.accent, opacity: logoGlow, transform: [{ scale: logoScale }],
-            }}
-          />
-          <Animated.Image
-            source={require("../../assets/logo.png")}
-            style={{ width: 132, height: 132, borderRadius: 66, transform: [{ scale: logoScale }] }}
-          />
-        </View>
-
-        <Text style={{ color: theme.text, fontSize: 20, fontWeight: "700", marginBottom: 8, letterSpacing: -0.3 }}>
-          Привет! Чем займёмся сегодня?
-        </Text>
-        <Text style={{ color: theme.dim, fontSize: 13.5, textAlign: "center", lineHeight: 20, maxWidth: 260 }}>
-          Задай вопрос или дай задачу — бот ответит в потоке.
-        </Text>
-        {hasSession && (
-          <Text style={{ color: theme.mute, fontSize: 11, marginTop: 14 }}>
-            Это новая сессия — первое сообщение начнёт её.
-          </Text>
-        )}
-      </Animated.View>
     </View>
   );
 }

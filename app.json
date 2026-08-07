@@ -27,6 +27,19 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "./assets/fonts/MiSansLatin-Regular.otf",
+            "./assets/fonts/MiSansLatin-Medium.otf",
+            "./assets/fonts/MiSansLatin-Demibold.otf",
+            "./assets/fonts/GeistMono-Regular.ttf",
+            "./assets/fonts/GeistMono-Italic.ttf",
+            "./assets/fonts/PixelifySans-Regular.ttf"
+          ]
+        }
+      ],
       "expo-secure-store",
       [
         "expo-image-picker",

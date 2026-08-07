@@ -1,11 +1,10 @@
 /**
- * Aso-z Mobile — входная точка.
- * По ТЗ: ОДИН экран (чат = редактор = терминал). Никаких нижних табов.
- *  - ChatScreen — единственный главный экран (всё в одном треде).
- *  - Settings/Providers/VibeProject открываются поверх из бургер-меню чата.
+ * Aso-z 2.0 — навигация по Kimi (4 вкладки: Чат / Поиск / Агент / Мои).
+ * Всё в стиле Kimi: тёмный #0D0D0D, капсулы, Geist Mono, без эмодзи.
  */
 import React from "react";
 import { StatusBar } from "expo-status-bar";
+import { useFonts } from "expo-font";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { NavigationContainer, DefaultTheme, DarkTheme } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
@@ -57,6 +56,16 @@ function ThemedApp() {
 }
 
 export default function App() {
+  // Шрифты Kimi (MiSans/Geist Mono/Pixelify) — вытащены из APK Kimi.
+  const [fontsLoaded] = useFonts({
+    "MiSansLatin-Regular": require("./assets/fonts/MiSansLatin-Regular.otf"),
+    "MiSansLatin-Medium": require("./assets/fonts/MiSansLatin-Medium.otf"),
+    "MiSansLatin-Demibold": require("./assets/fonts/MiSansLatin-Demibold.otf"),
+    GeistMono: require("./assets/fonts/GeistMono-Regular.ttf"),
+    "GeistMono-Italic": require("./assets/fonts/GeistMono-Italic.ttf"),
+    PixelifySans: require("./assets/fonts/PixelifySans-Regular.ttf"),
+  });
+  if (!fontsLoaded) return null;
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>

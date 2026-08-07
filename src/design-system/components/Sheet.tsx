@@ -7,6 +7,9 @@
  *
  * Плюсы Modal-подхода: нет зависимости от жестов/Reanimated,
  * рендерится поверх всего, можно закрыть по backdrop.
+ *
+ * V3: панель — стекло (глэссморфизм, BlurView поверх scrim),
+ * в стиле Kimi: молочное стекло, тонкая рамка, блик сверху.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -18,6 +21,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useApp } from "../../store/AppStore";
 import { IconButton } from "./IconButton";
@@ -74,6 +78,9 @@ export function Sheet({
     }
   }, [visible]);
 
+  const tint = theme.name === "dark" ? "dark" : "light";
+  const glassBorder = theme.name === "dark" ? "rgba(255,255,255,.14)" : "rgba(255,255,255,.55)";
+
   return (
     <Modal
       visible={visible}
@@ -86,15 +93,19 @@ export function Sheet({
         {/* backdrop — тап закрывает */}
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Закрыть" />
 
-        {/* панель */}
-        <View
+        {/* стеклянная панель */}
+        <BlurView
+          intensity={42}
+          tint={tint}
           style={[
             styles.panel,
             {
               height: `${heightPct()}%`,
-              backgroundColor: theme.surface,
+              backgroundColor: theme.name === "dark" ? "rgba(18,18,20,.62)" : "rgba(255,255,255,.72)",
               borderTopLeftRadius: radii.xl,
               borderTopRightRadius: radii.xl,
+              borderWidth: 1,
+              borderColor: glassBorder,
               paddingBottom: insets.bottom + 8,
               transform: [{ translateY: offsetY }],
             },
@@ -119,7 +130,7 @@ export function Sheet({
           >
             {children}
           </ScrollView>
-        </View>
+        </BlurView>
       </View>
     </Modal>
   );
