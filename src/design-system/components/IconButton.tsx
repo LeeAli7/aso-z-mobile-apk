@@ -58,14 +58,14 @@ export function IconButton({
           justifyContent: "center",
           borderWidth: 1,
           borderColor: glass
-            ? theme.name === "dark" ? "rgba(255,255,255,.14)" : "rgba(255,255,255,.55)"
+            ? theme.name === "dark" ? "rgba(255,255,255,.18)" : "rgba(255,255,255,.7)"
             : theme.border,
           overflow: "hidden",
           shadowColor: "#000",
-          shadowOpacity: 0.3,
-          shadowRadius: 10,
-          shadowOffset: { width: 0, height: 4 },
-          elevation: 5,
+          shadowOpacity: 0.4,
+          shadowRadius: 12,
+          shadowOffset: { width: 0, height: 5 },
+          elevation: 6,
           opacity: pressed ? 0.68 : disabled ? 0.4 : 1,
         },
         style,
@@ -73,7 +73,7 @@ export function IconButton({
     >
       {glass && (
         <BlurView
-          intensity={36}
+          intensity={46}
           tint={tint}
           style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderRadius: touchTarget / 2 }}
         />

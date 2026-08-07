@@ -19,14 +19,14 @@ export function glassStyle(theme: any, radius: number): ViewStyle {
   return {
     borderRadius: radius,
     borderWidth: 1,
-    borderColor: theme.name === "dark" ? "rgba(255,255,255,.14)" : "rgba(255,255,255,.6)",
-    backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.055)" : "rgba(255,255,255,.42)",
-    // верхний блик + мягкая тень (глэм-фирменные)
+    borderColor: theme.name === "dark" ? "rgba(255,255,255,.18)" : "rgba(255,255,255,.7)",
+    backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.12)" : "rgba(255,255,255,.5)",
+    // верхний блик + мягкая тень (глэм-фирменные) — тень теперь заметнее
     shadowColor: "#000",
-    shadowOpacity: theme.name === "dark" ? 0.35 : 0.12,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 4,
+    shadowOpacity: theme.name === "dark" ? 0.5 : 0.18,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
     overflow: "hidden",
   };
 }
