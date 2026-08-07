@@ -40,6 +40,7 @@ import {
 import { openInTermux, openFolderInFileManager } from "../core/termux";
 import { IconButton, IconName } from "../design-system/components/IconButton";
 import { GlassPressable } from "../design-system/components/Glass";
+import { GlassBackdrop } from "../design-system/components/GlassBackdrop";
 import { Sheet } from "../design-system/components/Sheet";
 import { Button } from "../design-system/components/Button";
 import { Input } from "../design-system/components/Input";
@@ -430,8 +431,10 @@ export function ChatScreen() {
     .filter((s) => !search.trim() || s.name.toLowerCase().includes(search.trim().toLowerCase()));
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      {/* header: круглые кнопки + капсулы модель/проект (всё скруглённое, как Kimi) */}
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingBottom: 10, paddingTop: insets.top + 6, backgroundColor: theme.bg }}>
+      {/* светящиеся пятна под всем стеклом — чтобы глэссморфизм был виден */}
+      <GlassBackdrop fixed />
+      {/* header: круглые стеклянные кнопки + капсулы (всё скруглённое, как Kimi) */}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingBottom: 10, paddingTop: insets.top + 6 }}>
         <IconButton name="menu" size={19} onPress={() => setSessionsOpen(true)} accessibilityLabel={t("sessions")} />
 
         {/* капсула модели — стекло */}
@@ -501,13 +504,22 @@ export function ChatScreen() {
         behavior={Platform.OS === "ios" ? "padding" : Platform.OS === "android" ? "height" : undefined}
         keyboardVerticalOffset={Platform.OS === "ios" ? 0 : insets.top}
       >
-        <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8, paddingHorizontal: 12, paddingTop: 6, paddingBottom: insets.bottom + 8, backgroundColor: theme.bg }}>
-          {/* широкая капсула ввода: + | placeholder | микрофон|send по тексту */}
-          <View style={{ flex: 1, flexDirection: "row", alignItems: "center", backgroundColor: theme.surface2, borderRadius: 24, paddingLeft: 4, paddingRight: 4, paddingVertical: 4, minHeight: 48 }}>
+        <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8, paddingHorizontal: 12, paddingTop: 6, paddingBottom: insets.bottom + 8 }}>
+          {/* стеклянная широкая капсула ввода: + | placeholder | микрофон/send/stop */}
+          <GlassPressable
+            radius={24}
+            intensity={52}
+            style={{ flex: 1, flexDirection: "row", alignItems: "center", paddingLeft: 4, paddingRight: 4, paddingVertical: 4, minHeight: 52 }}
+            accessibilityLabel="Поле ввода"
+          >
             <Pressable
               onPress={() => showToast("info", "Прикрепить файл — скоро")}
               hitSlop={6}
-              style={{ width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", backgroundColor: theme.surface }}
+              style={({ pressed }) => ({
+                width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center",
+                backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.09)" : "rgba(255,255,255,.6)",
+                borderWidth: 1, borderColor: theme.border, opacity: pressed ? 0.7 : 1,
+              })}
               accessibilityLabel="Прикрепить"
             >
               <MaterialIcons name="add" size={20} color={theme.dim} />
@@ -539,13 +551,13 @@ export function ChatScreen() {
               </Pressable>
             ) : (
               <Pressable
-                style={{ width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", backgroundColor: theme.surface }}
+                style={{ width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.09)" : "rgba(255,255,255,.6)", borderWidth: 1, borderColor: theme.border }}
                 accessibilityLabel="Голосовой ввод"
               >
                 <MaterialIcons name="mic" size={18} color={theme.dim} />
               </Pressable>
             )}
-          </View>
+          </GlassPressable>
         </View>
       </KeyboardAvoidingView>
 
