@@ -6,12 +6,76 @@
  * Поддерживает: код-блоки (с кнопкой копирования), заголовки, списки,
  * цитаты, ссылки, bold/italic/inline-code, таблицы (базово, как текст).
  */
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { Linking, Pressable, Text, View } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useApp } from "../store/AppStore";
 import { showToast } from "../design-system/components/Toast";
 import * as Clipboard from "expo-clipboard";
+
+/* ── Подсветка синтаксиса (палитра VS Code Dark+, как prism4j у Kimi) ── */
+
+const TOKEN_COLORS: Record<string, string> = {
+  comment: "#6a9955", // //, /* */, # python
+  string: "#ce9178", // "…" '…' `…`
+  keyword: "#569cd6", // if/for/const/function/import...
+  number: "#b5cea8",
+  func: "#dcdcaa", // имя функции
+  type: "#4ec9b0", // классы/типы
+  property: "#9cdcfe", // члены/свойства
+  plain: "#d4d4d4",
+  lang: "#f0db4f",
+};
+
+const KEYWORDS =
+  "\\b(?:function|const|let|var|return|if|else|for|while|do|switch|case|break|continue|new|class|import|export|from|default|async|await|try|catch|finally|throw|typeof|instanceof|in|of|def|lambda|pass|with|as|raise|except|yield|global|return|and|or|not|None|True|False|select|from|where|group|by|order|having|join|left|right|inner|outer|on)\\b";
+
+// Регекс-токенизатор: жадные токены по приоритету.
+const TOKEN_RE = new RegExp(
+  [
+    `(\\/\\*[\\s\\S]*?\\*\\/|\\/\\/[^\\n]*)`, // 1 comment (блок/строка js)
+    `(#[^\\n]*)`, // 2 comment (# python/shell)
+    `("(?:[^"\\\\]|\\\\.)*"|'(?:[^'\\\\]|\\\\.)*')`, // 3 string (двойные/одинарные)
+    `(${KEYWORDS})`, // 4 keyword
+    `(\\b(?:0x[0-9a-fA-F]+|\\d+(?:\\.\\d+)?)\\b)`, // 5 number
+    `(\\b[A-Za-z_$][\\w$]*(?:\\s*\\())`, // 6 func call
+    `(\\b[A-Z][A-Za-z0-9_]*\\b)`, // 7 Type/класс (CamelCase)
+    `([A-Za-z_$][\\w$]*)`, // 8 identifier
+  ].join("|"),
+);
+
+interface Tok {
+  text: string;
+  color: string;
+}
+
+function tokenize(code: string): Tok[] {
+  const out: Tok[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  const re = new RegExp(TOKEN_RE.source, "g");
+  while ((m = re.exec(code))) {
+    if (m.index > last) out.push({ text: code.slice(last, m.index), color: TOKEN_COLORS.plain });
+    const [full] = m;
+    // индекс группы (m[1]..m[8])
+    for (let g = 1; g <= 8; g++) {
+      if (m[g] !== undefined) {
+        const type =
+          g === 1 || g === 2 ? "comment" :
+          g === 3 ? "string" :
+          g === 4 ? "keyword" :
+          g === 5 ? "number" :
+          g === 6 ? "func" :
+          g === 7 ? "type" : "plain";
+        out.push({ text: full, color: TOKEN_COLORS[type] });
+        break;
+      }
+    }
+    last = m.index + full.length;
+  }
+  if (last < code.length) out.push({ text: code.slice(last), color: TOKEN_COLORS.plain });
+  return out;
+}
 
 /* ── Inline-разбор: **bold**, *italic*, `code`, [text](url) ── */
 
@@ -61,6 +125,49 @@ function renderInline(text: string, theme: any, keyPrefix: string): React.ReactN
   return nodes;
 }
 
+/* ── Код-блок (Kimi-стиль: шапка с языком + копировать + wrap, подсветка) ── */
+
+function CodeBlock({ code, lang, theme }: { code: string; lang: string; theme: any }) {
+  const [wrapped, setWrapped] = useState(false);
+  const tokens = useMemo(() => tokenize(code), [code]);
+  return (
+    <View style={{ marginVertical: 6, borderRadius: 10, overflow: "hidden", borderWidth: 1, borderColor: theme.border, backgroundColor: theme.codeBg }}>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 10, paddingVertical: 5, backgroundColor: theme.surface2 }}>
+        <Text style={{ color: theme.mute, fontSize: 9.5, fontFamily: "monospace" }}>{lang || "code"}</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <Pressable
+            hitSlop={8}
+            onPress={() => setWrapped(!wrapped)}
+            accessibilityLabel="Перенос строк"
+            style={{ flexDirection: "row", alignItems: "center", gap: 3 }}
+          >
+            <MaterialIcons name="wrap-text" size={11} color={wrapped ? theme.accentHi : theme.dim} />
+            <Text style={{ color: wrapped ? theme.accentHi : theme.dim, fontSize: 10 }}>
+              {wrapped ? "Перенос включен" : "Перенос"}
+            </Text>
+          </Pressable>
+          <Pressable
+            hitSlop={8}
+            onPress={() => Clipboard.setStringAsync(code).then(() => showToast("ok", "Код скопирован"))}
+            style={{ flexDirection: "row", alignItems: "center", gap: 3 }}
+            accessibilityLabel="Копировать код"
+          >
+            <MaterialIcons name="content-copy" size={11} color={theme.dim} />
+            <Text style={{ color: theme.dim, fontSize: 10 }}>Копировать</Text>
+          </Pressable>
+        </View>
+      </View>
+      <Text selectable style={{ color: theme.codeText, fontFamily: "monospace", fontSize: 12, lineHeight: 17, padding: 10 }}>
+        {tokens.map((t, i) => (
+          <Text key={i} style={{ color: t.color, fontFamily: "monospace", fontSize: 12 }}>
+            {t.text}
+          </Text>
+        ))}
+      </Text>
+    </View>
+  );
+}
+
 /* ── Компонент ── */
 
 export function RichMarkdown({ content }: { content: string }) {
@@ -88,25 +195,7 @@ export function RichMarkdown({ content }: { content: string }) {
         i++; // закрывающий ```
         const code = buf.join("\n");
         const key = k++;
-        out.push(
-          <View key={`code${key}`} style={{ marginVertical: 6, borderRadius: 10, overflow: "hidden", borderWidth: 1, borderColor: theme.border, backgroundColor: theme.codeBg }}>
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 10, paddingVertical: 5, backgroundColor: theme.surface2 }}>
-              <Text style={{ color: theme.mute, fontSize: 9.5, fontFamily: "monospace" }}>{lang || "code"}</Text>
-              <Pressable
-                hitSlop={8}
-                onPress={() => Clipboard.setStringAsync(code).then(() => showToast("ok", "Код скопирован"))}
-                style={{ flexDirection: "row", alignItems: "center", gap: 3 }}
-                accessibilityLabel="Копировать код"
-              >
-                <MaterialIcons name="content-copy" size={11} color={theme.dim} />
-                <Text style={{ color: theme.dim, fontSize: 10 }}>Копировать</Text>
-              </Pressable>
-            </View>
-            <Text selectable style={{ color: theme.codeText, fontFamily: "monospace", fontSize: 12, lineHeight: 17, padding: 10 }}>
-              {code}
-            </Text>
-          </View>,
-        );
+        out.push(<CodeBlock key={`code${key}`} code={code} lang={lang} theme={theme} />);
         continue;
       }
 

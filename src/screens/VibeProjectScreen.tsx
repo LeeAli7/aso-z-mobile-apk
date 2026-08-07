@@ -23,6 +23,8 @@ import { MaterialIcons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import { useApp, genId } from "../store/AppStore";
 import { renderMarkdown } from "../components/Markdown";
+import { ThinkingBlock } from "../components/kimi/ThinkingBlock";
+import { ToolCard } from "../components/kimi/ToolCard";
 import { Sheet } from "../design-system/components/Sheet";
 import { IconButton } from "../design-system/components/IconButton";
 import { Button } from "../design-system/components/Button";
@@ -136,6 +138,10 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
         acc += tok;
         setMessages((m) => m.map((x) => (x.id === aiId ? { ...x, content: acc } : x)));
         scrollBottom();
+      },
+      onThinking: (thinking) => {
+        if (stopRef.current) return;
+        setMessages((m) => m.map((x) => (x.id === aiId ? { ...x, thinking } : x)));
       },
       onTool: (label) => {
         setMessages((m) => [...m, { id: genId(), role: "assistant", content: "", tool: label }]);
@@ -432,7 +438,7 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
                   onLongPress={() => setFileMenu({ name: item.name, isDir: item.isDir })}
                   style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 9, padding: 10, borderRadius: 9, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface, marginBottom: 6, opacity: pressed ? 0.85 : 1 })}
                 >
-                  <MaterialIcons name={item.isDir ? "folder" : "insert-drive-file"} size={16} color={item.isDir ? "#fbbf24" : theme.accentHi} />
+                  <MaterialIcons name={item.isDir ? "folder" : "insert-drive-file"} size={16} color={item.isDir ? theme.warn : theme.accentHi} />
                   <Text style={{ flex: 1, color: theme.text, fontSize: 12, fontFamily: "monospace" }}>{item.name}</Text>
                   <Text style={{ color: theme.mute, fontSize: 9.5, fontFamily: "monospace" }}>{item.isDir ? "" : formatBytes(item.size)}</Text>
                 </Pressable>
@@ -593,8 +599,8 @@ function VibeBubble({ msg, theme }: { msg: VibeMsg; theme: any }) {
   }
   if (msg.tool) {
     return (
-      <View style={{ alignSelf: "flex-start", marginBottom: 6, paddingHorizontal: 11, paddingVertical: 7, borderRadius: 9, borderWidth: 1, borderColor: "rgba(251,191,36,.35)", backgroundColor: "rgba(251,191,36,.06)" }}>
-        <Text style={{ color: "#fbbf24", fontSize: 10, fontFamily: "monospace" }}>⚙ {msg.tool}</Text>
+      <View style={{ alignSelf: "flex-start", marginBottom: 6 }}>
+        <ToolCard tool={msg.tool} state="loading" theme={theme} />
       </View>
     );
   }
@@ -612,7 +618,16 @@ function VibeBubble({ msg, theme }: { msg: VibeMsg; theme: any }) {
         {user ? (
           <Text style={{ color: theme.userText, fontSize: 14, lineHeight: 20 }}>{msg.content}</Text>
         ) : (
-          renderMarkdown(msg.content, theme)
+          <>
+            {msg.thinking ? (
+              <ThinkingBlock
+                text={msg.thinking}
+                status={msg.streaming ? "thinking" : "done"}
+                theme={theme}
+              />
+            ) : null}
+            {renderMarkdown(msg.content, theme)}
+          </>
         )}
       </View>
       {msg.result ? (

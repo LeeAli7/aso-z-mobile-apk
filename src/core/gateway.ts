@@ -44,6 +44,8 @@ export interface ChatMessage {
 
 export interface StreamCallbacks {
   onToken: (text: string) => void;
+  /** Поток раздумий (reasoning_content) — отдельно от ответа. */
+  onThinking?: (text: string) => void;
   onDone: (cleanText: string) => void;
   onError: (message: string) => void;
 }
@@ -225,6 +227,7 @@ export async function streamChat(
             callbacks.onToken(content);
           } else if (reasoning) {
             thinking += reasoning;
+            callbacks.onThinking?.(thinking);
           }
         } catch {
           // пропускаем не-JSON (keepalive и т.п.)
@@ -245,7 +248,10 @@ export async function streamChat(
           callbacks.onToken(content);
         } else {
           const reasoning = delta?.reasoning_content || delta?.reasoning || "";
-          if (reasoning) thinking += reasoning;
+          if (reasoning) {
+            thinking += reasoning;
+            callbacks.onThinking?.(thinking);
+          }
         }
       } catch {}
     }
