@@ -43,6 +43,15 @@ jobs:
           fi
           grep -A3 'release {' build.gradle | head -6
 
+      - name: Restrict ABIs to ARM (speed up CMake build)
+        run: |
+          cd android/app
+          if ! grep -q 'abiFilters' build.gradle; then
+            sed -i '/defaultConfig {/a\        ndk {\n            abiFilters "arm64-v8a", "armeabi-v7a"\n        }' build.gradle
+          fi
+          echo "--- defaultConfig after patch:"
+          grep -B1 -A8 'defaultConfig {' build.gradle | head -14
+
       - name: Build release APK
         working-directory: android
         run: ./gradlew assembleRelease --no-daemon
