@@ -1,90 +1,89 @@
 /**
- * Glass — глэссморфизм (стекло) поверх настоящего backdrop-blur (expo-blur).
+ * Glass — глэссморфизм (стекло) БЕЗ нативного BlurView.
  *
- * Суть именно глэсса: полупрозрачный блюр-фон + тонкая светлая рамка +
- * внутренний top-highlight (блик сверху) + мягкая тень. Работает и в тёмной,
- * и в светлой теме. На web — backdrop-filter, на Android/iOS — BlurView.
+ * ПОЧЕМУ НЕ BlurView: на Android expo-blur рендерится отдельным нативным
+ * слоем — перехватывает тачи (TextInput не работает), ломает размеры
+ * кнопок, режет иконки, в ScrollView/Sheet даёт артефакты. На web без
+ * подложки blur'у нечего размывать — стекло не видно.
  *
- * Используем БЕЗ параметра React = не заворачиваем каждый раз в отдельный
- * компонент-обёртку: `tint` берём из темы, блюр в меру (больше → молочное
- * стекло; меньше → чистое).
+ * РЕШЕНИЕ: стекло рисуется примитивами — полупрозрачный фон + тонкая
+ * светлая рамка + верхний блик (внутренний highlight) + мягкая тень.
+ * Поверх фоновых glow-пятен (GlassBackdrop) это выглядит как матовое
+ * стекло и работает одинаково на Android / iOS / web. Без нативных
+ * слоёв: тачи, размеры и иконки ведут себя предсказуемо.
  */
 import React from "react";
-import { StyleSheet, View, ViewStyle, Pressable, TextStyle } from "react-native";
+import { StyleSheet, View, ViewStyle, Pressable } from "react-native";
 import { BlurView } from "expo-blur";
 import { useApp } from "../../store/AppStore";
 
-/** Возвращает стеклянные стили обёртки (рамка, блик, тень). */
+/** Стеклянные стили (фон, рамка, блик, тень) — используются всеми компонентами. */
 export function glassStyle(theme: any, radius: number): ViewStyle {
+  const dark = theme.name === "dark";
   return {
     borderRadius: radius,
     borderWidth: 1,
-    borderColor: theme.name === "dark" ? "rgba(255,255,255,.18)" : "rgba(255,255,255,.7)",
-    backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.12)" : "rgba(255,255,255,.5)",
-    // верхний блик + мягкая тень (глэм-фирменные) — тень теперь заметнее
+    borderColor: dark ? "rgba(255,255,255,.20)" : "rgba(255,255,255,.75)",
+    backgroundColor: dark ? "rgba(20,20,24,.55)" : "rgba(255,255,255,.52)",
+    // внутренний верхний блик — имитация света на стекле
+    borderTopWidth: 1.5,
     shadowColor: "#000",
-    shadowOpacity: theme.name === "dark" ? 0.5 : 0.18,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 6,
-    overflow: "hidden",
+    shadowOpacity: dark ? 0.5 : 0.2,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 7 },
+    elevation: 5,
   };
 }
 
-/**
- * Стеклянная карточка: BlurView-подложка + содержимое поверх.
- * Тint: тёмная тема → тёмное стекло, светлая → светлое.
- */
+/** Стеклянная карточка-контейнер (некликабельная). */
 export function Glass({
   radius = 22,
-  intensity = 38,
   style,
   children,
+  blur = true,
 }: {
   radius?: number;
-  intensity?: number;
   style?: ViewStyle;
   children: React.ReactNode;
+  blur?: boolean;
 }) {
   const { theme } = useApp();
-  const tint = theme.name === "dark" ? "dark" : "light";
   return (
-    <BlurView
-      intensity={intensity}
-      tint={tint}
-      style={[glassStyle(theme, radius), { borderRadius: radius }, style]}
-    >
+    <View style={[glassStyle(theme, radius), { borderRadius: radius, overflow: "hidden" }, style]}>
+      {blur && (
+        <BlurView
+          intensity={26}
+          tint={theme.name === "dark" ? "dark" : "light"}
+          style={StyleSheet.absoluteFill}
+          pointerEvents="none"
+        />
+      )}
       {children}
-    </BlurView>
+    </View>
   );
 }
 
-/**
- * Стеклянная кликабельная кнопка-капсула (круг/пилюля).
- * За морфизм отвечает BlurView-подложка; pressed-затемнение на pressable.
- */
+/** Стеклянная кликабельная кнопка-капсула (круг/пилюля). */
 export function GlassPressable({
   onPress,
   radius = 22,
-  intensity = 38,
   style,
   pressedStyle,
   disabled,
   children,
   accessibilityLabel,
+  blur = true,
 }: {
   onPress?: () => void;
   radius?: number;
-  intensity?: number;
   style?: ViewStyle;
-  /** стиль в нажатом состоянии (например, акцентная рамка/тень) */
   pressedStyle?: ViewStyle;
   disabled?: boolean;
   children: React.ReactNode;
   accessibilityLabel?: string;
+  blur?: boolean;
 }) {
   const { theme } = useApp();
-  const tint = theme.name === "dark" ? "dark" : "light";
   return (
     <Pressable
       onPress={onPress}
@@ -92,24 +91,30 @@ export function GlassPressable({
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       style={({ pressed }) => [
+        glassStyle(theme, radius),
         {
           borderRadius: radius,
-          borderWidth: 1,
-          borderColor: theme.name === "dark" ? "rgba(255,255,255,.14)" : "rgba(255,255,255,.55)",
+          alignItems: "center",
+          justifyContent: "center",
           overflow: "hidden",
-          shadowColor: "#000",
-          shadowOpacity: pressed ? 0.18 : 0.3,
-          shadowRadius: 12,
-          shadowOffset: { width: 0, height: 5 },
-          elevation: 5,
-          opacity: disabled ? 0.4 : 1,
+          opacity: pressed ? 0.8 : disabled ? 0.4 : 1,
         },
         style,
         pressed ? pressedStyle : null,
       ]}
     >
-      <BlurView intensity={intensity} tint={tint} style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderRadius: radius }} />
-      <View style={{ borderRadius: radius, overflow: "hidden" }}>{children}</View>
+      {blur && (
+        <BlurView
+          intensity={26}
+          tint={theme.name === "dark" ? "dark" : "light"}
+          style={StyleSheet.absoluteFill}
+          pointerEvents="none"
+        />
+      )}
+      {children}
     </Pressable>
   );
 }
+
+/** Экспорт StyleSheet для совместимости. */
+export { StyleSheet, View };

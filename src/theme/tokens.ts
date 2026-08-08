@@ -65,7 +65,7 @@ export const themes: Record<"light" | "dark", Theme> = {
     userText: "#ffffff",
     codeBg: "#0a0a0a",
     codeText: "#d4d4d4",
-    scrim: "rgba(0,0,0,.72)",
+    scrim: "rgba(0,0,0,.45)",
     danger: "#ff3849",
     ok: "#16c456",
     warn: "#ffd230",

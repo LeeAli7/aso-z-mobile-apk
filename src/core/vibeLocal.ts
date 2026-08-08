@@ -12,6 +12,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Directory, File, Paths } from "expo-file-system";
 
 import { streamChat, ModelInfo, ChatMessage } from "./gateway";
+import { parseCmdBlocks, runCommandCapture, runtimeAvailable } from "./runtime";
 
 /* ── Types ─────────────────────────────────────────────── */
 
@@ -362,7 +363,13 @@ const SYSTEM_PROMPT = `Ты — агент-кодер в локальном пр
 содержимое файла
 \`\`\`
 
-Можно выводить несколько блоков подряд. После блоков дай краткое резюме (2-4 предложения) на языке пользователя. Если файлы не нужны — просто ответь.`;
+Когда нужно выполнить команду (установить пакет, запустить сборку, проверить вывод, инициализировать проект), выводи:
+
+[CMD: команда]
+
+Команды выполняются во встроенном Linux-рантайме приложения (Termux bootstrap, HOME/projects/имя — каталог проекта). Доступны apt, bash, python, node (после установки) и стандартные утилиты. Выполняй команды по одной, дожидайся вывода. Не запускай интерактивные процессы (vim, nano, top) без --non-interactive.
+
+Можно выводить несколько блоков подряд. После блоков дай краткое резюме (2-4 предложения) на языке пользователя. Если файлы и команды не нужны — просто ответь.`;
 
 export interface VibeChatCallbacks {
   onToken: (text: string) => void;
@@ -418,6 +425,12 @@ export async function vibeChat(
         written.push("__showed_" + fm[1]);
         callbacks.onTool("пишу " + fm[1].trim());
       }
+      // tool-событие для команды
+      const cm = acc.match(/\[CMD:\s*([^\n\]]+)\]/);
+      if (cm && !written.includes("__showed_cmd_" + cm[1])) {
+        written.push("__showed_cmd_" + cm[1]);
+        callbacks.onTool("выполняю " + cm[1].trim());
+      }
     },
     onThinking: (thinking) => callbacks.onThinking?.(thinking),
     onDone: async (clean) => {
@@ -433,8 +446,30 @@ export async function vibeChat(
           return;
         }
       }
-      // чистый текст без FILE-блоков
-      const cleanText = body.replace(/\[FILE:[^\]]+\]\s*```[^\n]*\n[\s\S]*?```/g, "").trim() || acc;
+      // выполняем [CMD:…] блоки (по одной, дожидаемся вывода)
+      const cmds = parseCmdBlocks(body);
+      const cmdReports: string[] = [];
+      for (const cmd of cmds) {
+        if (!runtimeAvailable()) {
+          cmdReports.push(`команда «${cmd}»: рантайм доступен только на Android`);
+          continue;
+        }
+        callbacks.onTool("выполняю " + cmd);
+        const r = await runCommandCapture(cmd, projectId);
+        if (r.ok) {
+          cmdReports.push(`$ ${cmd}\n${r.output.trim()}`);
+        } else {
+          cmdReports.push(`$ ${cmd}\nошибка: ${r.error || "не удалось выполнить"}`);
+        }
+      }
+      // чистый текст без FILE- и CMD-блоков
+      let cleanText = body
+        .replace(/\[FILE:[^\]]+\]\s*```[^\n]*\n[\s\S]*?```/g, "")
+        .replace(/\[CMD:[^\]]+\]\s*/g, "")
+        .trim() || acc;
+      if (cmdReports.length) {
+        cleanText = (cleanText ? cleanText + "\n\n" : "") + cmdReports.join("\n\n");
+      }
       callbacks.onDone(cleanText, names);
     },
     onError: (err) => callbacks.onError(err),

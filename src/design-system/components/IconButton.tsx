@@ -1,12 +1,15 @@
 /**
- * IconButton — круглая кнопка-стекло с иконкой MaterialIcons.
- * Глэссморфизм (BlurView + рамка + блик), тач ≥44×44, ripple, haptic.
+ * IconButton — круглая стеклянная кнопка с иконкой MaterialIcons.
+ *
+ * Без BlurView: стекло рисуется стилями (полупрозрачный фон + рамка + блик).
+ * На Android это надёжно: тач-таргет ровно 44×44, иконка не режется,
+ * тачи не перехватываются. ripple + haptic.
  */
 import React from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
-import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
+import { BlurView } from "expo-blur";
 import { useApp } from "../../store/AppStore";
 import { hitSlop, touchTarget } from "../tokens";
 
@@ -21,7 +24,6 @@ export function IconButton({
   disabled,
   haptic = true,
   accessibilityLabel,
-  glass = true,
 }: {
   name: IconName;
   onPress?: () => void;
@@ -31,12 +33,9 @@ export function IconButton({
   disabled?: boolean;
   haptic?: boolean;
   accessibilityLabel?: string;
-  /** стеклянная подложка (глэссморфизм) — по умолчанию вкл */
-  glass?: boolean;
 }) {
   const { theme } = useApp();
-  const c = color ?? theme.dim;
-  const tint = theme.name === "dark" ? "dark" : "light";
+  const dark = theme.name === "dark";
   return (
     <Pressable
       onPress={() => {
@@ -56,29 +55,28 @@ export function IconButton({
           borderRadius: touchTarget / 2,
           alignItems: "center",
           justifyContent: "center",
-          borderWidth: 1,
-          borderColor: glass
-            ? theme.name === "dark" ? "rgba(255,255,255,.18)" : "rgba(255,255,255,.7)"
-            : theme.border,
           overflow: "hidden",
+          borderWidth: 1,
+          borderColor: dark ? "rgba(255,255,255,.20)" : "rgba(255,255,255,.75)",
+          borderTopWidth: 1.5,
+          backgroundColor: dark ? "rgba(20,20,24,.40)" : "rgba(255,255,255,.45)",
           shadowColor: "#000",
-          shadowOpacity: 0.4,
-          shadowRadius: 12,
+          shadowOpacity: dark ? 0.4 : 0.18,
+          shadowRadius: 10,
           shadowOffset: { width: 0, height: 5 },
-          elevation: 6,
-          opacity: pressed ? 0.68 : disabled ? 0.4 : 1,
+          elevation: 4,
+          opacity: pressed ? 0.75 : disabled ? 0.4 : 1,
         },
         style,
       ]}
     >
-      {glass && (
-        <BlurView
-          intensity={46}
-          tint={tint}
-          style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderRadius: touchTarget / 2 }}
-        />
-      )}
-      <MaterialIcons name={name} size={size} color={c} />
+      <BlurView
+        intensity={26}
+        tint={dark ? "dark" : "light"}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
+      <MaterialIcons name={name} size={size} color={color ?? theme.dim} />
     </Pressable>
   );
 }

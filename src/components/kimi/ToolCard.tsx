@@ -1,43 +1,41 @@
 /**
  * ToolCard — карточка инструмента в стиле Kimi.
  *
- * Паттерн Kimi (okc_tool_*, строки из APK): каждая операция = карточка
- * «иконка + статус»:
- *   loading: «Используется X»  → done: «Использовать X» / error: «Не удалось использовать X»
- *   shell:   «Выполнение командной строки» → «Выполнить командную строку»
- *   python:  «Выполняется код Python»      → «Выполнить код Python»
- *
- * Анимация: пульсирующая иконка во время работы (эквивалент tool-*.riv),
- * галочка/крестик в финальном состоянии.
+ * Свёрнутая строка: иконка + суть (команда/путь/запрос) — БЕЗ статусных
+ * подписей, БЕЗ зелёных галочек. Клик открывает bottom-sheet с деталями:
+ * сама команда и её ход (что вернула система) — как раздумья агента.
+ * Во время работы иконка пульсирует.
  */
 import React, { useEffect, useRef } from "react";
-import { Animated, Easing, StyleSheet, Text, View } from "react-native";
+import { Animated, Easing, Pressable, StyleSheet, Text, View } from "react-native";
 import { MaterialIcons, MaterialIcons as MI } from "@expo/vector-icons";
 
 export type ToolState = "loading" | "done" | "error";
 
-/** Типы инструментов — маппинг на Kimi-названия (RU из APK) и иконки. */
-const TOOL_META: Record<string, { label: string; icon: keyof typeof MI.glyphMap }> = {
-  shell: { label: "Командная строка", icon: "terminal" },
-  terminal: { label: "Командная строка", icon: "terminal" },
-  python: { label: "iPython", icon: "code" },
-  ipython: { label: "iPython", icon: "code" },
-  web_search: { label: "Веб-поиск", icon: "search" },
-  search: { label: "Веб-поиск", icon: "search" },
-  browser: { label: "Браузер", icon: "language" },
-  read_file: { label: "Чтение файла", icon: "description" },
-  write_file: { label: "Файл", icon: "note-add" },
-  edit_file: { label: "Редактирование", icon: "edit" },
-  todo: { label: "Дело", icon: "checklist" },
-  ask_user: { label: "Запрос", icon: "help-outline" },
-  mcp: { label: "MCP", icon: "extension" },
+/** Типы инструментов — иконка + нейтральный цвет (всё одинаковое). */
+const TOOL_META: Record<string, { icon: keyof typeof MI.glyphMap }> = {
+  shell: { icon: "terminal" },
+  terminal: { icon: "terminal" },
+  python: { icon: "code" },
+  ipython: { icon: "code" },
+  web_search: { icon: "search" },
+  search: { icon: "search" },
+  browser: { icon: "language" },
+  read_file: { icon: "description" },
+  write_file: { icon: "note-add" },
+  edit_file: { icon: "edit" },
+  todo: { icon: "checklist" },
+  ask_user: { icon: "help-outline" },
+  mcp: { icon: "extension" },
 };
 
-function metaFor(raw: string): { label: string; icon: keyof typeof MI.glyphMap } {
+/** Префиксы глаголов — убираем, оставляем суть (команду/путь/запрос). */
+const VERB_PREFIXES = ["выполняю ", "выполнял ", "пишу ", "создаю ", "создал ", "читаю ", "редактирую ", "ищу ", "запускаю ", "запустил "];
+
+function metaFor(raw: string): { icon: keyof typeof MI.glyphMap } {
   const key = (raw || "").toLowerCase();
-  // "пишу src/index.ts" → write_file; "выполняю npm run build" → shell
   if (key.includes("пишу") || key.includes("создаю") || key.includes("write")) return TOOL_META.write_file;
-  if (key.includes("выполня") || key.includes("shell") || key.includes("терминал")) return TOOL_META.shell;
+  if (key.includes("выполня") || key.includes("shell") || key.includes("терминал") || key.includes("запуск")) return TOOL_META.shell;
   if (key.includes("python") || key.includes("ipython")) return TOOL_META.python;
   if (key.includes("поиск") || key.includes("search")) return TOOL_META.web_search;
   if (key.includes("чита") || key.includes("read")) return TOOL_META.read_file;
@@ -46,17 +44,32 @@ function metaFor(raw: string): { label: string; icon: keyof typeof MI.glyphMap }
   if (key.includes("спросить") || key.includes("вопрос") || key.includes("ask")) return TOOL_META.ask_user;
   const exact = TOOL_META[key];
   if (exact) return exact;
-  return { label: raw || "Инструмент", icon: "build" };
+  return { icon: "build" };
+}
+
+/** Суть действия: убрать глагольный префикс → «npm run build», «src/index.ts». */
+function essence(raw: string): string {
+  let s = (raw || "").trim();
+  for (const p of VERB_PREFIXES) {
+    if (s.toLowerCase().startsWith(p)) return s.slice(p.length).trim();
+  }
+  return s;
 }
 
 interface Props {
-  /** Сырое название/событие инструмента (напр. "пишу src/index.ts"). */
+  /** Сырое название/событие инструмента (напр. "выполняю npm run build"). */
   tool: string;
   state: ToolState;
+  /** Ход/вывод действия — показывается в sheet по клику. */
+  output?: string;
   theme: any;
+  /** Открыть sheet с деталями (команда + ход). */
+  onOpen?: () => void;
+  /** Голый режим: без рамки/фона — строка внутри единого блока цепочки. */
+  bare?: boolean;
 }
 
-export function ToolCard({ tool, state, theme }: Props) {
+export function ToolCard({ tool, state, theme, output, onOpen, bare }: Props) {
   const meta = metaFor(tool);
   const pulse = useRef(new Animated.Value(0)).current;
 
@@ -73,63 +86,69 @@ export function ToolCard({ tool, state, theme }: Props) {
   }, [state, pulse]);
 
   const iconScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.18] });
-  const glow = pulse.interpolate({ inputRange: [0, 1], outputRange: [theme.accentDim, "rgba(26,136,255,.28)"] });
-
-  const label = tool.includes("пишу ") ? tool.replace("пишу ", "") : tool;
-  const stateText =
-    state === "loading" ? "Используется" :
-    state === "done" ? "Использовать" : "Не удалось использовать";
-
-  const stateColor = state === "error" ? theme.danger : state === "done" ? theme.ok : theme.accentHi;
+  const label = essence(tool);
+  const iconColor = state === "error" ? theme.danger : theme.dim;
 
   return (
-    <View
-      style={[
-        styles.card,
-        {
-          borderColor: state === "error" ? "rgba(255,56,73,.4)" : theme.border,
-          backgroundColor: state === "error" ? "rgba(255,56,73,.06)" : theme.surface,
-        },
+    <Pressable
+      onPress={onOpen}
+      disabled={!onOpen}
+      accessibilityRole="button"
+      style={({ pressed }) => [
+        styles.wrap,
+        bare ? styles.wrapBare : null,
+        { borderColor: !bare && state === "error" ? "rgba(255,56,73,.4)" : theme.border, opacity: pressed ? 0.8 : 1 },
       ]}
     >
-      <View style={[styles.iconBox, { backgroundColor: theme.accentDim }]}>
+      <View style={[styles.iconBox, { backgroundColor: theme.surface2 }]}>
         {state === "loading" ? (
-          <Animated.View style={{ transform: [{ scale: iconScale }], opacity: glow as unknown as number }}>
-            <MaterialIcons name={meta.icon} size={15} color={theme.accentHi} />
+          <Animated.View style={{ transform: [{ scale: iconScale }] }}>
+            <MaterialIcons name={meta.icon} size={15} color={iconColor} />
           </Animated.View>
-        ) : state === "done" ? (
-          <MaterialIcons name="check" size={15} color={theme.ok} />
         ) : (
-          <MaterialIcons name="close" size={15} color={theme.danger} />
+          <MaterialIcons name={meta.icon} size={15} color={iconColor} />
         )}
       </View>
-      <View style={{ flex: 1, flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 4 }}>
-        <Text style={{ color: theme.dim, fontSize: 11.5 }}>{stateText}</Text>
-        <Text numberOfLines={1} style={{ color: stateColor, fontSize: 11.5, fontWeight: "600", fontFamily: "monospace" }}>
-          {meta.label}{label && !tool.includes("пишу ") ? ` · ${label}` : ""}
+      {label ? (
+        <Text numberOfLines={1} style={{ color: theme.text, fontSize: 11.5, fontFamily: "monospace", flexShrink: 1 }}>
+          {label}
         </Text>
-      </View>
-    </View>
+      ) : null}
+      {onOpen && (output || state !== "loading") ? (
+        <MaterialIcons name="chevron-right" size={15} color={theme.mute} />
+      ) : null}
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
+  wrap: {
     alignSelf: "flex-start",
     maxWidth: "92%",
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    borderRadius: 10,
+    borderRadius: 16,
     borderWidth: 1,
     paddingHorizontal: 10,
     paddingVertical: 7,
     marginBottom: 6,
   },
+  wrapBare: {
+    alignSelf: "stretch",
+    maxWidth: "100%",
+    width: "100%",
+    borderWidth: 0,
+    borderRadius: 0,
+    // внутри блока: контейнерный padding 8/12, строка компактная 4px вертикально
+    paddingHorizontal: 0,
+    paddingVertical: 4,
+    marginBottom: 0,
+  },
   iconBox: {
     width: 24,
     height: 24,
-    borderRadius: 7,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },

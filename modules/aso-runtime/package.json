@@ -1,0 +1,12 @@
+{
+  "name": "aso-runtime",
+  "version": "0.1.0",
+  "description": "Встроенный Linux-рантайм Aso: Termux bootstrap + shell-сессии (ProcessBuilder, pipe stdin/stdout).",
+  "main": "src/index.ts",
+  "license": "GPL-3.0",
+  "peerDependencies": {
+    "expo": "*",
+    "react": "*",
+    "react-native": "*"
+  }
+}

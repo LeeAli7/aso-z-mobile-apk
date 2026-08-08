@@ -313,6 +313,10 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
           <Text style={{ color: theme.dim, fontSize: 12.5, lineHeight: 18 }}>
             Aso-z — мобильный AI-ассистент. Код открыт на GitHub. Возникла проблема? Скажи в чате поддержке.
           </Text>
+          <View style={{ height: 10 }} />
+          <Text style={{ color: theme.dim, fontSize: 11, lineHeight: 16 }}>
+            Встроенный Linux-рантайм основан на компонентах проекта Termux (GPLv3): bootstrap, bash, coreutils, apt, dpkg. Исходный код: github.com/termux/termux-packages. Рантайм исполняет готовые бинарники Termux как отдельные процессы и не модифицирует их код.
+          </Text>
         </View>
       </ScrollView>
     </View>

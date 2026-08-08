@@ -39,10 +39,8 @@ type Path = string[];
 
 const ROOT_FOLDERS: { key: string; label: string; icon: keyof typeof MaterialIcons.glyphMap; desc: string }[] = [
   { key: "projects", label: "Проекты", icon: "folder", desc: "папки-проекты агента" },
-  { key: "instructions", label: "Инструкции", icon: "menu-book", desc: "правила и контекст" },
-  { key: "selflearn", label: "Самообучение", icon: "auto-stories", desc: "память агента" },
-  { key: "prompts", label: "Промпты", icon: "text-snippet", desc: "заготовки запросов" },
-  { key: "skills", label: "Скиллы", icon: "extension", desc: "навыки агента" },
+  { key: "skills", label: "Скиллы", icon: "extension", desc: "навыки, инструкции, самообучение" },
+  { key: "connectors", label: "Коннекторы", icon: "link", desc: "подключённые сервисы и инструменты" },
 ];
 
 export function StorageSheet({
@@ -141,21 +139,19 @@ export function StorageSheet({
   const folderLabel = (p: string) => ROOT_FOLDERS.find((f) => f.key === p)?.label ?? p;
   const inRoot = path.length === 0;
   const inProjects = path[0] === "projects";
-  const inInstructions = path[0] === "instructions";
-  const inSelflearn = path[0] === "selflearn";
-  const inPrompts = path[0] === "prompts";
   const inSkills = path[0] === "skills";
+  const inConnectors = path[0] === "connectors";
 
   const crumb = (i: number) => path.slice(0, i + 1).map(folderLabel).join(" / ");
 
   return (
-    <Sheet visible={visible} onClose={onClose} title="Хранилище" snapPoints={["82%"]}>
+    <Sheet visible={visible} onClose={onClose} title="Конфиг" snapPoints={["auto"]}>
       {/* хлебные крошки */}
       {path.length > 0 && (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 10, flexWrap: "wrap" }}>
           <Pressable onPress={() => setPath([])} hitSlop={8} style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
             <MaterialIcons name="home" size={14} color={theme.accentHi} />
-            <Text style={{ color: theme.accentHi, fontSize: 12, fontFamily: fonts.mono }}>Хранилище</Text>
+            <Text style={{ color: theme.accentHi, fontSize: 12, fontFamily: fonts.mono }}>Конфиг</Text>
           </Pressable>
           {path.map((seg, i) => (
             <React.Fragment key={seg}>
@@ -171,19 +167,17 @@ export function StorageSheet({
       {/* ── КОРЕНЬ: системные папки ── */}
       {inRoot && (
         <View style={{ marginTop: 6 }}>
-          <Text style={{ color: theme.mute, fontSize: 10.5, letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>
-            Корневая папка
-          </Text>
+          <View style={{ gap: 8 }}>
           {ROOT_FOLDERS.map((f) => (
             <GlassPressable
               key={f.key}
               radius={16}
-              intensity={32}
+              blur={false}
               onPress={() => setPath([f.key])}
-              style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 13, paddingVertical: 13, marginTop: 8 }}
+              style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 13, paddingVertical: 13 }}
               accessibilityLabel={f.label}
             >
-              <View style={{ width: 38, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.08)" : "rgba(255,255,255,.55)" }}>
+              <View style={{ width: 38, height: 38, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.08)" : "rgba(255,255,255,.55)" }}>
                 <MaterialIcons name={f.icon} size={19} color={theme.accentHi} />
               </View>
               <View style={{ flex: 1 }}>
@@ -193,10 +187,7 @@ export function StorageSheet({
               <MaterialIcons name="chevron-right" size={18} color={theme.mute} />
             </GlassPressable>
           ))}
-
-          <Text style={{ color: theme.mute, fontSize: 10.5, marginTop: 14, lineHeight: 15 }}>
-            Скажи агенту «создай проект …» — он сам создаст папку и наполнит её файлами.
-          </Text>
+          </View>
         </View>
       )}
 
@@ -209,18 +200,18 @@ export function StorageSheet({
           {loading ? (
             <Text style={{ color: theme.dim, fontSize: 13, marginTop: 8 }}>Загрузка…</Text>
           ) : projects.length === 0 ? (
-            <GlassPressable radius={16} intensity={30} style={{ padding: 16, marginTop: 8 }}>
+            <GlassPressable radius={16} blur={false} style={{ padding: 16 }}>
               <Text style={{ color: theme.dim, fontSize: 13, lineHeight: 19 }}>
-                Проектов пока нет. Скажи агенту: «создай проект “Мой сайт”» — он создаст папку, опишет проект и сохранит файлы сюда.
+                Проектов пока нет.
               </Text>
             </GlassPressable>
           ) : (
-            <>
+            <View style={{ gap: 8 }}>
               <Pressable
                 onPress={() => onSelectProject(null)}
                 style={{
                   flexDirection: "row", alignItems: "center", gap: 10, padding: 12,
-                  borderRadius: 13, borderWidth: 1, marginTop: 8,
+                  borderRadius: 18, borderWidth: 1,
                   borderColor: !activeProj ? theme.accent : theme.border,
                   backgroundColor: !activeProj ? theme.accentDim : "transparent",
                 }}
@@ -237,12 +228,12 @@ export function StorageSheet({
                     onPress={() => onSelectProject(p)}
                     style={{
                       flexDirection: "row", alignItems: "center", gap: 10, padding: 12,
-                      borderRadius: 13, borderWidth: 1, marginTop: 8,
+                      borderRadius: 18, borderWidth: 1,
                       borderColor: on ? theme.accent : theme.border,
                       backgroundColor: on ? theme.accentDim : "transparent",
                     }}
                   >
-                    <View style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: on ? theme.accentDim : theme.surface2, alignItems: "center", justifyContent: "center" }}>
+                    <View style={{ width: 38, height: 38, borderRadius: 18, backgroundColor: on ? theme.accentDim : theme.surface2, alignItems: "center", justifyContent: "center" }}>
                       <MaterialIcons name="folder" size={19} color={on ? theme.accentHi : theme.dim} />
                     </View>
                     <View style={{ flex: 1 }}>
@@ -253,13 +244,13 @@ export function StorageSheet({
                       </Text>
                     </View>
                     {on && <MaterialIcons name="check-circle" size={17} color={theme.accentHi} />}
-                    <Pressable onPress={() => setPath(["project-files", p.id])} hitSlop={8} style={{ width: 32, height: 32, borderRadius: 9, alignItems: "center", justifyContent: "center" }} accessibilityLabel="Файлы проекта">
+                    <Pressable onPress={() => setPath(["project-files", p.id])} hitSlop={8} style={{ width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" }} accessibilityLabel="Файлы проекта">
                       <MaterialIcons name="insert-drive-file" size={16} color={theme.dim} />
                     </Pressable>
                   </Pressable>
                 );
               })}
-            </>
+            </View>
           )}
         </View>
       )}
@@ -276,16 +267,13 @@ export function StorageSheet({
         />
       )}
 
-      {/* ── ИНСТРУКЦИИ ── */}
-      {inInstructions && (
+      {/* ── СКИЛЛЫ (инструкции + самообучение + навыки — всё это скиллы) ── */}
+      {inSkills && (
         <View style={{ marginTop: 6 }}>
-          {!activeProj ? (
-            <GlassPressable radius={16} intensity={30} style={{ padding: 16, marginTop: 8 }}>
-              <Text style={{ color: theme.dim, fontSize: 13, lineHeight: 19 }}>
-                Выбери проект, чтобы настроить его инструкции (INSTRUCTIONS.md).
-              </Text>
-            </GlassPressable>
-          ) : (
+          <Text style={{ color: theme.mute, fontSize: 10.5, letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>
+            Папка «Скиллы»
+          </Text>
+          {activeProj ? (
             <>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 }}>
                 <MaterialIcons name="menu-book" size={15} color={theme.accentHi} />
@@ -303,34 +291,47 @@ export function StorageSheet({
                 style={{
                   backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.07)" : "rgba(255,255,255,.6)",
                   borderColor: theme.border, borderWidth: 1,
-                  borderRadius: 12, padding: 12, fontSize: 12.5, color: theme.codeText,
-                  fontFamily: fonts.mono, lineHeight: 19, minHeight: 190,
+                  borderRadius: 18, padding: 12, fontSize: 12.5, color: theme.codeText,
+                  fontFamily: fonts.mono, lineHeight: 19, minHeight: 140,
                 }}
               />
               <View style={{ marginTop: 10 }}>
-                <Button title="Сохранить инструкции" onPress={saveInstructions} disabled={!instrDirty} fullWidth />
+                <Button title="Сохранить" onPress={saveInstructions} disabled={!instrDirty} fullWidth />
               </View>
-              <Text style={{ color: theme.mute, fontSize: 10.5, marginTop: 8, lineHeight: 15 }}>
-                Файл автоматически подключается в контекст агента при работе в этом проекте.
-              </Text>
             </>
+          ) : (
+            <GlassPressable radius={16} blur={false} style={{ padding: 16 }}>
+              <Text style={{ color: theme.dim, fontSize: 13, lineHeight: 19 }}>
+                Выбери проект, чтобы настроить инструкции (INSTRUCTIONS.md). Инструкции, самообучение и промпты — всё это навыки агента.
+              </Text>
+            </GlassPressable>
           )}
+          <GlassPressable radius={16} blur={false} style={{ padding: 16, marginTop: 10 }}>
+            <View style={{ width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.08)" : "rgba(255,255,255,.55)", marginBottom: 10 }}>
+              <MaterialIcons name="extension" size={20} color={theme.accentHi} />
+            </View>
+            <Text style={{ color: theme.dim, fontSize: 13, lineHeight: 20 }}>
+              Здесь агент хранит навыки: инструкции, самообучение (что узнал и записал), заготовки промптов. Всё сводится к скиллам — агент осваивает и переиспользует их.
+            </Text>
+          </GlassPressable>
         </View>
       )}
 
-      {/* ── САМООБУЧЕНИЕ / ПРОМПТЫ / СКИЛЛЫ (концепция) ── */}
-      {(inSelflearn || inPrompts || inSkills) && (
-        <ConceptFolder
-          theme={theme}
-          label={folderLabel(path[0])}
-          hint={
-            inSelflearn
-              ? "Здесь агент будет хранить то, что узнал и записал: заметки, выводы, «уроки» из работы с тобой. Агент сам пополняет эту папку."
-              : inPrompts
-                ? "Здесь будут заготовки промптов и шаблоны запросов, которые ты используешь часто. Пока пусто."
-                : "Здесь будут навыки агента (как скиллы Hermes): процедуры, которые агент осваивает и переиспользует. Пока пусто."
-          }
-        />
+      {/* ── КОННЕКТОРЫ ── */}
+      {inConnectors && (
+        <View style={{ marginTop: 6 }}>
+          <Text style={{ color: theme.mute, fontSize: 10.5, letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>
+            Папка «Коннекторы»
+          </Text>
+          <GlassPressable radius={16} blur={false} style={{ padding: 16 }}>
+            <View style={{ width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.08)" : "rgba(255,255,255,.55)", marginBottom: 10 }}>
+              <MaterialIcons name="link" size={20} color={theme.accentHi} />
+            </View>
+            <Text style={{ color: theme.dim, fontSize: 13, lineHeight: 20 }}>
+              Подключённые сервисы и инструменты агента: файлы, терминал, Telegram, внешние API. Новые коннекторы подключаются через агента.
+            </Text>
+          </GlassPressable>
+        </View>
       )}
     </Sheet>
   );
@@ -366,12 +367,13 @@ function ProjectFiles({
             {project.name} · {files.length} записей
           </Text>
           {files.length === 0 && (
-            <GlassPressable radius={16} intensity={30} style={{ padding: 16, marginTop: 8 }}>
+            <GlassPressable radius={16} blur={false} style={{ padding: 16 }}>
               <Text style={{ color: theme.dim, fontSize: 13, lineHeight: 19 }}>
-                В папке пока пусто. Скажи агенту, что создать — он запишет файлы сюда.
+                В папке пока пусто.
               </Text>
             </GlassPressable>
           )}
+          <View style={{ gap: 6 }}>
           {files.map((f, i) => {
             const isDir = !f.match(/\.[a-zA-Z0-9]+$/);
             const name = f.split("/").pop();
@@ -381,7 +383,7 @@ function ProjectFiles({
                 onPress={() => !isDir && openPreview(f)}
                 style={{
                   flexDirection: "row", alignItems: "center", gap: 10, padding: 11,
-                  borderRadius: 12, borderWidth: 1, borderColor: theme.border, marginTop: 6,
+                  borderRadius: 18, borderWidth: 1, borderColor: theme.border,
                   backgroundColor: "transparent",
                 }}
               >
@@ -391,6 +393,7 @@ function ProjectFiles({
               </Pressable>
             );
           })}
+          </View>
         </>
       ) : (
         <>
@@ -398,30 +401,13 @@ function ProjectFiles({
             <MaterialIcons name="arrow-back" size={15} color={theme.accentHi} />
             <Text style={{ color: theme.accentHi, fontSize: 12.5, fontFamily: fonts.mono }}>{previewPath}</Text>
           </Pressable>
-          <View style={{ backgroundColor: theme.codeBg, borderRadius: 12, borderWidth: 1, borderColor: theme.border, padding: 12 }}>
+          <View style={{ backgroundColor: theme.codeBg, borderRadius: 18, borderWidth: 1, borderColor: theme.border, padding: 12 }}>
             <Text selectable style={{ color: theme.codeText, fontSize: 12, fontFamily: fonts.mono, lineHeight: 18 }}>
               {previewContent}
             </Text>
           </View>
         </>
       )}
-    </View>
-  );
-}
-
-/* ── Концепт-папка (Самообучение/Промпты/Скиллы) ── */
-function ConceptFolder({ theme, label, hint }: { theme: any; label: string; hint: string }) {
-  return (
-    <View style={{ marginTop: 6 }}>
-      <Text style={{ color: theme.mute, fontSize: 10.5, letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>
-        Папка «{label}»
-      </Text>
-      <GlassPressable radius={16} intensity={30} style={{ padding: 18, marginTop: 8 }}>
-        <View style={{ width: 42, height: 42, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.08)" : "rgba(255,255,255,.55)", marginBottom: 10 }}>
-          <MaterialIcons name={label === "Самообучение" ? "auto-stories" : label === "Промпты" ? "text-snippet" : "extension"} size={20} color={theme.accentHi} />
-        </View>
-        <Text style={{ color: theme.dim, fontSize: 13, lineHeight: 20 }}>{hint}</Text>
-      </GlassPressable>
     </View>
   );
 }

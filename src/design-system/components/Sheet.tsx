@@ -15,6 +15,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Modal,
   PanResponder,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -24,7 +25,6 @@ import {
 import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useApp } from "../../store/AppStore";
-import { IconButton } from "./IconButton";
 import { radii } from "../tokens";
 
 export function Sheet({
@@ -33,12 +33,15 @@ export function Sheet({
   title,
   children,
   snapPoints = ["60%"],
+  autoMaxPct = 70,
 }: {
   visible: boolean;
   onClose: () => void;
-  title: string;
+  title?: string;
   children: React.ReactNode;
   snapPoints?: string[];
+  /** В режиме auto — максимум высоты в % экрана (дальше скролл). По умолчанию 70. */
+  autoMaxPct?: number;
 }) {
   const { theme } = useApp();
   const insets = useSafeAreaInsets();
@@ -46,7 +49,8 @@ export function Sheet({
   const offsetRef = useRef(0);
   const startYRef = useRef(0);
 
-  // числовая высота панели из первого snapPoint (напр. "60%" -> 60)
+  // числовая высота панели из первого snapPoint (напр. "60%" -> 60), "auto" — по контенту
+  const auto = snapPoints[0] === "auto";
   const heightPct = useCallback(() => {
     const raw = snapPoints[0] ?? "60%";
     const n = parseFloat(raw);
@@ -79,7 +83,7 @@ export function Sheet({
   }, [visible]);
 
   const tint = theme.name === "dark" ? "dark" : "light";
-  const glassBorder = theme.name === "dark" ? "rgba(255,255,255,.14)" : "rgba(255,255,255,.55)";
+  const glassBorder = theme.name === "dark" ? "rgba(255,255,255,.18)" : "rgba(255,255,255,.6)";
 
   return (
     <Modal
@@ -93,44 +97,67 @@ export function Sheet({
         {/* backdrop — тап закрывает */}
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Закрыть" />
 
-        {/* стеклянная панель */}
-        <BlurView
-          intensity={42}
-          tint={tint}
+        {/* стеклянная панель (имитация: полупрозрачный фон + рамка + блик) */}
+        <View
           style={[
             styles.panel,
             {
-              height: `${heightPct()}%`,
-              backgroundColor: theme.name === "dark" ? "rgba(18,18,20,.62)" : "rgba(255,255,255,.72)",
+              height: auto ? undefined : `${heightPct()}%`,
+              maxHeight: auto ? `${autoMaxPct}%` : undefined,
+              backgroundColor: theme.name === "dark" ? "rgba(22,22,26,.60)" : "rgba(250,250,252,.72)",
               borderTopLeftRadius: radii.xl,
               borderTopRightRadius: radii.xl,
               borderWidth: 1,
+              borderBottomWidth: 0,
               borderColor: glassBorder,
               paddingBottom: insets.bottom + 8,
               transform: [{ translateY: offsetY }],
+              shadowColor: "#000",
+              shadowOpacity: theme.name === "dark" ? 0.6 : 0.25,
+              shadowRadius: 24,
+              shadowOffset: { width: 0, height: -8 },
+              elevation: 20,
             },
           ]}
           {...pan.panHandlers}
         >
-          {/* handle */}
-          <View style={{ alignItems: "center", paddingTop: 8, paddingBottom: 2 }}>
+          {/* блюр-слой: размывает чат/фон за окошком; pointerEvents="none" — не перехватывает тачи */}
+          <BlurView
+            intensity={30}
+            tint={theme.name === "dark" ? "dark" : "light"}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
+          />
+
+          {/* handle — симметрично: равные отступы сверху и до контента */}
+          <View style={{ alignItems: "center", paddingTop: 10, paddingBottom: 10 }}>
             <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.surface2 }} />
           </View>
 
-          {/* header */}
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 16, paddingBottom: 8 }}>
-            <Text style={{ color: theme.text, fontSize: 16, fontWeight: "700" }}>{title}</Text>
-            <IconButton name="close" onPress={onClose} size={18} haptic={false} accessibilityLabel="Закрыть" />
-          </View>
+          {/* header — только заголовок; закрытие свайпом вниз или тапом по фону */}
+          {title ? (
+            <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
+              <Text style={{ color: theme.text, fontSize: 20, fontWeight: "700" }}>{title}</Text>
+            </View>
+          ) : null}
 
-          {/* контент — скроллится, кнопки снизу всегда доступны */}
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={{ paddingHorizontal: 14, paddingBottom: 24 }}
-          >
-            {children}
-          </ScrollView>
-        </BlurView>
+          {/* контент — в режиме auto окно по контенту, но не выше autoMaxPct% (скролл при переполнении) */}
+          {auto ? (
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ paddingHorizontal: 14, paddingBottom: 20 }}
+            >
+              {children}
+            </ScrollView>
+          ) : (
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ paddingHorizontal: 14, paddingBottom: 24 }}
+            >
+              {children}
+            </ScrollView>
+          )}
+        </View>
       </View>
     </Modal>
   );

@@ -27,6 +27,7 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      "./modules/aso-runtime/app.plugin.js",
       [
         "expo-font",
         {
