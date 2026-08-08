@@ -97,7 +97,7 @@ function renderInline(text: string, theme: any, keyPrefix: string): React.ReactN
       );
     } else if (tok.startsWith("`")) {
       nodes.push(
-        <Text key={`${keyPrefix}-c${k++}`} style={{ fontFamily: fonts.mono, color: theme.codeText, backgroundColor: theme.codeBg, paddingHorizontal: 3, borderRadius: 4 }}>
+        <Text key={`${keyPrefix}-c${k++}`} style={{ fontFamily: fonts.mono, color: theme.codeText, backgroundColor: theme.codeBg, paddingHorizontal: 3, borderRadius: 6 }}>
           {tok.slice(1, -1)}
         </Text>,
       );
@@ -132,29 +132,25 @@ function CodeBlock({ code, lang, theme }: { code: string; lang: string; theme: a
   const [wrapped, setWrapped] = useState(false);
   const tokens = useMemo(() => tokenize(code), [code]);
   return (
-    <View style={{ marginVertical: 6, borderRadius: 10, overflow: "hidden", borderWidth: 1, borderColor: theme.border, backgroundColor: theme.codeBg }}>
+    <View style={{ marginVertical: 6, borderRadius: 16, overflow: "hidden", borderWidth: 1, borderColor: theme.border, backgroundColor: theme.codeBg }}>
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 10, paddingVertical: 5, backgroundColor: theme.surface2 }}>
         <Text style={{ color: theme.mute, fontSize: 9.5, fontFamily: fonts.mono }}>{lang || "code"}</Text>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
           <Pressable
             hitSlop={8}
             onPress={() => setWrapped(!wrapped)}
-            accessibilityLabel="Перенос строк"
-            style={{ flexDirection: "row", alignItems: "center", gap: 3 }}
+            accessibilityLabel={wrapped ? "Перенос выключен" : "Перенос включен"}
+            style={{ width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center" }}
           >
-            <MaterialIcons name="wrap-text" size={11} color={wrapped ? theme.accentHi : theme.dim} />
-            <Text style={{ color: wrapped ? theme.accentHi : theme.dim, fontSize: 10 }}>
-              {wrapped ? "Перенос включен" : "Перенос"}
-            </Text>
+            <MaterialIcons name="wrap-text" size={13} color={wrapped ? theme.dim : theme.mute} />
           </Pressable>
           <Pressable
             hitSlop={8}
             onPress={() => Clipboard.setStringAsync(code).then(() => showToast("ok", "Код скопирован"))}
-            style={{ flexDirection: "row", alignItems: "center", gap: 3 }}
+            style={{ width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center" }}
             accessibilityLabel="Копировать код"
           >
-            <MaterialIcons name="content-copy" size={11} color={theme.dim} />
-            <Text style={{ color: theme.dim, fontSize: 10 }}>Копировать</Text>
+            <MaterialIcons name="content-copy" size={13} color={theme.mute} />
           </Pressable>
         </View>
       </View>
@@ -281,7 +277,7 @@ export function RichMarkdown({ content }: { content: string }) {
         const headerRow = norm[0];
         const bodyRows = norm.slice(1);
         out.push(
-          <View key={`tbl${k++}`} style={{ marginVertical: 6, borderWidth: 1, borderColor: theme.border, borderRadius: 10, overflow: "hidden" }}>
+          <View key={`tbl${k++}`} style={{ marginVertical: 6, borderWidth: 1, borderColor: theme.border, borderRadius: 16, overflow: "hidden" }}>
             {/* шапка */}
             <View style={{ flexDirection: "row", backgroundColor: theme.surface2, borderBottomWidth: 1, borderBottomColor: theme.border }}>
               {headerRow.map((c, ci) => (

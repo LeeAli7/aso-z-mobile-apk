@@ -34,6 +34,12 @@ export interface Msg {
   /** Карточка инструмента (терминал/файл/поиск) — как в Kimi. */
   tool?: string;
   toolState?: "loading" | "done" | "error";
+  /** Вывод/ход команды или действия агента — раскрывается как раздумья. */
+  toolOutput?: string;
+  /** Вложение пользователя: URI картинки (галерея/камера). */
+  image?: string;
+  /** Вложение пользователя: файл. */
+  file?: { name: string; uri: string };
 }
 
 export interface Session {
@@ -248,11 +254,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       try {
         await loadApiBase();
+        // Каждый источник тянем отдельно с catch: на web SecureStore — пустой
+        // объект и getItemAsync бросает. Если это роняет Promise.all, сессии
+        // не загружаются и persist перетирает их пустым массивом.
+        const secureGet = async (k: string) => {
+          try { return await SecureStore.getItemAsync(k); } catch { return null; }
+        };
         const [tok, th, lg, dev, sessRaw, activeRaw, defModelRaw] = await Promise.all([
-          SecureStore.getItemAsync(KEYS.token),
+          secureGet(KEYS.token),
           AsyncStorage.getItem(KEYS.theme),
           AsyncStorage.getItem(KEYS.lang),
-          SecureStore.getItemAsync(KEYS.device),
+          secureGet(KEYS.device),
           AsyncStorage.getItem(KEYS.sessions),
           AsyncStorage.getItem(KEYS.active),
           AsyncStorage.getItem(KEYS.defaultModel),
@@ -280,6 +292,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const customs = await listCustomProviders().catch(() => []);
       dispatch({ type: "SET_CUSTOM_MODELS", models: providersToModels(customs) });
       dispatch({ type: "SET_READY" });
+    })();
+
+    // Встроенный Linux-рантайм (Termux bootstrap) — установка при первом запуске.
+    // Не блокируем загрузку UI; результат нигде не ждём — команды [CMD:] сами
+    // проверят готовность и покажут понятную ошибку, если рантайм ещё не готов.
+    (async () => {
+      try {
+        const { ensureRuntime } = await import("../core/runtime");
+        await ensureRuntime();
+      } catch {}
     })();
   }, []);
 

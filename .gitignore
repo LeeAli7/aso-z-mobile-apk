@@ -43,3 +43,4 @@ yarn-error.*
 # dev-only tooling (contains provider URLs — never commit)
 /tools
 /scripts
+android/

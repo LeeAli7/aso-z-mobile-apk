@@ -2,7 +2,7 @@
  * Чат — основной экран. Прямой канал к провайдеру (core/gateway).
  * Сессии выезжают снизу (bottom sheet), модели — тоже sheet.
  */
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Easing,
@@ -19,6 +19,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
+import * as ImagePicker from "expo-image-picker";
+import * as DocumentPicker from "expo-document-picker";
 import { MaterialIcons } from "@expo/vector-icons";
 
 import { useApp, genId, Msg, Session } from "../store/AppStore";
@@ -39,12 +41,17 @@ import {
 } from "../core/vibeLocal";
 import { openInTermux, openFolderInFileManager } from "../core/termux";
 import { IconButton, IconName } from "../design-system/components/IconButton";
-import { GlassPressable } from "../design-system/components/Glass";
+import { Glass, GlassPressable } from "../design-system/components/Glass";
 import { GlassBackdrop } from "../design-system/components/GlassBackdrop";
 import { Sheet } from "../design-system/components/Sheet";
 import { Button } from "../design-system/components/Button";
 import { Input } from "../design-system/components/Input";
 import { showToast } from "../design-system/components/Toast";
+
+/** Группа сообщений для ленты: chain = блок раздумий+команд, single = обычное сообщение. */
+type Group =
+  | { id: string; kind: "chain"; msgs: Msg[] }
+  | { id: string; kind: "single"; msg: Msg };
 
 export function ChatScreen() {
   const { state, theme, dispatch, t, newSession, setActive, deleteSession, setDefaultModel } = useApp();
@@ -61,12 +68,17 @@ export function ChatScreen() {
   const [deleteTarget, setDeleteTarget] = useState<Session | null>(null);
   const [editTarget, setEditTarget] = useState<Msg | null>(null);
   const [editValue, setEditValue] = useState("");
+  // детали команды/раздумий — bottom-sheet как окно сессии
+  const [detailTarget, setDetailTarget] = useState<Msg | null>(null);
+  // прикрепление: окно-меню (фото/камера/файл) и выбранное вложение
+  const [attachOpen, setAttachOpen] = useState(false);
+  const [attachment, setAttachment] = useState<{ kind: "image" | "file"; uri: string; name?: string } | null>(null);
   // ── окно хранилища (проекты + файлы + инструкции, как у Hermes) ──
   const [projects, setProjects] = useState<VibeProject[]>([]);
   const [storageOpen, setStorageOpen] = useState(false);
   const stopRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
-  const listRef = useRef<FlatList<Msg>>(null);
+  const listRef = useRef<FlatList<any>>(null);
 
   const active = state.sessions.find((s) => s.id === state.activeSessionId) ?? null;
   const allModels = [...state.models, ...state.customModels];
@@ -134,6 +146,51 @@ export function ChatScreen() {
   const copyMsg = (m: Msg) => Clipboard.setStringAsync(m.content).catch(() => {});
   const shareMsg = (m: Msg) => Share.share({ message: m.content }).catch(() => {});
 
+  // ── Прикрепление: фото (галерея), камера, файл — всё рабочее ──
+  const pickImage = useCallback(async () => {
+    setAttachOpen(false);
+    try {
+      const res = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        quality: 0.8,
+      });
+      if (!res.canceled && res.assets?.[0]?.uri) {
+        setAttachment({ kind: "image", uri: res.assets[0].uri, name: res.assets[0].fileName ?? "photo" });
+      }
+    } catch (e: any) {
+      showToast("err", `Не удалось открыть галерею: ${e?.message || "ошибка"}`);
+    }
+  }, []);
+
+  const pickCamera = useCallback(async () => {
+    setAttachOpen(false);
+    try {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) {
+        showToast("err", "Нет доступа к камере");
+        return;
+      }
+      const res = await ImagePicker.launchCameraAsync({ quality: 0.8 });
+      if (!res.canceled && res.assets?.[0]?.uri) {
+        setAttachment({ kind: "image", uri: res.assets[0].uri, name: res.assets[0].fileName ?? "photo" });
+      }
+    } catch (e: any) {
+      showToast("err", `Не удалось открыть камеру: ${e?.message || "ошибка"}`);
+    }
+  }, []);
+
+  const pickFile = useCallback(async () => {
+    setAttachOpen(false);
+    try {
+      const res = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true });
+      if (!res.canceled && res.assets?.[0]) {
+        setAttachment({ kind: "file", uri: res.assets[0].uri, name: res.assets[0].name ?? "файл" });
+      }
+    } catch (e: any) {
+      showToast("err", `Не удалось выбрать файл: ${e?.message || "ошибка"}`);
+    }
+  }, []);
+
   const sendText = useCallback(
     async (raw: string) => {
       const content = raw.trim();
@@ -150,7 +207,8 @@ export function ChatScreen() {
         setActive(sid);
       }
 
-      dispatch({ type: "ADD_MSG", sessionId: sid, msg: { id: genId(), role: "user", content } });
+      dispatch({ type: "ADD_MSG", sessionId: sid, msg: { id: genId(), role: "user", content, ...(attachment ? (attachment.kind === "image" ? { image: attachment.uri } : { file: { name: attachment.name ?? "файл", uri: attachment.uri } }) : {}) } });
+      setAttachment(null);
       setText("");
       setStreaming(true);
       stopRef.current = false;
@@ -243,7 +301,7 @@ export function ChatScreen() {
         },
       }, ctrl.signal);
     },
-    [text, streaming, active, dispatch, model, setActive, scrollBottom],
+    [text, streaming, active, dispatch, model, setActive, scrollBottom, attachment],
   );
 
   const send = useCallback(() => {
@@ -429,67 +487,160 @@ export function ChatScreen() {
   const sessionList = [...state.sessions]
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .filter((s) => !search.trim() || s.name.toLowerCase().includes(search.trim().toLowerCase()));
+
+  // Цепочки: подряд идущие assistant-сообщения с thinking/tool (без итога) —
+  // накапливаются в ОДНОМ стеклянном блоке (как в QIWI); итог агента — отдельный Bubble.
+  const chainGroups = useMemo(() => {
+    const groups: Group[] = [];
+    const msgs = active?.messages ?? [];
+    let chain: Msg[] = [];
+    const isChainMsg = (m: Msg) =>
+      m.role === "assistant" && !m.error && !m.content && (m.thinking || m.tool);
+    const flush = () => {
+      if (chain.length) {
+        groups.push({ id: "chain-" + chain[0].id, kind: "chain", msgs: chain });
+        chain = [];
+      }
+    };
+    for (const m of msgs) {
+      if (isChainMsg(m)) chain.push(m);
+      else {
+        flush();
+        groups.push({ id: m.id, kind: "single", msg: m });
+      }
+    }
+    flush();
+    return groups;
+  }, [active?.messages]);
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       {/* светящиеся пятна под всем стеклом — чтобы глэссморфизм был виден */}
       <GlassBackdrop fixed />
-      {/* header: круглые стеклянные кнопки + капсулы (всё скруглённое, как Kimi) */}
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingBottom: 10, paddingTop: insets.top + 6 }}>
-        <IconButton name="menu" size={19} onPress={() => setSessionsOpen(true)} accessibilityLabel={t("sessions")} />
 
-        {/* капсула модели — стекло */}
-        <GlassPressable
-          onPress={() => setModelsOpen(true)}
-          radius={22}
-          style={{ flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 14, height: 44 }}
-          accessibilityLabel={t("model_select")}
-        >
-          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.accentHi }} />
-          <Text style={{ color: theme.text, fontSize: 13, fontWeight: "600", fontFamily: fonts.sansDemi }} numberOfLines={1}>
-            {modelName}
-          </Text>
-          <MaterialIcons name="keyboard-arrow-down" size={16} color={theme.mute} />
-        </GlassPressable>
-
-        {/* капсула хранилища (проекты + файлы + инструкции) — как хранилище Hermes */}
-        <GlassPressable
-          onPress={openStorageSheet}
-          radius={22}
+      {/* плавающие кнопки шапки: без полосы, каждая со своим стеклом, сообщения проходят ПОД ними */}
+      <View
+        pointerEvents="box-none"
+        style={{ position: "absolute", top: 0, left: 0, right: 0, zIndex: 20 }}
+      >
+        <View
+          pointerEvents="box-none"
           style={{
             flexDirection: "row", alignItems: "center", gap: 6,
-            paddingHorizontal: 12, height: 44, flexShrink: 1,
+            paddingHorizontal: 10, paddingTop: insets.top + 6,
           }}
-          accessibilityLabel="Хранилище"
         >
-          <MaterialIcons name="inventory-2" size={15} color={activeProject ? theme.accentHi : theme.mute} />
-          <Text numberOfLines={1} style={{ color: activeProject ? theme.accentHi : theme.dim, fontSize: 12, fontFamily: fonts.mono, flexShrink: 1 }}>
-            {activeProject ? activeProject.name : "Хранилище"}
-          </Text>
-          {activeProject ? (
-            <Pressable onPress={() => selectProject(null)} hitSlop={8} accessibilityLabel="Отвязать проект">
-              <MaterialIcons name="close" size={14} color={theme.mute} />
-            </Pressable>
-          ) : (
-            <MaterialIcons name="keyboard-arrow-down" size={15} color={theme.mute} />
-          )}
-        </GlassPressable>
+          <IconButton name="menu" size={20} onPress={() => setSessionsOpen(true)} accessibilityLabel={t("sessions")} />
 
-        <IconButton name="add" size={19} onPress={handleNewSession} accessibilityLabel={t("newSession")} />
+          {/* капсула модели — стекло */}
+          <GlassPressable
+            onPress={() => setModelsOpen(true)}
+            radius={99}
+            style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 16, height: 42, maxWidth: 130 }}
+            accessibilityLabel={t("model_select")}
+          >
+            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.accentHi }} />
+            <Text style={{ color: theme.text, fontSize: 12.5, fontWeight: "600", fontFamily: fonts.sansDemi, flexShrink: 1 }} numberOfLines={1}>
+              {modelName}
+            </Text>
+            <MaterialIcons name="keyboard-arrow-down" size={15} color={theme.mute} />
+          </GlassPressable>
+
+          {/* капсула хранилища (проекты + файлы + инструкции) — единый стиль с кнопкой модели */}
+          <GlassPressable
+            onPress={openStorageSheet}
+            radius={99}
+            style={{
+              flexDirection: "row", alignItems: "center", gap: 6,
+              paddingHorizontal: 16, height: 42, maxWidth: 152,
+            }}
+            accessibilityLabel="Конфиг"
+          >
+            <MaterialIcons name="folder" size={16} color={theme.accentHi} />
+            <Text numberOfLines={1} style={{ color: "#FFFFFF", fontSize: 12.5, fontWeight: "600", fontFamily: fonts.sansDemi, flexShrink: 1 }}>
+              {activeProject ? activeProject.name : "Конфиг"}
+            </Text>
+            {activeProject ? (
+              <Pressable onPress={() => selectProject(null)} hitSlop={8} accessibilityLabel="Отвязать проект">
+                <MaterialIcons name="close" size={15} color={theme.mute} />
+              </Pressable>
+            ) : (
+              <MaterialIcons name="keyboard-arrow-down" size={15} color={theme.mute} />
+            )}
+          </GlassPressable>
+
+          <IconButton name="add" size={20} onPress={handleNewSession} accessibilityLabel={t("newSession")} />
+        </View>
       </View>
 
-      {/* messages */}
+      {/* messages — контент скроллится ПОД плавающей шапкой */}
       {(!active || active.messages.length === 0) ? (
-        <EmptyChat theme={theme} />
+        <EmptyChat theme={theme} topInset={insets.top} />
       ) : (
-        <FlatList
+        <FlatList<Group>
           ref={listRef}
-          data={active.messages}
-          keyExtractor={(m) => m.id}
-          contentContainerStyle={{ padding: 16, paddingBottom: 24 }}
+          data={chainGroups}
+          keyExtractor={(g) => g.id}
+          contentContainerStyle={{ padding: 16, paddingTop: insets.top + 64, paddingBottom: 24 }}
           onContentSizeChange={scrollBottom}
-          renderItem={({ item }) => (
-            <Bubble msg={item} theme={theme} onCopy={() => copyMsg(item)} onShare={() => shareMsg(item)} onEdit={() => startEdit(item)} onLongPress={() => msgMenu(item)} />
-          )}
+          renderItem={({ item: g, index }) => {
+            if (g.kind === "chain") {
+              // единый блок: раздумья + команды накапливаются внутри (как в QIWI)
+              const onDetail = (m: Msg) => setDetailTarget(m);
+              return (
+                <View style={{ width: "94%", alignSelf: "flex-start", marginBottom: 10 }}>
+                  <Glass radius={20} style={{ overflow: "hidden", width: "100%", paddingTop: 8, paddingBottom: 8, paddingLeft: 12, paddingRight: 12 }}>
+                    {g.msgs.map((m, i) => {
+                      const last = i === g.msgs.length - 1;
+                      return (
+                        <View key={m.id}>
+                          {m.thinking ? (
+                            <ThinkingBlock
+                              text={m.thinking}
+                              status={m.streaming ? "thinking" : "done"}
+                              theme={theme}
+                              onOpen={() => onDetail(m)}
+                              bare
+                            />
+                          ) : null}
+                          {m.tool ? (
+                            <ToolCard
+                              tool={m.tool}
+                              state={m.toolState ?? "loading"}
+                              output={m.toolOutput}
+                              theme={theme}
+                              onOpen={() => onDetail(m)}
+                              bare
+                            />
+                          ) : null}
+                          {!last && (
+                            <View style={{ height: 1, backgroundColor: theme.border, opacity: 0.6 }} />
+                          )}
+                        </View>
+                      );
+                    })}
+                  </Glass>
+                </View>
+              );
+            }
+            const msg = g.msg;
+            const next = chainGroups[index + 1];
+            const showActions =
+              msg.role === "user"
+                ? true
+                : !msg.tool && (!next || next.kind === "single" && next.msg.role === "user");
+            return (
+              <Bubble
+                msg={msg}
+                theme={theme}
+                onCopy={() => copyMsg(msg)}
+                onShare={() => shareMsg(msg)}
+                onEdit={() => startEdit(msg)}
+                onLongPress={() => msgMenu(msg)}
+                showActions={showActions}
+                onOpenDetail={setDetailTarget}
+              />
+            );
+          }}
         />
       )}
 
@@ -505,24 +656,42 @@ export function ChatScreen() {
         keyboardVerticalOffset={Platform.OS === "ios" ? 0 : insets.top}
       >
         <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8, paddingHorizontal: 12, paddingTop: 6, paddingBottom: insets.bottom + 8 }}>
-          {/* стеклянная широкая капсула ввода: + | placeholder | микрофон/send/stop */}
-          <GlassPressable
-            radius={24}
-            intensity={52}
-            style={{ flex: 1, flexDirection: "row", alignItems: "center", paddingLeft: 4, paddingRight: 4, paddingVertical: 4, minHeight: 52 }}
-            accessibilityLabel="Поле ввода"
+          {/* превью вложения над капсулой ввода */}
+          {attachment && (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface, borderRadius: 16, paddingLeft: 6, paddingRight: 8, paddingVertical: 5 }}>
+                {attachment.kind === "image" ? (
+                  <Image source={{ uri: attachment.uri }} style={{ width: 34, height: 34, borderRadius: 10 }} resizeMode="cover" />
+                ) : (
+                  <View style={{ width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: theme.accentDim }}>
+                    <MaterialIcons name="insert-drive-file" size={17} color={theme.accentHi} />
+                  </View>
+                )}
+                <Text numberOfLines={1} style={{ color: theme.text, fontSize: 12, maxWidth: 200, flexShrink: 1 }}>
+                  {attachment.name ?? (attachment.kind === "image" ? "Фото" : "Файл")}
+                </Text>
+                <Pressable onPress={() => setAttachment(null)} hitSlop={8} accessibilityLabel="Убрать вложение" style={{ width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: theme.surface2 }}>
+                  <MaterialIcons name="close" size={13} color={theme.mute} />
+                </Pressable>
+              </View>
+            </View>
+          )}
+          {/* стеклянная капсула ввода: pill, единый padding 8 со всех сторон, gap 8, всё по центру */}
+          <Glass
+            radius={28}
+            style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 8, padding: 8 }}
           >
             <Pressable
-              onPress={() => showToast("info", "Прикрепить файл — скоро")}
+              onPress={() => setAttachOpen(true)}
               hitSlop={6}
               style={({ pressed }) => ({
-                width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center",
+                width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center",
                 backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.09)" : "rgba(255,255,255,.6)",
                 borderWidth: 1, borderColor: theme.border, opacity: pressed ? 0.7 : 1,
               })}
               accessibilityLabel="Прикрепить"
             >
-              <MaterialIcons name="add" size={20} color={theme.dim} />
+              <MaterialIcons name="add" size={22} color={theme.dim} />
             </Pressable>
             <TextInput
               value={text}
@@ -531,12 +700,21 @@ export function ChatScreen() {
               placeholderTextColor={theme.mute}
               multiline
               textAlignVertical="center"
-              style={{ flex: 1, fontSize: 14, color: theme.text, maxHeight: 92, paddingVertical: 8, marginHorizontal: 4, fontFamily: fonts.sansMedium }}
+              style={{
+                flex: 1, fontSize: 14, color: theme.text,
+                fontFamily: fonts.sansMedium,
+                textAlignVertical: "center",
+                // web: textarea не центрирует текст вертикально — задаём высоту и паддинги,
+                // чтобы строка (20px) стояла ровно по центру поля 44
+                ...(Platform.OS === "web"
+                  ? { height: 44, lineHeight: 20, paddingTop: 12, paddingBottom: 12, maxHeight: undefined }
+                  : { minHeight: 44, maxHeight: 76, paddingVertical: 0, lineHeight: 20 }),
+              }}
             />
             {streaming ? (
               <Pressable
                 onPress={() => { stopRef.current = true; setStreaming(false); abortRef.current?.abort(); }}
-                style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: theme.danger, alignItems: "center", justifyContent: "center" }}
+                style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.danger, alignItems: "center", justifyContent: "center" }}
                 accessibilityLabel="Остановить"
               >
                 <MaterialIcons name="stop" size={18} color="#fff" />
@@ -544,25 +722,26 @@ export function ChatScreen() {
             ) : text.trim() ? (
               <Pressable
                 onPress={send}
-                style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: theme.accent, alignItems: "center", justifyContent: "center" }}
+                hitSlop={8}
+                style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}
                 accessibilityLabel="Отправить"
               >
-                <MaterialIcons name="arrow-upward" size={19} color={theme.onAccent} />
+                <MaterialIcons name="arrow-upward" size={22} color={theme.accent} />
               </Pressable>
             ) : (
               <Pressable
-                style={{ width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.09)" : "rgba(255,255,255,.6)", borderWidth: 1, borderColor: theme.border }}
+                style={{ width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.09)" : "rgba(255,255,255,.6)", borderWidth: 1, borderColor: theme.border }}
                 accessibilityLabel="Голосовой ввод"
               >
-                <MaterialIcons name="mic" size={18} color={theme.dim} />
+                <MaterialIcons name="mic" size={20} color={theme.dim} />
               </Pressable>
             )}
-          </GlassPressable>
+          </Glass>
         </View>
       </KeyboardAvoidingView>
 
       {/* ── Sessions sheet ── */}
-      <Sheet visible={sessionsOpen} onClose={() => setSessionsOpen(false)} title={t("sessions")} snapPoints={["70%"]}>
+      <Sheet visible={sessionsOpen} onClose={() => setSessionsOpen(false)} title={t("sessions")} snapPoints={["auto"]} autoMaxPct={70}>
         <Button title={"＋ " + t("newSession")} onPress={handleNewSession} fullWidth />
         <View style={{ marginTop: 10 }}>
           <TextInput
@@ -570,14 +749,14 @@ export function ChatScreen() {
             onChangeText={setSearch}
             placeholder="Поиск сессий…"
             placeholderTextColor={theme.mute}
-            style={{ backgroundColor: theme.surface2, borderColor: theme.border, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, fontSize: 13, color: theme.text, minHeight: 40 }}
+            style={{ backgroundColor: theme.surface2, borderColor: theme.border, borderWidth: 1, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8, fontSize: 13, color: theme.text, minHeight: 44 }}
           />
         </View>
         {sessionList.map((s) => (
           <Pressable
             key={s.id}
             onPress={() => { setActive(s.id); setSessionsOpen(false); }}
-            style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderRadius: 11, borderWidth: 1, borderColor: s.id === active?.id ? theme.accent : theme.border, backgroundColor: s.id === active?.id ? theme.accentDim : theme.surface, marginTop: 8 }}
+            style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderRadius: 16, borderWidth: 1, borderColor: s.id === active?.id ? theme.accent : theme.border, backgroundColor: s.id === active?.id ? theme.accentDim : theme.surface, marginTop: 8 }}
           >
             <View style={{ flex: 1 }}>
               <Text numberOfLines={1} style={{ color: theme.text, fontSize: 13 }}>{s.name}</Text>
@@ -585,12 +764,12 @@ export function ChatScreen() {
                 {s.messages.length} · {new Date(s.updatedAt).toLocaleDateString()}
               </Text>
             </View>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <Pressable onPress={() => renameSessionById(s.id)} hitSlop={8} style={{ width: 34, height: 34, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: theme.surface2 }} accessibilityLabel="Переименовать">
-                <MaterialIcons name="edit" size={16} color={theme.accentHi} />
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+              <Pressable onPress={() => renameSessionById(s.id)} hitSlop={10} style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center" }} accessibilityLabel="Переименовать">
+                <MaterialIcons name="edit" size={17} color={theme.dim} />
               </Pressable>
-              <Pressable onPress={() => deleteSessionById(s.id)} hitSlop={8} style={{ width: 34, height: 34, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: theme.surface2 }} accessibilityLabel="Удалить">
-                <MaterialIcons name="delete-outline" size={17} color={theme.danger} />
+              <Pressable onPress={() => deleteSessionById(s.id)} hitSlop={10} style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center" }} accessibilityLabel="Удалить">
+                <MaterialIcons name="delete-outline" size={18} color={theme.dim} />
               </Pressable>
             </View>
           </Pressable>
@@ -605,7 +784,7 @@ export function ChatScreen() {
             <Pressable
               key={m.modelName}
               onPress={() => switchModel(m)}
-              style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderRadius: 11, borderWidth: 1, borderColor: on ? theme.accent : theme.border, backgroundColor: on ? theme.accentDim : theme.surface, marginTop: 8 }}
+              style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderRadius: 16, borderWidth: 1, borderColor: on ? theme.accent : theme.border, backgroundColor: on ? theme.accentDim : theme.surface, marginTop: 8 }}
             >
               <View style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: on ? theme.accent : theme.border, alignItems: "center", justifyContent: "center" }}>
                 {on && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.accent }} />}
@@ -627,7 +806,7 @@ export function ChatScreen() {
         })}
       </Sheet>
 
-      {/* ── Хранилище (проекты + файлы + инструкции — как хранилище Hermes) ── */}
+      {/* ── Конфиг (проекты + файлы + инструкции — как хранилище Hermes) ── */}
       <StorageSheet
         visible={storageOpen}
         onClose={() => setStorageOpen(false)}
@@ -645,6 +824,25 @@ export function ChatScreen() {
             <Button title="Копировать" variant="secondary" onPress={() => { copyMsg(msgMenuTarget); setMsgMenuTarget(null); }} fullWidth style={{ marginTop: 6 }} />
             <Button title="Поделиться" variant="secondary" onPress={() => { shareMsg(msgMenuTarget); setMsgMenuTarget(null); }} fullWidth style={{ marginTop: 6 }} />
             <Button title="Удалить сообщение" variant="danger" onPress={() => doDeleteMsg(msgMenuTarget)} fullWidth style={{ marginTop: 6 }} />
+          </>
+        )}
+      </Sheet>
+
+      {/* ── Детали команды/раздумий — bottom-sheet как окно сессии ── */}
+      <Sheet visible={!!detailTarget} onClose={() => setDetailTarget(null)} title={detailTarget?.tool ? "Ход выполнения" : "Раздумья агента"} snapPoints={["45%"]}>
+        {detailTarget && (
+          <>
+            {detailTarget.tool ? (
+              <Text selectable style={{ color: theme.text, fontSize: 12.5, fontFamily: "monospace", borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface2, borderRadius: 16, padding: 12, lineHeight: 19 }}>
+                {detailTarget.tool.trim()}
+                {detailTarget.toolOutput ? `\n\n${detailTarget.toolOutput.trim()}` : ""}
+              </Text>
+            ) : null}
+            {detailTarget.thinking ? (
+              <Text selectable style={{ color: theme.dim, fontFamily: "monospace", fontSize: 12.5, lineHeight: 19 }}>
+                {detailTarget.thinking.trim()}
+              </Text>
+            ) : null}
           </>
         )}
       </Sheet>
@@ -674,6 +872,27 @@ export function ChatScreen() {
             </View>
           </>
         )}
+      </Sheet>
+
+      {/* ── Прикрепить: фото / камера / файл — компактное меню без заголовка, закрытие свайпом вниз, кнопки на всю ширину ── */}
+      <Sheet visible={attachOpen} onClose={() => setAttachOpen(false)} snapPoints={["auto"]}>
+        <View style={{ flexDirection: "row", gap: 12 }}>
+          {[
+            { icon: "photo-library" as const, label: "Фото", onPress: pickImage },
+            { icon: "photo-camera" as const, label: "Камера", onPress: pickCamera },
+            { icon: "insert-drive-file" as const, label: "Файл", onPress: pickFile },
+          ].map((b) => (
+            <GlassPressable
+              key={b.label}
+              onPress={b.onPress}
+              radius={20}
+              accessibilityLabel={b.label}
+              style={{ flex: 1, aspectRatio: 1 }}
+            >
+              <MaterialIcons name={b.icon} size={34} color={theme.dim} />
+            </GlassPressable>
+          ))}
+        </View>
       </Sheet>
 
       {/* ── Rename session (in-app, Alert.prompt на Android не работает) ── */}
@@ -723,22 +942,23 @@ export function ChatScreen() {
   );
 }
 
-function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress }: { msg: Msg; theme: any; onCopy: () => void; onShare: () => void; onEdit?: () => void; onLongPress?: () => void }) {
+function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions, onOpenDetail }: { msg: Msg; theme: any; onCopy: () => void; onShare: () => void; onEdit?: () => void; onLongPress?: () => void; showActions?: boolean; onOpenDetail?: (m: Msg) => void }) {
   const user = msg.role === "user";
   const align: "flex-end" | "flex-start" = user ? "flex-end" : "flex-start";
-  const containerStyle = { alignSelf: align, maxWidth: "86%" as const, marginBottom: 10 };
+  // Kimi: юзер — синяя капсула справа; ассистент — БЕЗ рамки, чистый текст слева
+  const containerStyle = { alignSelf: align, maxWidth: (user ? "86%" : "100%") as "86%" | "100%", marginBottom: 10 };
   // Карточка инструмента — до контента, слева (как у Kimi).
   if (msg.tool) {
     return (
       <View style={containerStyle}>
-        <ToolCard tool={msg.tool} state={msg.toolState ?? "loading"} theme={theme} />
+        <ToolCard tool={msg.tool} state={msg.toolState ?? "loading"} output={msg.toolOutput} theme={theme} onOpen={() => onOpenDetail?.(msg)} />
       </View>
     );
   }
   if (msg.streaming) {
     return (
       <View style={containerStyle}>
-        <View style={{ paddingHorizontal: 14, paddingVertical: 11, borderRadius: 14, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }}>
+        <View style={{ paddingHorizontal: 14, paddingVertical: 11, borderRadius: 20, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }}>
           <View style={{ flexDirection: "row", gap: 4, alignItems: "center" }}>
             {[0, 1, 2].map((i) => (
               <View key={i} style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: theme.accentHi }} />
@@ -751,7 +971,7 @@ function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress }: { msg: Msg
   if (msg.error && !msg.content) {
     return (
       <View style={containerStyle}>
-        <View style={{ padding: 13, borderRadius: 12, borderWidth: 1, borderColor: theme.danger, backgroundColor: theme.surface }}>
+        <View style={{ padding: 14, borderRadius: 20, borderWidth: 1, borderColor: theme.danger, backgroundColor: theme.surface }}>
           <Text style={{ color: theme.danger, fontSize: 13 }}>{msg.error}</Text>
         </View>
       </View>
@@ -764,47 +984,62 @@ function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress }: { msg: Msg
         delayLongPress={350}
         style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
       >
-      <View style={{ backgroundColor: user ? theme.userBubble : theme.surface, borderRadius: 14, borderTopLeftRadius: user ? 14 : 4, borderTopRightRadius: user ? 14 : 14, borderWidth: user ? 0 : 1, borderColor: user ? undefined : theme.border, paddingHorizontal: 13, paddingVertical: 9 }}>
-        {user ? (
-          <Text style={{ color: theme.userText, fontSize: 14, lineHeight: 20 }}>{msg.content}</Text>
-        ) : (
-          <>
-            {msg.thinking ? (
-              <ThinkingBlock
-                text={msg.thinking}
-                status={msg.streaming ? "thinking" : "done"}
-                theme={theme}
-              />
-            ) : null}
-            {renderMarkdown(msg.content, theme)}
-          </>
-        )}
-      </View>
+      {user ? (
+        // юзер: синяя капсула (KMBlue), белый текст, радиус 20
+        <View style={{ backgroundColor: theme.userBubble, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 10 }}>
+          {msg.image ? (
+            <Image source={{ uri: msg.image }} style={{ width: 200, height: 200, borderRadius: 14, marginBottom: 6 }} resizeMode="cover" />
+          ) : null}
+          {msg.file ? (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 }}>
+              <MaterialIcons name="insert-drive-file" size={16} color="rgba(255,255,255,.9)" />
+              <Text numberOfLines={1} style={{ color: theme.userText, fontSize: 12, flexShrink: 1 }}>{msg.file.name}</Text>
+            </View>
+          ) : null}
+          {msg.content ? (
+            <Text style={{ color: theme.userText, fontSize: 14, lineHeight: 20 }}>{msg.content}</Text>
+          ) : null}
+        </View>
+      ) : (
+        // ассистент: БЕЗ рамки и фона — как в Kimi, markdown прямо на фоне чата
+        <View>
+          {msg.thinking ? (
+            <ThinkingBlock
+              text={msg.thinking}
+              status={msg.streaming ? "thinking" : "done"}
+              theme={theme}
+              onOpen={() => onOpenDetail?.(msg)}
+            />
+          ) : null}
+          {renderMarkdown(msg.content, theme)}
+        </View>
+      )}
       </Pressable>
-      <View style={{ flexDirection: "row", justifyContent: user ? "flex-end" : "flex-start", marginTop: 4, gap: 14 }}>
-        <Pressable onPress={onCopy} hitSlop={10} accessibilityLabel="Копировать" style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-          <MaterialIcons name="content-copy" size={12} color={theme.mute} />
-          <Text style={{ color: theme.mute, fontSize: 10.5 }}>Копировать</Text>
-        </Pressable>
-        <Pressable onPress={onShare} hitSlop={10} accessibilityLabel="Поделиться" style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-          <MaterialIcons name="share" size={12} color={theme.mute} />
-          <Text style={{ color: theme.mute, fontSize: 10.5 }}>Поделиться</Text>
-        </Pressable>
-        {/* «Изменить» — только иконка, без текста (значок сам объясняет) */}
-        {user && onEdit && (
-          <Pressable onPress={onEdit} hitSlop={10} accessibilityLabel="Изменить сообщение">
-            <MaterialIcons name="edit" size={12} color={theme.mute} />
-          </Pressable>
-        )}
-      </View>
+      {/* действия: ТОЛЬКО в самом конце цепочки агента (или у юзера) — голые иконки, без коробок */}
+            {showActions && !msg.streaming && (
+              <View style={{ flexDirection: "row", justifyContent: user ? "flex-end" : "flex-start", marginTop: 8, gap: 2 }}>
+                <Pressable onPress={onCopy} hitSlop={10} accessibilityLabel="Копировать" style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center" }}>
+                  <MaterialIcons name="content-copy" size={17} color={theme.dim} />
+                </Pressable>
+                <Pressable onPress={onShare} hitSlop={10} accessibilityLabel="Поделиться" style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center" }}>
+                  <MaterialIcons name="share" size={17} color={theme.dim} />
+                </Pressable>
+                {/* «Изменить» — только иконка, без текста (значок сам объясняет) */}
+                {user && onEdit && (
+                  <Pressable onPress={onEdit} hitSlop={10} accessibilityLabel="Изменить сообщение" style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center" }}>
+                    <MaterialIcons name="edit" size={17} color={theme.dim} />
+                  </Pressable>
+                )}
+              </View>
+            )}
     </View>
   );
 }
 
 /* ── Пустой экран: только приветственный текст (сверху, не по центру) ── */
-function EmptyChat({ theme }: { theme: any }) {
+function EmptyChat({ theme, topInset }: { theme: any; topInset?: number }) {
   return (
-    <View style={{ flex: 1, paddingTop: 46, paddingHorizontal: 22 }}>
+    <View style={{ flex: 1, paddingTop: (topInset ?? 0) + 66, paddingHorizontal: 22 }}>
       <Text style={{ color: theme.text, fontSize: 24, fontWeight: "700", letterSpacing: -0.5, fontFamily: fonts.mono, lineHeight: 31 }}>
         Привет!{"\n"}Чем займёмся сегодня?
       </Text>

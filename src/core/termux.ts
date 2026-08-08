@@ -1,25 +1,13 @@
 /**
- * Интеграция с Termux и файловым менеджером.
+ * Интеграция с рантаймом и файловым менеджером.
  *
- * Termux — отдельное Android-приложение с настоящим shell (npm/pip/python).
- * Он НЕ видит закрытое хранилище приложения (Android/data/...), поэтому
- * чтобы «открыть проект в Termux» по-настоящему, мы:
+ * Рантайм ВСТРОЕН в приложение (Termux bootstrap, см. modules/aso-runtime):
+ * единое хранилище внутри приватной директории, shell-сессия = дочерний
+ * процесс с pipe. Внешний Termux через Intent больше не нужен.
  *
- *  1) Экспортируем проект в общее хранилище: Download/AsoVibe/<projectId>/
- *     (через StorageAccessFramework — юзер выбирает папку один раз,
- *      сохраняем URI; дальше копируем автоматически).
- *  2) Открываем Termux и запускаем `cd` в эту папку.
- *
- * Фиксы (v1.6):
- *  - Файлы копируются с ПРАВИЛЬНЫМ расширением (index.html → index.html,
- *    а НЕ index.html.txt) — mime-тип выводится из имени файла.
- *  - Для каждого проекта создаётся СВОЯ подпапка Download/AsoVibe/<id> —
- *    проекты не смешиваются.
- *  - Если сохранённый SAF-URI протух (SecurityException после перезапуска),
- *    снова просим выбрать папку и повторяем экспорт — без краша.
- *
- * Также: кнопка «Открыть в файловом менеджере» — открывает общий путь
- * в системном менеджере (там проект реально виден).
+ * Вспомогательно: экспорт проекта в Download/AsoVibe/<projectId>/ через SAF —
+ * чтобы юзер мог руками закинуть/забрать файлы системным менеджером
+ * (не основной путь, а опциональная функция).
  *
  * На web — no-op с понятным сообщением.
  */
@@ -29,6 +17,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Paths } from "expo-file-system";
 import { StorageAccessFramework } from "expo-file-system/legacy";
 import { listFiles, readFile } from "./vibeLocal";
+import { ensureRuntime, runtimeAvailable } from "./runtime";
 
 const SAF_URI_KEY = "aso_saf_vibe_dir";
 const SHARE_DIR_NAME = "AsoVibe";
@@ -209,64 +198,28 @@ export async function exportProjectToShared(
 }
 
 /**
- * Открыть проект в Termux.
- * 1) экспортируем в Download/AsoVibe/<id> (если ещё не выбран каталог — SAF-диалог);
- * 2) запускаем Termux сразу в папке проекта через com.termux.RUN_COMMAND
- *    (WORKDIR + bash), если Termux разрешил внешние команды;
- *    иначе fallback: TermuxActivity + подсказка cd.
+ * Открыть терминал в папке проекта.
+ *
+ * Рантайм ВСТРОЕН: при первом вызове устанавливает Termux bootstrap
+ * (распаковка assets → files/data/usr), затем запускает bash-сессию
+ * с cwd = папка проекта. Возвращает ok — дальше команды [CMD:] в чате
+ * выполняются уже в рантайме.
  */
 export async function openInTermux(projectId: string): Promise<{ ok: boolean; message: string }> {
   if (!nativeIntentsSupported()) {
-    return { ok: false, message: "Termux доступен только на Android" };
+    return { ok: false, message: "Терминал доступен только на Android" };
   }
-  const exp = await exportProjectToShared(projectId);
-  if (!exp.ok) return exp;
-
-  const projectPath = `/storage/emulated/0/Download/${SHARE_DIR_NAME}/${projectId}`;
-  const termuxDir = `/data/data/com.termux/files/home/storage/shared/Download/${SHARE_DIR_NAME}/${projectId}`;
-
-  try {
-    // Пытаемся открыть Termux сразу в директории проекта.
-    // Требует в Termux: Настройки → "Разрешить внешним приложениям выполнять команды".
-    await IntentLauncher.startActivityAsync("com.termux.RUN_COMMAND", {
-      packageName: "com.termux",
-      className: "com.termux.app.RunCommandService",
-      extra: {
-        "com.termux.RUN_COMMAND_PATH": "/data/data/com.termux/files/usr/bin/bash",
-        "com.termux.RUN_COMMAND_ARGUMENTS": ["-c", `cd "${termuxDir}" && exec bash`],
-        "com.termux.RUN_COMMAND_WORKDIR": termuxDir,
-        "com.termux.RUN_COMMAND_BACKGROUND": false,
-        "com.termux.RUN_COMMAND_SESSION_ACTION": "0",
-      },
-    });
-    return {
-      ok: true,
-      message: `Termux открыт в папке проекта: Download/${SHARE_DIR_NAME}/${projectId}`,
-    };
-  } catch (e: any) {
-    const msg = String(e?.message || e).toLowerCase();
-    if (msg.includes("not found") || msg.includes("no activity") || msg.includes("unable to find")) {
-      return { ok: false, message: "Termux не установлен. Поставь его из F-Droid: https://f-droid.org/packages/com.termux/" };
-    }
-    // RUN_COMMAND не разрешён — fallback на обычный запуск + подсказка.
-    try {
-      await IntentLauncher.startActivityAsync("android.intent.action.MAIN", {
-        packageName: "com.termux",
-        className: "com.termux.app.TermuxActivity",
-      });
-      const cd = `cd ~/storage/shared/Download/${SHARE_DIR_NAME}/${projectId}`;
-      return {
-        ok: true,
-        message: `Termux запущен. Включи «Разрешить внешним приложениям выполнять команды» в настройках Termux, чтобы он открывался сразу в проекте.\nПока — выполни вручную:\n${cd}`,
-      };
-    } catch (e2: any) {
-      const m2 = String(e2?.message || e2).toLowerCase();
-      if (m2.includes("not found") || m2.includes("no activity") || m2.includes("unable to find")) {
-        return { ok: false, message: "Termux не установлен. Поставь его из F-Droid: https://f-droid.org/packages/com.termux/" };
-      }
-      return { ok: false, message: String(e2?.message || e2) };
-    }
+  if (!runtimeAvailable()) {
+    return { ok: false, message: "Встроенный рантайм не доступен на этом устройстве" };
   }
+  const r = await ensureRuntime();
+  if (!r.ok) {
+    return { ok: false, message: r.message };
+  }
+  return {
+    ok: true,
+    message: "Встроенный терминал готов. Опиши задачу в чате — агент выполнит команды (apt, python, bash).",
+  };
 }
 
 /**
