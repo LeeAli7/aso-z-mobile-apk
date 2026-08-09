@@ -13,6 +13,7 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  KeyboardAvoidingView,
   Modal,
   PanResponder,
   Platform,
@@ -97,6 +98,13 @@ export function Sheet({
         {/* backdrop — тап закрывает */}
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Закрыть" />
 
+        {/* KAV: инпуты в панели (rename/edit) не должны прятаться за клавиатуру.
+            Android: sheet в Modal, системный adjustResize не двигает Modal — двигаем сами. */}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={0}
+          style={{ justifyContent: "flex-end" }}
+        >
         {/* стеклянная панель (имитация: полупрозрачный фон + рамка + блик) */}
         <View
           style={[
@@ -158,6 +166,7 @@ export function Sheet({
             </ScrollView>
           )}
         </View>
+        </KeyboardAvoidingView>
       </View>
     </Modal>
   );

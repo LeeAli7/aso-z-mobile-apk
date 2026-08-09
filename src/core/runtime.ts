@@ -31,18 +31,30 @@ export function runtimeAvailable(): boolean {
   return Platform.OS === "android" && rtAvailable();
 }
 
-/** Инициализировать рантайм при первом запуске (идемпотентно). */
-export async function ensureRuntime(): Promise<{ ok: boolean; message: string }> {
+/**
+ * Инициализировать рантайм при первом запуске (идемпотентно).
+ * Мемоизируем промис — параллельные вызовы не запускают вторую распаковку.
+ * При сбое сбрасываем кэш, чтобы следующая попытка могла повториться.
+ */
+let installPromise: Promise<{ ok: boolean; message: string }> | null = null;
+
+export function ensureRuntime(): Promise<{ ok: boolean; message: string }> {
   if (!runtimeAvailable()) {
-    return { ok: false, message: "Встроенный рантайм доступен только на Android" };
+    return Promise.resolve({ ok: false, message: "Встроенный рантайм доступен только на Android" });
   }
-  try {
-    if (await rtInstalled()) return { ok: true, message: "Рантайм установлен" };
-    const prefix = await installBootstrap();
-    return { ok: true, message: `Рантайм готов: ${prefix}` };
-  } catch (e: any) {
-    return { ok: false, message: String(e?.message || e) };
+  if (!installPromise) {
+    installPromise = (async () => {
+      try {
+        if (await rtInstalled()) return { ok: true, message: "Рантайм установлен" };
+        const prefix = await installBootstrap();
+        return { ok: true, message: `Рантайм готов: ${prefix}` };
+      } catch (e: any) {
+        installPromise = null; // даём возможность повторить при следующем вызове
+        return { ok: false, message: String(e?.message || e) };
+      }
+    })();
   }
+  return installPromise;
 }
 
 /**
@@ -91,6 +103,14 @@ export function runCommandCapture(cmd: string, projectId?: string, cwd?: string)
   return new Promise(async (resolve) => {
     if (!runtimeAvailable()) {
       resolve({ ok: false, output: "", code: -1, error: "Рантайм доступен только на Android" });
+      return;
+    }
+    // Гарантируем, что bootstrap установлен, ДО первой команды.
+    // Раньше установка шла только при старте приложения и ошибки глотались —
+    // агент получал «bootstrap not installed» и говорил, что терминала нет.
+    const rt = await ensureRuntime();
+    if (!rt.ok) {
+      resolve({ ok: false, output: "", code: -1, error: `рантайм не готов: ${rt.message}` });
       return;
     }
     const h = await runCommand(cmd, cwd);
