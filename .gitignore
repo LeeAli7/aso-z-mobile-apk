@@ -43,4 +43,6 @@ yarn-error.*
 # dev-only tooling (contains provider URLs — never commit)
 /tools
 /scripts
-android/
+/android
+# но НЕ исключать android/ внутри modules/ (Kotlin-исходники aso-runtime)
+!modules/aso-runtime/android/
