@@ -585,17 +585,10 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
 }
 
 function VibeBubble({ msg, theme }: { msg: VibeMsg; theme: any }) {
-  if (msg.streaming) {
-    return (
-      <View style={{ alignSelf: "flex-start", marginBottom: 8, paddingHorizontal: 13, paddingVertical: 8, borderRadius: 12, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }}>
-        <View style={{ flexDirection: "row", gap: 4, alignItems: "center" }}>
-          {[0, 1, 2].map((i) => (
-            <View key={i} style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: theme.accentHi }} />
-          ))}
-        </View>
-        <Text style={{ color: theme.dim, fontSize: 11, marginTop: 5 }}>агент работает…</Text>
-      </View>
-    );
+  // Стриминг без заглушек: пока нет ни текста, ни раздумий, ни инструмента — ничего,
+  // дальше контент рендерится по мере поступления токенов (никаких точек и «агент работает…»).
+  if (msg.streaming && !msg.content && !msg.thinking && !msg.tool) {
+    return null;
   }
   if (msg.tool) {
     return (

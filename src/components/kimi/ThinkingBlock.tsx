@@ -25,13 +25,8 @@ interface Props {
   bare?: boolean;
 }
 
-const DOT_DURATION = 480;
-
 export function ThinkingBlock({ text, status, onSkip, onOpen, theme, bare }: Props) {
   const pulse = useRef(new Animated.Value(0)).current;
-  const dotA = useRef(new Animated.Value(0)).current;
-  const dotB = useRef(new Animated.Value(0)).current;
-  const dotC = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (status !== "thinking") return;
@@ -42,33 +37,10 @@ export function ThinkingBlock({ text, status, onSkip, onOpen, theme, bare }: Pro
       ]),
     );
     p.start();
-    const mk = (v: Animated.Value, offset: number) => {
-      const l = Animated.loop(
-        Animated.sequence([
-          Animated.timing(v, { toValue: 1, duration: DOT_DURATION, easing: Easing.linear, useNativeDriver: true }),
-          Animated.timing(v, { toValue: 0, duration: DOT_DURATION, easing: Easing.linear, useNativeDriver: true }),
-        ]),
-      );
-      v.setValue(offset);
-      l.start();
-      return l;
-    };
-    const a = mk(dotA, 0);
-    const b = mk(dotB, 0.33);
-    const c = mk(dotC, 0.66);
-    return () => {
-      p.stop();
-      a.stop();
-      b.stop();
-      c.stop();
-    };
-  }, [status, pulse, dotA, dotB, dotC]);
+    return () => p.stop();
+  }, [status, pulse]);
 
   const spin = pulse.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "18deg"] });
-  const dotStyle = (v: Animated.Value) => ({
-    opacity: v.interpolate({ inputRange: [0, 1], outputRange: [0.25, 1] }),
-    transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [0.8, 1.15] }) }],
-  });
 
   const isThinking = status === "thinking";
 
@@ -93,20 +65,8 @@ export function ThinkingBlock({ text, status, onSkip, onOpen, theme, bare }: Pro
         </View>
 
         <Text style={{ color: theme.dim, fontSize: 12.5, fontWeight: "500", flexShrink: 1 }}>
-          {isThinking ? "Обдумывание…" : "Раздумья"}
+          {isThinking ? "Обдумывание" : "Раздумья"}
         </Text>
-
-        {/* «дышащие» точки во время раздумий */}
-        {isThinking && (
-          <View style={{ flexDirection: "row", gap: 3, marginLeft: 4 }}>
-            {[dotA, dotB, dotC].map((d, i) => (
-              <Animated.View
-                key={i}
-                style={[{ width: 4, height: 4, borderRadius: 99, backgroundColor: theme.dim }, dotStyle(d)]}
-              />
-            ))}
-          </View>
-        )}
 
         {isThinking && onSkip && (
           <Pressable

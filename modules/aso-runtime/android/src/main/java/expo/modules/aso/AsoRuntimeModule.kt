@@ -102,6 +102,40 @@ class AsoRuntimeModule : Module() {
                 promise.resolve(true)
             } else promise.resolve(false)
         }
+
+        // execCapture — команда одним вызовом: запуск + сбор вывода + ожидание завершения.
+        // Без событий: JS не может потерять onExit (гонка) — результат приходит в promise.
+        AsyncFunction("execCapture") { cmd: String, cwd: String?, promise: expo.modules.kotlin.Promise ->
+            GlobalScope.launch(Dispatchers.IO) {
+                try {
+                    require(bootstrapMarker().exists()) { "bootstrap not installed" }
+                    AsoRuntimeService.start(context())
+                    val proc = startProcess(cmd, cwd)
+                    val reader = proc.inputStream.bufferedReader()
+                    val sb = StringBuilder()
+                    val buf = CharArray(4096)
+                    while (true) {
+                        val n = reader.read(buf)
+                        if (n <= 0) break
+                        if (sb.length < 64 * 1024) {
+                            sb.append(buf, 0, n)
+                            if (sb.length > 64 * 1024) { // оставляем маркер обрезки
+                                sb.setLength(64 * 1024)
+                                sb.append("\n[вывод обрезан: >64 КБ]\n")
+                            }
+                        }
+                    }
+                    val code = proc.waitFor()
+                    val out = sb.toString()
+                    promise.resolve(
+                        if (code == 0) mapOf("ok" to true, "output" to out, "code" to code)
+                        else mapOf("ok" to false, "output" to out, "code" to code, "error" to "exit $code")
+                    )
+                } catch (e: Exception) {
+                    promise.resolve(mapOf("ok" to false, "output" to "", "code" to -1, "error" to "$e"))
+                }
+            }
+        }
     }
 
     // ── Установка bootstrap ───────────────────────────────────────────────────
