@@ -16,12 +16,13 @@
  * Всё в стиле Kimi: стеклянные панели, капсулы, Geist Mono, без эмодзи.
  */
 import React, { useCallback, useEffect, useState } from "react";
-import { Pressable, Text, TextInput, View } from "react-native";
+import { Pressable, Switch, Text, TextInput, View } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useApp } from "../../store/AppStore";
 import { Sheet } from "../../design-system/components/Sheet";
 import { GlassPressable } from "../../design-system/components/Glass";
 import { Button } from "../../design-system/components/Button";
+import { Input } from "../../design-system/components/Input";
 import { fonts } from "../../theme/tokens";
 import {
   VibeProject,
@@ -31,6 +32,10 @@ import {
   writeFile,
 } from "../../core/vibeLocal";
 import { showToast } from "../../design-system/components/Toast";
+import { memorySnapshot, clearMemory } from "../../core/memory";
+import { loadTodos, runTodoOps, clearTodos } from "../../core/todo";
+import { loadJobs, upsertJob, removeJob, setJobEnabled, upcoming } from "../../core/cron";
+import { runCurator } from "../../core/selfImprove";
 
 const INSTRUCTIONS_FILE = "INSTRUCTIONS.md";
 
@@ -40,6 +45,9 @@ type Path = string[];
 const ROOT_FOLDERS: { key: string; label: string; icon: keyof typeof MaterialIcons.glyphMap; desc: string }[] = [
   { key: "projects", label: "Проекты", icon: "folder", desc: "папки-проекты агента" },
   { key: "skills", label: "Скиллы", icon: "extension", desc: "навыки, инструкции, самообучение" },
+  { key: "memory", label: "Память", icon: "memory", desc: "факты о пользователе, заметки агента" },
+  { key: "todo", label: "Задачи", icon: "checklist", desc: "план дел агента (todo)" },
+  { key: "cron", label: "Автозадачи", icon: "schedule", desc: "расписание, напоминания, отчёты" },
   { key: "connectors", label: "Коннекторы", icon: "link", desc: "подключённые сервисы и инструменты" },
 ];
 
@@ -65,6 +73,77 @@ export function StorageSheet({
 
   const [instrText, setInstrText] = useState("");
   const [instrDirty, setInstrDirty] = useState(false);
+
+  // ── агентские разделы: память / задачи / автозадачи ──
+  const [memText, setMemText] = useState("Память пуста.");
+  const [todoItems, setTodoItems] = useState<any[]>([]);
+  const [todoDraft, setTodoDraft] = useState("");
+  const [jobs, setJobs] = useState<any[]>([]);
+  const [jobDraft, setJobDraft] = useState({ name: "", schedule: "30m", prompt: "" });
+  const [upcomingText, setUpcomingText] = useState("");
+
+  const refreshAgent = useCallback(async () => {
+    const snap = await memorySnapshot().catch(() => "");
+    setMemText(snap || "Память пуста.");
+    setTodoItems(await loadTodos().catch(() => []));
+    const jb = await loadJobs().catch(() => []);
+    setJobs(jb);
+    setUpcomingText((await upcoming(jb).catch(() => [])).join("\n") || "Автозадач нет");
+  }, []);
+
+  useEffect(() => {
+    if (visible) void refreshAgent();
+  }, [visible, refreshAgent]);
+
+  const onAddTodo = useCallback(async () => {
+    if (!todoDraft.trim()) return;
+    await runTodoOps([{ action: "add", content: todoDraft.trim() }]);
+    setTodoDraft("");
+    void refreshAgent();
+  }, [todoDraft, refreshAgent]);
+
+  const onTodoStatus = useCallback(async (id: string, status: string) => {
+    await runTodoOps([{ action: "update", id, status } as any]);
+    void refreshAgent();
+  }, [refreshAgent]);
+
+  const onRemoveTodo = useCallback(async (id: string) => {
+    await runTodoOps([{ action: "remove", id } as any]);
+    void refreshAgent();
+  }, [refreshAgent]);
+
+  const onClearTodos = useCallback(async () => {
+    await clearTodos();
+    void refreshAgent();
+  }, [refreshAgent]);
+
+  const onClearMemory = useCallback(async () => {
+    await clearMemory();
+    setMemText("Память пуста.");
+    showToast("ok", "Память очищена");
+  }, []);
+
+  const onAddJob = useCallback(async () => {
+    if (!jobDraft.prompt.trim()) return;
+    await upsertJob({
+      name: jobDraft.name.trim() || jobDraft.prompt.slice(0, 30),
+      schedule: jobDraft.schedule.trim() || "30m",
+      prompt: jobDraft.prompt.trim(),
+      deliver: "chat",
+    });
+    setJobDraft({ name: "", schedule: "30m", prompt: "" });
+    void refreshAgent();
+  }, [jobDraft, refreshAgent]);
+
+  const onToggleJob = useCallback(async (id: string, enabled: boolean) => {
+    await setJobEnabled(id, enabled);
+    void refreshAgent();
+  }, [refreshAgent]);
+
+  const onRemoveJob = useCallback(async (id: string) => {
+    await removeJob(id);
+    void refreshAgent();
+  }, [refreshAgent]);
 
   const activeProj =
     (activeProjectId ? projects.find((p) => p.id === activeProjectId) : null) ?? null;
@@ -140,6 +219,9 @@ export function StorageSheet({
   const inRoot = path.length === 0;
   const inProjects = path[0] === "projects";
   const inSkills = path[0] === "skills";
+  const inMemory = path[0] === "memory";
+  const inTodo = path[0] === "todo";
+  const inCron = path[0] === "cron";
   const inConnectors = path[0] === "connectors";
 
   const crumb = (i: number) => path.slice(0, i + 1).map(folderLabel).join(" / ");
@@ -314,6 +396,130 @@ export function StorageSheet({
               Здесь агент хранит навыки: инструкции, самообучение (что узнал и записал), заготовки промптов. Всё сводится к скиллам — агент осваивает и переиспользует их.
             </Text>
           </GlassPressable>
+        </View>
+      )}
+
+      {/* ── ПАМЯТЬ ── */}
+      {inMemory && (
+        <View style={{ marginTop: 6 }}>
+          <Text style={{ color: theme.mute, fontSize: 10.5, letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>
+            Папка «Память»
+          </Text>
+          <View style={{ borderRadius: 16, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.05)" : "rgba(255,255,255,.6)", padding: 14 }}>
+            <Text style={{ color: theme.dim, fontSize: 12.5, lineHeight: 19, marginBottom: 10 }}>
+              {memText.slice(0, 1500)}
+            </Text>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <Button title="Очистить память" variant="danger" onPress={onClearMemory} />
+              <Button title="Обновить" variant="ghost" onPress={() => void refreshAgent()} />
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* ── ЗАДАЧИ (todo) ── */}
+      {inTodo && (
+        <View style={{ marginTop: 6 }}>
+          <Text style={{ color: theme.mute, fontSize: 10.5, letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>
+            Папка «Задачи» · {todoItems.length}
+          </Text>
+          <View style={{ borderRadius: 16, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.05)" : "rgba(255,255,255,.6)", padding: 14 }}>
+            {todoItems.length === 0 ? (
+              <Text style={{ color: theme.dim, fontSize: 13, marginBottom: 8 }}>Задач нет.</Text>
+            ) : (
+              todoItems.map((t: any) => (
+                <Pressable key={t.id} onPress={() => onTodoStatus(t.id, t.status === "completed" ? "pending" : "completed")}
+                  style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 7, opacity: pressed ? 0.75 : 1 })}>
+                  <MaterialIcons name={t.status === "completed" ? "check-circle" : "radio-button-unchecked"} size={18} color={t.status === "completed" ? theme.ok : theme.dim} />
+                  <Text style={{ color: theme.text, fontSize: 13, flex: 1, textDecorationLine: t.status === "completed" ? "line-through" : "none", opacity: t.status === "completed" ? 0.55 : 1 }}>
+                    {t.content}
+                  </Text>
+                  <Pressable onPress={() => onRemoveTodo(t.id)} hitSlop={8} style={{ padding: 2 }}>
+                    <MaterialIcons name="close" size={16} color={theme.danger} />
+                  </Pressable>
+                </Pressable>
+              ))
+            )}
+            <View style={{ height: 1, backgroundColor: theme.border, marginVertical: 8 }} />
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <Input
+                value={todoDraft}
+                onChangeText={setTodoDraft}
+                placeholder="Новая задача…"
+                onSubmitEditing={onAddTodo}
+                style={{ flex: 1 }}
+              />
+              <Button title="Добавить" variant="primary" onPress={onAddTodo} disabled={!todoDraft.trim()} />
+            </View>
+            {todoItems.length > 0 && (
+              <Pressable onPress={onClearTodos} style={{ marginTop: 8, alignSelf: "flex-start" }}>
+                <Text style={{ color: theme.danger, fontSize: 12 }}>Очистить все</Text>
+              </Pressable>
+            )}
+          </View>
+        </View>
+      )}
+
+      {/* ── АВТОЗАДАЧИ (cron) ── */}
+      {inCron && (
+        <View style={{ marginTop: 6 }}>
+          <Text style={{ color: theme.mute, fontSize: 10.5, letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>
+            Папка «Автозадачи» · {jobs.length}
+          </Text>
+          <View style={{ borderRadius: 16, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.05)" : "rgba(255,255,255,.6)", padding: 14 }}>
+            {jobs.length === 0 ? (
+              <Text style={{ color: theme.dim, fontSize: 13, marginBottom: 8 }}>Автозадач нет. Пример: «каждый день в 9:00 напомни про зарядку».</Text>
+            ) : (
+              jobs.map((j: any) => (
+                <View key={j.id} style={{ paddingVertical: 7, flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <Switch
+                    value={j.enabled}
+                    onValueChange={(v) => onToggleJob(j.id, v)}
+                    trackColor={{ false: theme.surface2, true: theme.accent }}
+                    thumbColor={j.enabled ? "#fff" : theme.mute}
+                    style={{ transform: [{ scaleX: 0.75 }, { scaleY: 0.75 }] }}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: theme.text, fontSize: 13, fontWeight: "600" }}>{j.name}</Text>
+                    <Text style={{ color: theme.dim, fontSize: 11, fontFamily: fonts.mono }}>{j.schedule} · {j.prompt.slice(0, 40)}{j.prompt.length > 40 ? "…" : ""}</Text>
+                  </View>
+                  <Pressable onPress={() => onRemoveJob(j.id)} hitSlop={8} style={{ padding: 2 }}>
+                    <MaterialIcons name="delete-outline" size={18} color={theme.danger} />
+                  </Pressable>
+                </View>
+              ))
+            )}
+            {upcomingText && upcomingText !== "Автозадач нет" ? (
+              <Text style={{ color: theme.accentHi, fontSize: 11, fontFamily: fonts.mono, marginTop: 4 }}>{upcomingText}</Text>
+            ) : null}
+            <View style={{ height: 1, backgroundColor: theme.border, marginVertical: 8 }} />
+            <Text style={{ color: theme.dim, fontSize: 11.5, marginBottom: 6 }}>
+              Расписание: «30m», «every 2h», «0 9 * * *» (cron) или дата ISO.
+            </Text>
+            <Input
+              value={jobDraft.name}
+              onChangeText={(v) => setJobDraft({ ...jobDraft, name: v })}
+              placeholder="Название (необязательно)"
+              style={{ marginBottom: 6 }}
+            />
+            <Input
+              value={jobDraft.schedule}
+              onChangeText={(v) => setJobDraft({ ...jobDraft, schedule: v })}
+              placeholder="Расписание: 30m / every 2h / 0 9 * * *"
+              autoCapitalize="none"
+              style={{ marginBottom: 6, fontFamily: fonts.mono }}
+            />
+            <Input
+              value={jobDraft.prompt}
+              onChangeText={(v) => setJobDraft({ ...jobDraft, prompt: v })}
+              placeholder="Что делать: текст задачи для агента…"
+              style={{ marginBottom: 8, minHeight: 52 }}
+            />
+            <Button title="Создать автозадачу" variant="primary" onPress={onAddJob} disabled={!jobDraft.prompt.trim()} />
+            <Pressable onPress={async () => { const msg = await runCurator(); showToast("info", msg.slice(0, 120)); void refreshAgent(); }} style={{ marginTop: 8, alignSelf: "flex-start" }}>
+              <Text style={{ color: theme.accentHi, fontSize: 12 }}>Запустить куратора навыков</Text>
+            </Pressable>
+          </View>
         </View>
       )}
 
