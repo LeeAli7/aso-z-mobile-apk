@@ -50,28 +50,34 @@ export function isAvailable(): boolean {
   }
 }
 
+/** На web/не-Android модуля нет — бросаем понятную ошибку вместо TS-падения и белого экрана. */
+function requireNative(): NonNullable<typeof native> {
+  if (!native) throw new Error("AsoRuntime недоступен: нативный модуль есть только в Android-сборке");
+  return native;
+}
+
 export function isInstalled(): Promise<boolean> {
-  return native.isInstalled();
+  return requireNative().isInstalled();
 }
 
 export async function installBootstrap(): Promise<string> {
-  const r = await native.install();
+  const r = await requireNative().install();
   if (!r.ok) throw new Error(r.error || "bootstrap install failed");
   return r.prefix ?? "";
 }
 
 export function exec(cmd: string, cwd?: string): Promise<ExecResult> {
-  return native.exec(cmd, cwd);
+  return requireNative().exec(cmd, cwd);
 }
 
 export function kill(sessionId: number): Promise<boolean> {
-  return native.kill(sessionId);
+  return requireNative().kill(sessionId);
 }
 
 export function onOutput(listener: (e: OutputEvent) => void): EventSubscription {
-  return native.addListener("onOutput", listener);
+  return requireNative().addListener("onOutput", listener);
 }
 
 export function onExit(listener: (e: ExitEvent) => void): EventSubscription {
-  return native.addListener("onExit", listener);
+  return requireNative().addListener("onExit", listener);
 }
