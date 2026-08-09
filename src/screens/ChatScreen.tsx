@@ -561,7 +561,7 @@ export function ChatScreen() {
     const msgs = active?.messages ?? [];
     let chain: Msg[] = [];
     const isChainMsg = (m: Msg) =>
-      m.role === "assistant" && !m.error && (m.thinking || m.tool);
+      m.role === "assistant" && !m.error && !m.content && (m.thinking || m.tool);
     const flush = () => {
       if (chain.length) {
         groups.push({ id: "chain-" + chain[0].id, kind: "chain", msgs: chain });
