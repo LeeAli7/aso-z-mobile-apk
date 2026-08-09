@@ -24,7 +24,8 @@ import * as DocumentPicker from "expo-document-picker";
 import { MaterialIcons } from "@expo/vector-icons";
 
 import { useApp, genId, Msg, Session } from "../store/AppStore";
-import { ModelInfo, streamChat } from "../core/gateway";
+import { ModelInfo, streamChat, ChatMessage, ChatPart } from "../core/gateway";
+import { buildAttachmentParts } from "../core/attachments";
 import { CapBadge } from "../components/ui";
 import { renderMarkdown } from "../components/Markdown";
 import { ThinkingBlock } from "../components/kimi/ThinkingBlock";
@@ -216,17 +217,40 @@ export function ChatScreen() {
 
       const cur = state.sessions.find((s) => s.id === sid);
       // ВАЖНО: включаем текущее сообщение в историю — иначе модель не видит вопрос.
-      const history: { role: "user" | "assistant"; content: string }[] = [
-        ...(cur?.messages ?? [])
-          .filter((m) => !m.streaming && !m.error)
-          .slice(-20)
-          .map((m) => ({ role: m.role, content: m.content })),
-        { role: "user", content },
+      // Вложения (фото/файл) превращаются в части сообщения (vision/текст).
+      const buildHistoryMsg = async (m: Msg | null, extraParts: ChatPart[], overrideText?: string): Promise<ChatMessage> => {
+        const parts: ChatPart[] = [];
+        const content = (overrideText ?? m?.content ?? "").trim();
+        if (content) parts.push({ type: "text", text: content });
+        if (m?.image) {
+          const p = await buildAttachmentParts("image", m.image, m.file?.name).catch(() => [] as ChatPart[]);
+          parts.push(...p);
+        } else if (m?.file) {
+          const p = await buildAttachmentParts("file", m.file.uri, m.file.name).catch(() => [] as ChatPart[]);
+          parts.push(...p);
+        }
+        parts.push(...extraParts);
+        return { role: m?.role === "assistant" ? "assistant" : "user", content: parts.length ? parts : content };
+      };
+
+      // Текущее вложение (ещё не сохранено в Msg) — строим parts.
+      let attachParts: ChatPart[] = [];
+      if (attachment) {
+        attachParts = await buildAttachmentParts(attachment.kind, attachment.uri, attachment.name).catch(() => [] as ChatPart[]);
+      }
+
+      const prev: ChatMessage[] = [];
+      for (const m of (cur?.messages ?? []).filter((x) => !x.streaming && !x.error).slice(-20)) {
+        prev.push(await buildHistoryMsg(m, []));
+      }
+      const history: ChatMessage[] = [
+        ...prev,
+        await buildHistoryMsg(null, attachParts, content),
       ];
 
       // ── Контекст проекта (как в Kimi: выбрал проект → агент знает, о чём речь) ──
       const proj = cur?.projectId ? projects.find((p) => p.id === cur.projectId) : null;
-      let chatMessages: { role: "system" | "user" | "assistant"; content: string }[] = history;
+      let chatMessages: ChatMessage[] = history;
       if (proj) {
         const tree = await treeFiles(proj.id).catch(() => "(ошибка чтения)");
         const ctx =
@@ -409,14 +433,26 @@ export function ChatScreen() {
     setStreaming(true);
     stopRef.current = false;
 
-    // история: все до вопроса включительно, с отредактированным текстом
-    const history: { role: "user" | "assistant"; content: string }[] = active.messages
-      .slice(0, idx + 1)
-      .filter((m) => !m.streaming && !m.error)
-      .map((m, j) => ({
-        role: m.role,
-        content: j === idx ? newText : m.content,
-      }));
+    // история: все до вопроса включительно, с отредактированным текстом.
+    // Вложения (image/file) сохраняются как части сообщения.
+    const buildMsg = async (m: Msg, j: number): Promise<ChatMessage> => {
+      const parts: ChatPart[] = [];
+      const text = (j === idx ? newText : m.content).trim();
+      if (text) parts.push({ type: "text", text });
+      if (m.image) {
+        const p = await buildAttachmentParts("image", m.image, m.file?.name).catch(() => [] as ChatPart[]);
+        parts.push(...p);
+      } else if (m.file) {
+        const p = await buildAttachmentParts("file", m.file.uri, m.file.name).catch(() => [] as ChatPart[]);
+        parts.push(...p);
+      }
+      return { role: m.role, content: parts.length ? parts : text };
+    };
+    const history: ChatMessage[] = [];
+    for (const [j, m] of active.messages.slice(0, idx + 1).entries()) {
+      if (m.streaming || m.error) continue;
+      history.push(await buildMsg(m, j));
+    }
 
     if (!model) return;
     const aiId = genId();
@@ -525,49 +561,54 @@ export function ChatScreen() {
         <View
           pointerEvents="box-none"
           style={{
-            flexDirection: "row", alignItems: "center", gap: 6,
+            flexDirection: "row", alignItems: "center",
             paddingHorizontal: 10, paddingTop: insets.top + 6,
           }}
         >
+          {/* левая группа: меню — симметрично с правым «+» */}
           <IconButton name="menu" size={20} onPress={() => setSessionsOpen(true)} accessibilityLabel={t("sessions")} />
 
-          {/* капсула модели — стекло */}
-          <GlassPressable
-            onPress={() => setModelsOpen(true)}
-            radius={99}
-            style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 16, height: 42, maxWidth: 130 }}
-            accessibilityLabel={t("model_select")}
-          >
-            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.accentHi }} />
-            <Text style={{ color: theme.text, fontSize: 12.5, fontWeight: "600", fontFamily: fonts.sansDemi, flexShrink: 1 }} numberOfLines={1}>
-              {modelName}
-            </Text>
-            <MaterialIcons name="keyboard-arrow-down" size={15} color={theme.mute} />
-          </GlassPressable>
-
-          {/* капсула хранилища (проекты + файлы + инструкции) — единый стиль с кнопкой модели */}
-          <GlassPressable
-            onPress={openStorageSheet}
-            radius={99}
-            style={{
-              flexDirection: "row", alignItems: "center", gap: 6,
-              paddingHorizontal: 16, height: 42, maxWidth: 152,
-            }}
-            accessibilityLabel="Конфиг"
-          >
-            <MaterialIcons name="folder" size={16} color={theme.accentHi} />
-            <Text numberOfLines={1} style={{ color: "#FFFFFF", fontSize: 12.5, fontWeight: "600", fontFamily: fonts.sansDemi, flexShrink: 1 }}>
-              {activeProject ? activeProject.name : "Конфиг"}
-            </Text>
-            {activeProject ? (
-              <Pressable onPress={() => selectProject(null)} hitSlop={8} accessibilityLabel="Отвязать проект">
-                <MaterialIcons name="close" size={15} color={theme.mute} />
-              </Pressable>
-            ) : (
+          {/* центральная группа: модель + конфиг — по центру экрана, растянута flex 1 */}
+          <View pointerEvents="box-none" style={{ flex: 1, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6 }}>
+            {/* капсула модели — стекло */}
+            <GlassPressable
+              onPress={() => setModelsOpen(true)}
+              radius={99}
+              style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 16, height: 42, maxWidth: 130 }}
+              accessibilityLabel={t("model_select")}
+            >
+              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.accentHi }} />
+              <Text style={{ color: theme.text, fontSize: 12.5, fontWeight: "600", fontFamily: fonts.sansDemi, flexShrink: 1 }} numberOfLines={1}>
+                {modelName}
+              </Text>
               <MaterialIcons name="keyboard-arrow-down" size={15} color={theme.mute} />
-            )}
-          </GlassPressable>
+            </GlassPressable>
 
+            {/* капсула хранилища (проекты + файлы + инструкции) — единый стиль с кнопкой модели */}
+            <GlassPressable
+              onPress={openStorageSheet}
+              radius={99}
+              style={{
+                flexDirection: "row", alignItems: "center", gap: 6,
+                paddingHorizontal: 16, height: 42, maxWidth: 152,
+              }}
+              accessibilityLabel="Конфиг"
+            >
+              <MaterialIcons name="folder" size={16} color={theme.accentHi} />
+              <Text numberOfLines={1} style={{ color: "#FFFFFF", fontSize: 12.5, fontWeight: "600", fontFamily: fonts.sansDemi, flexShrink: 1 }}>
+                {activeProject ? activeProject.name : "Конфиг"}
+              </Text>
+              {activeProject ? (
+                <Pressable onPress={() => selectProject(null)} hitSlop={8} accessibilityLabel="Отвязать проект">
+                  <MaterialIcons name="close" size={15} color={theme.mute} />
+                </Pressable>
+              ) : (
+                <MaterialIcons name="keyboard-arrow-down" size={15} color={theme.mute} />
+              )}
+            </GlassPressable>
+          </View>
+
+          {/* правая группа: новый чат — зеркально меню */}
           <IconButton name="add" size={20} onPress={handleNewSession} accessibilityLabel={t("newSession")} />
         </View>
       </View>
@@ -650,28 +691,28 @@ export function ChatScreen() {
         </View>
       )}
 
-      {/* input */}
+      {/* input.
+        Android: манифест уже ставит windowSoftInputMode=adjustResize — KAV с behavior="height"
+        ломает это (инпут прыгает за клавиатуру). На Android полагаемся на нативный resize.
+        iOS: behaviour="padding" сдвигает панель над клавиатурой. */}
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : Platform.OS === "android" ? "height" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : insets.top}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={0}
       >
-        <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8, paddingHorizontal: 12, paddingTop: 6, paddingBottom: insets.bottom + 8 }}>
-          {/* превью вложения над капсулой ввода */}
+        <View style={{ paddingHorizontal: 12, paddingTop: 6, paddingBottom: insets.bottom + 8 }}>
+          {/* вложения — НАД капсулой, компактные иконки с крестиком (без имён, placeholder не трогаем) */}
           {attachment && (
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface, borderRadius: 16, paddingLeft: 6, paddingRight: 8, paddingVertical: 5 }}>
+            <View style={{ flexDirection: "row", marginBottom: 8, gap: 8 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface, borderRadius: 18, paddingLeft: 6, paddingRight: 4, paddingVertical: 4 }}>
                 {attachment.kind === "image" ? (
-                  <Image source={{ uri: attachment.uri }} style={{ width: 34, height: 34, borderRadius: 10 }} resizeMode="cover" />
+                  <Image source={{ uri: attachment.uri }} style={{ width: 28, height: 28, borderRadius: 9 }} resizeMode="cover" />
                 ) : (
-                  <View style={{ width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: theme.accentDim }}>
-                    <MaterialIcons name="insert-drive-file" size={17} color={theme.accentHi} />
+                  <View style={{ width: 28, height: 28, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: theme.accentDim }}>
+                    <MaterialIcons name="insert-drive-file" size={15} color={theme.accentHi} />
                   </View>
                 )}
-                <Text numberOfLines={1} style={{ color: theme.text, fontSize: 12, maxWidth: 200, flexShrink: 1 }}>
-                  {attachment.name ?? (attachment.kind === "image" ? "Фото" : "Файл")}
-                </Text>
-                <Pressable onPress={() => setAttachment(null)} hitSlop={8} accessibilityLabel="Убрать вложение" style={{ width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: theme.surface2 }}>
-                  <MaterialIcons name="close" size={13} color={theme.mute} />
+                <Pressable onPress={() => setAttachment(null)} hitSlop={8} accessibilityLabel="Убрать вложение" style={{ width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: theme.surface2 }}>
+                  <MaterialIcons name="close" size={14} color={theme.mute} />
                 </Pressable>
               </View>
             </View>
@@ -679,7 +720,7 @@ export function ChatScreen() {
           {/* стеклянная капсула ввода: pill, единый padding 8 со всех сторон, gap 8, всё по центру */}
           <Glass
             radius={28}
-            style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 8, padding: 8 }}
+            style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 8 }}
           >
             <Pressable
               onPress={() => setAttachOpen(true)}
@@ -815,7 +856,7 @@ export function ChatScreen() {
       />
 
       {/* ── Message actions sheet (in-app, не системный Alert) ── */}
-      <Sheet visible={!!msgMenuTarget} onClose={() => setMsgMenuTarget(null)} title={msgMenuTarget?.role === "user" ? "Сообщение" : "Ответ"} snapPoints={["40%"]}>
+      <Sheet visible={!!msgMenuTarget} onClose={() => setMsgMenuTarget(null)} title={msgMenuTarget?.role === "user" ? "Сообщение" : "Ответ"} snapPoints={["auto"]} autoMaxPct={55}>
         {msgMenuTarget && (
           <>
             {msgMenuTarget.role === "assistant" && (msgMenuTarget.error || msgMenuTarget.content) && (
@@ -829,7 +870,7 @@ export function ChatScreen() {
       </Sheet>
 
       {/* ── Детали команды/раздумий — bottom-sheet как окно сессии ── */}
-      <Sheet visible={!!detailTarget} onClose={() => setDetailTarget(null)} title={detailTarget?.tool ? "Ход выполнения" : "Раздумья агента"} snapPoints={["45%"]}>
+      <Sheet visible={!!detailTarget} onClose={() => setDetailTarget(null)} title={detailTarget?.tool ? "Ход выполнения" : "Раздумья агента"} snapPoints={["auto"]} autoMaxPct={60}>
         {detailTarget && (
           <>
             {detailTarget.tool ? (
@@ -848,7 +889,7 @@ export function ChatScreen() {
       </Sheet>
 
       {/* ── Edit message (изменить отправленное сообщение) ── */}
-      <Sheet visible={!!editTarget} onClose={() => setEditTarget(null)} title="Изменить сообщение" snapPoints={["38%"]}>
+      <Sheet visible={!!editTarget} onClose={() => setEditTarget(null)} title="Изменить сообщение" snapPoints={["auto"]} autoMaxPct={65}>
         {editTarget && (
           <>
             <Text style={{ color: theme.dim, fontSize: 12, marginBottom: 6 }}>
@@ -867,7 +908,7 @@ export function ChatScreen() {
                 <Button title="Отмена" variant="secondary" onPress={() => setEditTarget(null)} fullWidth />
               </View>
               <View style={{ flex: 1 }}>
-                <Button title="Обновить и ответить" onPress={confirmEdit} disabled={!editValue.trim() || streaming} fullWidth />
+                <Button title="Отправить" onPress={confirmEdit} disabled={!editValue.trim() || streaming} fullWidth />
               </View>
             </View>
           </>
@@ -896,7 +937,7 @@ export function ChatScreen() {
       </Sheet>
 
       {/* ── Rename session (in-app, Alert.prompt на Android не работает) ── */}
-      <Sheet visible={!!renameTarget} onClose={() => setRenameTarget(null)} title="Переименовать сессию" snapPoints={["35%"]}>
+      <Sheet visible={!!renameTarget} onClose={() => setRenameTarget(null)} title="Переименовать сессию" snapPoints={["auto"]} autoMaxPct={50}>
         {renameTarget && (
           <>
             <Input
@@ -921,7 +962,7 @@ export function ChatScreen() {
       </Sheet>
 
       {/* ── Delete session confirm (in-app) ── */}
-      <Sheet visible={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="Удалить сессию?" snapPoints={["32%"]}>
+      <Sheet visible={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="Удалить сессию?" snapPoints={["auto"]} autoMaxPct={50}>
         {deleteTarget && (
           <>
             <Text style={{ color: theme.dim, fontSize: 13, lineHeight: 19 }}>

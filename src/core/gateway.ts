@@ -39,7 +39,15 @@ export interface ModelInfo {
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
-  content: string;
+  /** Текст или массив частей (текст + изображения — OpenAI vision формат). */
+  content: string | ChatPart[];
+}
+
+/** Часть сообщения для vision-моделей (OpenAI-совместимо: text / image_url). */
+export interface ChatPart {
+  type: "text" | "image_url";
+  text?: string;
+  image_url?: { url: string };
 }
 
 export interface StreamCallbacks {
