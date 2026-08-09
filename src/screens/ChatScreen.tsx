@@ -27,6 +27,7 @@ import { useApp, genId, Msg, Session } from "../store/AppStore";
 import { ModelInfo, streamChat, streamAgentChat, ChatMessage, ChatPart } from "../core/gateway";
 import { buildAttachmentParts } from "../core/attachments";
 import { getToolDefs } from "../core/tools";
+import { dueJobs, markJobRun } from "../core/cron";
 import { CapBadge } from "../components/ui";
 import { renderMarkdown } from "../components/Markdown";
 import { ThinkingBlock } from "../components/kimi/ThinkingBlock";
@@ -76,6 +77,7 @@ export function ChatScreen() {
   // прикрепление: окно-меню (фото/камера/файл) и выбранное вложение
   const [attachOpen, setAttachOpen] = useState(false);
   const [attachment, setAttachment] = useState<{ kind: "image" | "camera" | "file"; uri: string; name?: string } | null>(null);
+  const [toolNote, setToolNote] = useState<string | null>(null);
   // ── окно хранилища (проекты + файлы + инструкции, как у Hermes) ──
   const [projects, setProjects] = useState<VibeProject[]>([]);
   const [storageOpen, setStorageOpen] = useState(false);
@@ -194,6 +196,84 @@ export function ChatScreen() {
     }
   }, []);
 
+  // ── Slash-команды (P2.4): /new /help /cmd /mem /todo /skills /cron /search ──
+  const runSlashCommand = useCallback(
+    async (raw: string): Promise<string | null> => {
+      const [cmd] = raw.split(/\s+/);
+      const rest = raw.slice(cmd.length).trim();
+      switch (cmd) {
+        case "/new": {
+          const sid = newSession();
+          setActive(sid);
+          return "Новая сессия создана.";
+        }
+        case "/help":
+          return [
+            "Команды:",
+            "/new — новая сессия",
+            "/help — эта справка",
+            "/model — сменить модель (настройки)",
+            "/cmd <команда> — выполнить в терминале",
+            "/mem — показать память агента",
+            "/mem clear — очистить память",
+            "/todo — показать задачи",
+            "/todo + <текст> — добавить задачу",
+            "/skills — список навыков",
+            "/cron — показать автозадачи",
+            "/search <запрос> — поиск в интернете",
+          ].join("\n");
+        case "/cmd": {
+          if (!rest) return "Формат: /cmd <команда>";
+          const { runCommandCapture, runtimeAvailable } = await import("../core/runtime");
+          if (!runtimeAvailable()) return "Терминал доступен только на Android.";
+          const r = await runCommandCapture(rest);
+          return r.ok
+            ? `$ ${rest}\n${(r.output || "(пусто)").slice(0, 3000)}`
+            : `$ ${rest}\nОшибка: ${r.output?.trim() || r.error || `exit ${r.code}`}`;
+        }
+        case "/mem": {
+          const { memorySnapshot, clearMemory } = await import("../core/memory");
+          if (rest === "clear") {
+            await clearMemory();
+            return "Память очищена.";
+          }
+          const snap = await memorySnapshot();
+          return snap || "Память пуста.";
+        }
+        case "/todo": {
+          const { runTodoOps } = await import("../core/todo");
+          if (rest.startsWith("+")) {
+            return runTodoOps([{ action: "add", content: rest.slice(1).trim() }]);
+          }
+          return runTodoOps([{ action: "list" }]);
+        }
+        case "/skills": {
+          const { listSkills } = await import("../core/skills");
+          const list = await listSkills();
+          return list.length
+            ? "Навыки:\n" + list.map((s) => `- ${s.name}: ${s.description}`).join("\n")
+            : "Навыков нет.";
+        }
+        case "/cron": {
+          const { loadJobs, upcoming } = await import("../core/cron");
+          const jobs = await loadJobs();
+          if (!jobs.length) return "Автозадач нет.";
+          const up = await upcoming(jobs);
+          return "Автозадачи:\n" + jobs.map((j) => `- ${j.name} [${j.enabled ? "вкл" : "выкл"}] ${j.schedule}\n  ${j.prompt.slice(0, 80)}`).join("\n") + "\n\n" + up.join("\n");
+        }
+        case "/search": {
+          if (!rest) return "Формат: /search <запрос>";
+          const { webSearch, formatSearchResults } = await import("../core/webSearch");
+          const r = await webSearch(rest);
+          return r.ok ? formatSearchResults(r.results) : `Поиск не удался: ${r.error}`;
+        }
+        default:
+          return null; // не команда
+      }
+    },
+    [newSession, setActive],
+  );
+
   const sendText = useCallback(
     async (raw: string) => {
       const content = raw.trim();
@@ -208,6 +288,25 @@ export function ChatScreen() {
           messages: [], modelId: null, createdAt: Date.now(), updatedAt: Date.now(),
         }});
         setActive(sid);
+      }
+
+      // ── Slash-команды (P2.4): /new /help /cmd /mem /todo /skills /cron /search ──
+      if (content.startsWith("/")) {
+        const reply = await runSlashCommand(content);
+        if (reply !== null) {
+          dispatch({
+            type: "ADD_MSG", sessionId: sid,
+            msg: { id: genId(), role: "user", content },
+          });
+          dispatch({
+            type: "ADD_MSG", sessionId: sid,
+            msg: { id: genId(), role: "assistant", content: reply },
+          });
+          setAttachment(null);
+          setText("");
+          scrollBottom();
+          return;
+        }
       }
 
       dispatch({ type: "ADD_MSG", sessionId: sid, msg: { id: genId(), role: "user", content, ...(attachment ? (attachment.kind === "file" ? { file: { name: attachment.name ?? "файл", uri: attachment.uri } } : { image: attachment.uri }) : {}) } });
@@ -262,6 +361,28 @@ export function ChatScreen() {
           `\n\nКогда нужно создать или изменить файл — выводи блок в формате:\n[FILE: путь/имя.файла]\n\`\`\`язык\nсодержимое\n\`\`\`\nПосле блоков дай краткое резюме (2-4 предложения).`;
         chatMessages = [{ role: "system", content: ctx }, ...history];
       }
+
+      // ── Память агента: факты о пользователе + заметки (как Hermes memory-плагин) ──
+      // По роадмапу Hermes: память инжектится в USER-сообщение (не system) —
+      // чтобы не гасить prefix-cache системного промпта и не путать модель.
+      try {
+        const { memorySnapshot } = await import("../core/memory");
+        const snap = await memorySnapshot();
+        if (snap) {
+          const firstUser = chatMessages.findIndex((m) => m.role === "user");
+          if (firstUser >= 0) {
+            const target = chatMessages[firstUser];
+            const prevContent =
+              typeof target.content === "string"
+                ? target.content
+                : (target.content as any[])?.map((p: any) => p.text || "").join(" ") || "";
+            chatMessages[firstUser] = {
+              ...target,
+              content: `${snap}\n\n---\n${prevContent}`,
+            };
+          }
+        }
+      } catch {}
 
       const aiId = genId();
       dispatch({ type: "ADD_MSG", sessionId: sid, msg: { id: aiId, role: "assistant", content: "", streaming: true } });
@@ -385,6 +506,7 @@ export function ChatScreen() {
             onError,
           },
           ctrl.signal,
+          { projectId: proj?.id, onToolProgress: (msg) => { if (!stopRef.current) setToolNote(msg); } },
         );
       } else {
         await streamChat(model, chatMessages, {
@@ -395,8 +517,38 @@ export function ChatScreen() {
         }, ctrl.signal);
       }
     },
-    [text, streaming, active, dispatch, model, setActive, scrollBottom, attachment],
+    [text, streaming, active, dispatch, model, setActive, scrollBottom, attachment, runSlashCommand],
   );
+
+  // ── Cron-раннер автозадач (P2.2) ──
+  // Тикает каждые 30с; выполнение = агентский ход в чат (если приложение открыто).
+  useEffect(() => {
+    let disposed = false;
+    const tick = async () => {
+      if (disposed || !model) return;
+      try {
+        const jobs = await dueJobs();
+        for (const job of jobs) {
+          if (disposed || !model) break;
+          // префикс: модель понимает, что это автозадача, и отвечает кратко
+          const prompt = `[Автозадача: ${job.name}]\n${job.prompt}\n\nВыполни и дай краткий отчёт.`;
+          void sendText(prompt).then(() => {
+            void markJobRun(job.id, "выполнена").catch(() => {});
+          });
+        }
+      } catch {
+        // тик не должен ронять UI
+      }
+    };
+    const iv = setInterval(() => void tick(), 30_000);
+    // первый тик с небольшой задержкой (приложение только открылось)
+    const first = setTimeout(() => void tick(), 10_000);
+    return () => {
+      disposed = true;
+      clearInterval(iv);
+      clearTimeout(first);
+    };
+  }, [model, sendText]);
 
   const send = useCallback(() => {
     if (text.trim()) sendText(text);

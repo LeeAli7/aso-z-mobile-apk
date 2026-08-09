@@ -267,6 +267,8 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
         <View style={{ marginTop: 4, borderRadius: 15, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
           <Row label="Провайдеры и модели" onPress={() => navigation.navigate("Providers")} value={`${state.models.length + state.customModels.length}`} theme={theme} />
           <Divider theme={theme} />
+          <Row label="Агент: память, навыки, задачи" onPress={() => navigation.navigate("AgentSettings")} value="" theme={theme} />
+          <Divider theme={theme} />
           <View style={{ padding: 14, backgroundColor: theme.surface }}>
             <Text style={{ color: theme.text, fontSize: 13.5, marginBottom: 8 }}>Тема</Text>
             <View style={{ flexDirection: "row", gap: 8 }}>
