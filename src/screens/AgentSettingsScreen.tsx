@@ -20,6 +20,7 @@ import { loadTodos, runTodoOps, TodoItem, clearTodos } from "../core/todo";
 import { listSkills, viewSkill, saveSkill, deleteSkill } from "../core/skills";
 import { memorySnapshot, clearMemory } from "../core/memory";
 import { loadJobs, upsertJob, removeJob, setJobEnabled, upcoming, CronJob } from "../core/cron";
+import { runCurator } from "../core/selfImprove";
 
 export function AgentSettingsScreen({ navigation }: { navigation: any }) {
   const { theme } = useApp();
@@ -251,6 +252,12 @@ export function AgentSettingsScreen({ navigation }: { navigation: any }) {
           />
           <View style={{ height: 8 }} />
           <Button title="Сохранить навык" variant="primary" onPress={handleSaveSkill} />
+          <View style={{ height: 8 }} />
+          <Button title="Запустить куратора (архив старых)" variant="ghost" onPress={async () => {
+            const msg = await runCurator();
+            showToast("info", msg.slice(0, 120));
+            await refresh();
+          }} />
         </View>
 
         {/* ── Задачи ── */}

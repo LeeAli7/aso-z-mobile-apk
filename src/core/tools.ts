@@ -55,6 +55,21 @@ export function getToolDefs(): Array<{ type: "function"; function: unknown }> {
   }));
 }
 
+/** Только выбранные тулы (whitelist — для self-improve/субагентов). */
+export function getToolDefsFor(names: string[]): Array<{ type: "function"; function: unknown }> {
+  return names
+    .map((n) => registry.get(n))
+    .filter((t): t is ToolSpec => !!t)
+    .map((t) => ({
+      type: "function" as const,
+      function: {
+        name: t.name,
+        description: t.description,
+        parameters: t.parameters,
+      },
+    }));
+}
+
 export function toolNames(): string[] {
   return [...registry.keys()];
 }

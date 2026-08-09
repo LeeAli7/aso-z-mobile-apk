@@ -301,6 +301,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         const { ensureRuntime } = await import("../core/runtime");
         await ensureRuntime();
+        // куратор навыков (P1.3): архивация старых — раз в сутки, не блокируя UI
+        const { runCurator } = await import("../core/selfImprove");
+        try {
+          const last = await AsyncStorage.getItem("aso_curator_last");
+          if (!last || Date.now() - parseInt(last, 10) > 86_400_000) {
+            await runCurator();
+            await AsyncStorage.setItem("aso_curator_last", String(Date.now())).catch(() => {});
+          }
+        } catch {}
       } catch {}
     })();
   }, []);

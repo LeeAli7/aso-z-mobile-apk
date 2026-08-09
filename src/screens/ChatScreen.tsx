@@ -28,6 +28,7 @@ import { ModelInfo, streamChat, streamAgentChat, ChatMessage, ChatPart } from ".
 import { buildAttachmentParts } from "../core/attachments";
 import { getToolDefs } from "../core/tools";
 import { dueJobs, markJobRun } from "../core/cron";
+import { runSelfReview } from "../core/selfImprove";
 import { CapBadge } from "../components/ui";
 import { renderMarkdown } from "../components/Markdown";
 import { ThinkingBlock } from "../components/kimi/ThinkingBlock";
@@ -481,6 +482,8 @@ export function ChatScreen() {
       // результат возвращается модели, цикл до финального ответа.
       // ── Путь Б (web/dev или провайдер без tools): обычный стрим + текстовые [CMD:].
       const toolDefs = getToolDefs();
+      const usedTools = new Set<string>();
+      let hadToolError = false;
       if (runtimeAvailable() && toolDefs.length > 0) {
         await streamAgentChat(
           model,
@@ -491,6 +494,7 @@ export function ChatScreen() {
             onThinking,
             onToolCall: (call) => {
               if (stopRef.current) return;
+              usedTools.add(call.name);
               let label = "выполняю " + call.name;
               try {
                 const a = JSON.parse(call.arguments || "{}");
@@ -502,7 +506,18 @@ export function ChatScreen() {
                 msg: { id: genId(), role: "assistant", content: "", tool: label },
               });
             },
-            onDone: (finalText) => { void finalize(finalText); },
+            onDone: (finalText) => {
+              void finalize(finalText);
+              // ── Self-improve (P1.3): после сложного хода (2+ тула) тихо анализируем ──
+              if (!stopRef.current && usedTools.size >= 2 && !hadToolError) {
+                void runSelfReview(model, {
+                  toolCalls: usedTools.size,
+                  toolNames: [...usedTools],
+                  summary: (acc || finalText || "").slice(0, 1500),
+                  hadErrors: hadToolError,
+                });
+              }
+            },
             onError,
           },
           ctrl.signal,
