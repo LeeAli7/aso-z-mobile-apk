@@ -208,7 +208,13 @@ class AsoRuntimeModule : Module() {
         }
     }
 
-    private fun safePid(proc: Process): Int = try { proc.pid() } catch (e: Exception) { 0 }
+    // java.lang.Process.pid() — Java 9+, в Android SDK нет. Берём PID рефлексией
+    // к приватному полю `pid` реализации (ProcessImpl на ART), как это делает Termux.
+    private fun safePid(proc: Process): Int = try {
+        val f = proc.javaClass.getDeclaredField("pid")
+        f.isAccessible = true
+        f.getInt(proc)
+    } catch (e: Exception) { 0 }
 
     private fun streamOutput(id: Int, proc: Process) {
         GlobalScope.launch(Dispatchers.IO) {
