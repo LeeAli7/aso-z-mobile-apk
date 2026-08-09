@@ -1,7 +1,7 @@
 // AsoRuntime — JS-мост к встроенному Linux-рантайму.
 // Нативный модуль AsoRuntime (Android, Kotlin): см. android/…/AsoRuntimeModule.kt
 
-import { requireNativeModule } from "expo-modules-core";
+import { requireOptionalNativeModule } from "expo-modules-core";
 import type { EventSubscription } from "expo-modules-core";
 
 // ── Типы ──────────────────────────────────────────────────────────────────
@@ -34,10 +34,12 @@ type AsoRuntimeEvents = {
   onExit: (e: ExitEvent) => void;
 };
 
-/** SDK 52+: requireNativeModule возвращает объект-EventEmitter — addListener типизируется картой событий. */
-const native = requireNativeModule<AsoRuntimeNative>("AsoRuntime") as AsoRuntimeNative & {
+/** SDK 52+: requireNativeModule возвращает объект-EventEmitter — addListener типизируется картой событий.
+ *  requireOptionalNativeModule: на web/платформах без нативного модуля возвращает null вместо throw —
+ *  иначе импорт роняет всё приложение (белый экран). isAvailable() проверяет наличие. */
+const native = requireOptionalNativeModule<AsoRuntimeNative>("AsoRuntime") as (AsoRuntimeNative & {
   addListener: <K extends keyof AsoRuntimeEvents>(name: K, l: AsoRuntimeEvents[K]) => EventSubscription;
-};
+}) | null;
 
 /** Рантайм доступен только на Android (bootstrap физически в APK). */
 export function isAvailable(): boolean {
