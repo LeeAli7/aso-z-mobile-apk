@@ -456,10 +456,14 @@ export async function vibeChat(
         }
         callbacks.onTool("выполняю " + cmd);
         const r = await runCommandCapture(cmd, projectId);
+        // при ошибке показываем ВЫВОД bash — там конкретная причина (Permission denied / Exec format error)
+        const detail = !r.ok && r.output?.trim()
+          ? r.output.trim().split("\n").slice(-3).join("\n").slice(-500)
+          : r.output?.trim() || r.error || `exit ${r.code}`;
         if (r.ok) {
-          cmdReports.push(`$ ${cmd}\n${r.output.trim()}`);
+          cmdReports.push(`$ ${cmd}\n${detail}`);
         } else {
-          cmdReports.push(`$ ${cmd}\nошибка: ${r.error || "не удалось выполнить"}`);
+          cmdReports.push(`$ ${cmd}\n${detail}`);
         }
       }
       // чистый текст без FILE- и CMD-блоков

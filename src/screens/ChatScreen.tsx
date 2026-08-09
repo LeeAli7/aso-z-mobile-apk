@@ -330,11 +330,11 @@ export function ChatScreen() {
               continue;
             }
             const r = await runCommandCapture(cmd, proj?.id);
-            cmdReports.push(
-              r.ok
-                ? `$ ${cmd}\n${r.output.trim()}`
-                : `$ ${cmd}\nошибка: ${r.error || "не удалось выполнить"}`,
-            );
+            // при ошибке показываем ВЫВОД bash — там конкретная причина (Permission denied / Exec format error)
+            const detail = !r.ok && r.output?.trim()
+              ? r.output.trim().split("\n").slice(-3).join("\n").slice(-500)
+              : r.output?.trim() || r.error || "не удалось выполнить";
+            cmdReports.push(`$ ${cmd}\n${detail}`);
           }
           finalText = (finalText || acc).replace(/\[CMD:[^\]]+\]\s*/g, "").trim() || acc;
           if (cmdReports.length) {

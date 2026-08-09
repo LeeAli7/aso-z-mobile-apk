@@ -52,8 +52,10 @@ class AsoRuntimeModule : Module() {
         (Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a")
 
     private fun bootstrapAssetName(): String = when {
-        abi() == "arm64-v8a" || abi().contains("x86_64") -> "bootstrap-aarch64.zip"
+        abi() == "arm64-v8a" -> "bootstrap-aarch64.zip"
         abi() == "armeabi-v7a" || abi().startsWith("arm") -> "bootstrap-arm.zip"
+        // x86_64 (эмулятор) — arm64-архив НЕЛЬЗЯ: ELF другой архитектуры -> exec 126.
+        abi().contains("x86_64") -> "bootstrap-x86_64.zip"
         else -> "bootstrap-aarch64.zip"
     }
 
@@ -127,9 +129,17 @@ class AsoRuntimeModule : Module() {
                     }
                     val code = proc.waitFor()
                     val out = sb.toString()
+                    if (code != 0) {
+                        // Логируем КОНКРЕТИКУ: bash всегда пишет причину в вывод
+                        // («Permission denied» / «Exec format error» / «cannot execute»).
+                        Log.w(tag, "exec exit=$code cmd=$cmd out=${out.trim().takeLast(300)}")
+                    }
                     promise.resolve(
                         if (code == 0) mapOf("ok" to true, "output" to out, "code" to code)
-                        else mapOf("ok" to false, "output" to out, "code" to code, "error" to "exit $code")
+                        else mapOf(
+                            "ok" to false, "output" to out, "code" to code,
+                            "error" to ("exit $code" + if (out.isNotBlank()) ": " + out.trim().takeLast(300) else ""),
+                        )
                     )
                 } catch (e: Exception) {
                     promise.resolve(mapOf("ok" to false, "output" to "", "code" to -1, "error" to "$e"))
@@ -152,6 +162,10 @@ class AsoRuntimeModule : Module() {
         val stream = try {
             context().assets.open("bootstrap/$assetName")
         } catch (e: Exception) {
+            if (abi().contains("x86_64")) {
+                // arm-архив на x86_64 не подойдёт (ELF) — честная ошибка вместо 126.
+                throw IllegalStateException("нет bootstrap-x86_64.zip в ассетах — соберите x86_64-архив", e)
+            }
             // ABI-специфичный ассет не найден — пробуем запасной arm.
             try { context().assets.open("bootstrap/bootstrap-arm.zip") } catch (e2: Exception) {
                 throw IllegalStateException("bootstrap asset not found ($assetName)", e)
@@ -193,19 +207,31 @@ class AsoRuntimeModule : Module() {
             }
 
             // симлинки: target как есть (относительный), link — относительно $PREFIX.
+            // ВАЖНО: в SYMLINKS.txt часть целей АБСОЛЮТНЫЕ (/data/data/com.termux/files/usr/... —
+            // для Termux PREFIX всегда такой). У нас другой PREFIX — заменяем префикс,
+            // иначе симлинк битый и команда падает (126/127).
+            val termuxPrefix = "/data/data/com.termux/files/usr"
+            val myPrefix = prefixDir().absolutePath
             for ((target, link) in symlinkLines) {
                 try {
                     val linkFile = File(prefixDir(), link)
                     linkFile.parentFile?.mkdirs()
                     if (!linkFile.exists()) {
+                        val fixedTarget =
+                            if (target.startsWith(termuxPrefix)) myPrefix + target.substring(termuxPrefix.length)
+                            else target
                         // android.system.Os.symlink — доступен с API 21 (minSdk 24)
-                        Os.symlink(target, linkFile.absolutePath)
+                        Os.symlink(fixedTarget, linkFile.absolutePath)
                     }
                 } catch (e: Exception) {
                     // на некоторых устройствах symlink запрещён — пропускаем
                     Log.w(tag, "symlink skip: $link -> $target ($e)")
                 }
             }
+
+            // fix-shebang: скрипты bootstrap собраны с PREFIX=/data/data/com.termux/files/usr —
+            // интерпретатор по этому пути у нас НЕ существует -> «command invoked cannot execute» (126).
+            fixShebangs()
         }
 
         // Маркер ставим только после успешной распаковки.
@@ -213,6 +239,43 @@ class AsoRuntimeModule : Module() {
             throw IllegalStateException("marker exists after install")
         }
         Log.i(tag, "bootstrap installed OK (abi=${abi()}, asset=$assetName)")
+    }
+
+    /**
+     * Переписывает shebang скриптов с чужого Termux-PREFIX на наш:
+     * `#!/data/data/com.termux/files/usr/bin/sh` → `#!<наш prefix>/bin/sh`.
+     * Иначе интерпретатор не существует и команда падает с 126.
+     * Правим bin/, libexec/ и скрипты dpkg (нужны для apt).
+     */
+    private fun fixShebangs() {
+        val old = "#!/data/data/com.termux/files/usr/bin/"
+        val new = "#!${prefixDir().absolutePath}/bin/"
+        val roots = listOf(
+            File(prefixDir(), "bin"),
+            File(prefixDir(), "libexec"),
+            File(prefixDir(), "var/lib/dpkg/info"),
+        )
+        var fixed = 0
+        for (root in roots) {
+            if (!root.exists()) continue
+            root.walkTopDown().filter { it.isFile }.forEach { f ->
+                try {
+                    val first = java.io.RandomAccessFile(f, "r").use { raf ->
+                        val b = ByteArray(2)
+                        if (raf.read(b) < 2) return@forEach
+                        if (b[0] != '#'.code.toByte() || b[1] != '!'.code.toByte()) return@forEach
+                        raf.seek(0)
+                        raf.readLine()
+                    } ?: return@forEach
+                    if (first.startsWith(old)) {
+                        val text = f.readText(Charsets.UTF_8)
+                        f.writeText(new + text.substring(old.length))
+                        fixed++
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+        if (fixed > 0) Log.i(tag, "fix-shebang: переписано $fixed скриптов")
     }
 
     // ── Процесс и стриминг ───────────────────────────────────────────────────
@@ -226,9 +289,15 @@ class AsoRuntimeModule : Module() {
         val pb = ProcessBuilder(listOf(shell, "-c", cmd))
         pb.directory(File(cwd ?: home))
         pb.environment()["PREFIX"] = prefix
+        pb.environment()["TERMUX_PREFIX"] = prefix
         pb.environment()["HOME"] = home
         pb.environment()["PATH"] = "$prefix/bin:$prefix/bin/applets:" + (System.getenv("PATH") ?: "/system/bin:/system/xbin")
         pb.environment()["LD_LIBRARY_PATH"] = "$prefix/lib"
+        // Android-песочница: /tmp как такового нет — даём свой (иначе bash/apt падают).
+        val tmpDir = File(prefixDir(), "tmp")
+        try { tmpDir.mkdirs() } catch (_: Exception) {}
+        pb.environment()["TMPDIR"] = tmpDir.absolutePath
+        pb.environment()["TMP"] = tmpDir.absolutePath
         pb.redirectErrorStream(true)
         return try {
             pb.start()
