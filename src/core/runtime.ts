@@ -12,6 +12,7 @@ import {
   isInstalled as rtInstalled,
   installBootstrap,
   exec as rtExec,
+  execCapture as rtExecCapture,
   kill as rtKill,
   onOutput,
   onExit,
@@ -96,8 +97,10 @@ export type CmdResult = { ok: boolean; output: string; code: number; error?: str
 
 /**
  * Выполнить команду и дождаться завершения, собрав весь вывод.
- * Используется агентом для [CMD: …] блоков. Если вывод длинный — кладём
- * в файл проекта и возвращаем путь (не засоряем чат).
+ * Используется агентом для [CMD: …] блоков. Нативный execCapture делает всё
+ * одним вызовом (запуск + сбор + ожидание) — без событий, поэтому нет гонки,
+ * когда быстрая команда завершалась до подписки на onExit и JS висел вечно.
+ * Если вывод длинный — кладём в файл проекта и возвращаем путь (не засоряем чат).
  */
 export function runCommandCapture(cmd: string, projectId?: string, cwd?: string): Promise<CmdResult> {
   return new Promise(async (resolve) => {
@@ -106,41 +109,30 @@ export function runCommandCapture(cmd: string, projectId?: string, cwd?: string)
       return;
     }
     // Гарантируем, что bootstrap установлен, ДО первой команды.
-    // Раньше установка шла только при старте приложения и ошибки глотались —
-    // агент получал «bootstrap not installed» и говорил, что терминала нет.
     const rt = await ensureRuntime();
     if (!rt.ok) {
       resolve({ ok: false, output: "", code: -1, error: `рантайм не готов: ${rt.message}` });
       return;
     }
-    const h = await runCommand(cmd, cwd);
-    if (h.sessionId < 0) {
-      resolve({ ok: false, output: "", code: -1, error: h.error || "не удалось запустить" });
-      return;
+    try {
+      const r = await rtExecCapture(cmd, cwd);
+      if (!r.ok) {
+        resolve({ ok: false, output: r.output || "", code: r.code, error: r.error || `exit ${r.code}` });
+        return;
+      }
+      const text = r.output || "";
+      // длинный вывод → в файл проекта
+      if (projectId && text.length > 2000) {
+        try {
+          const name = `.aso/cmd-${Date.now()}.txt`;
+          await writeFile(projectId, name, text);
+          resolve({ ok: true, output: `вывод сохранён в ${name} (${text.length} симв.)`, code: 0 });
+          return;
+        } catch {}
+      }
+      resolve({ ok: true, output: text.slice(0, 4000), code: r.code });
+    } catch (e: any) {
+      resolve({ ok: false, output: "", code: -1, error: String(e?.message || e) });
     }
-    const output: string[] = [];
-    const unOut = subscribeOutput((id, data) => {
-      if (id === h.sessionId) output.push(data);
-    });
-    const done = new Promise<void>((res) => {
-      const unExit = subscribeExit((id, code) => {
-        if (id === h.sessionId) {
-          unExit.remove();
-          res();
-        }
-      });
-    });
-    await done;
-    unOut.remove();
-    const text = output.join("");
-    // длинный вывод → в файл проекта
-    if (projectId && text.length > 2000) {
-      try {
-        const name = `.aso/cmd-${Date.now()}.txt`;
-        await writeFile(projectId, name, text);
-        return resolve({ ok: true, output: `вывод сохранён в ${name} (${text.length} симв.)`, code: 0 });
-      } catch {}
-    }
-    resolve({ ok: true, output: text.slice(0, 4000), code: 0 });
   });
 }

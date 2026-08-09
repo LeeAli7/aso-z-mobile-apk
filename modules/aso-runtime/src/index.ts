@@ -27,6 +27,7 @@ export interface AsoRuntimeNative {
   install(): Promise<{ ok: boolean; prefix?: string; error?: string }>;
   exec(cmd: string, cwd?: string): Promise<ExecResult>;
   kill(sessionId: number): Promise<boolean>;
+  execCapture(cmd: string, cwd?: string): Promise<{ ok: boolean; output: string; code: number; error?: string }>;
 }
 
 type AsoRuntimeEvents = {
@@ -72,6 +73,11 @@ export function exec(cmd: string, cwd?: string): Promise<ExecResult> {
 
 export function kill(sessionId: number): Promise<boolean> {
   return requireNative().kill(sessionId);
+}
+
+/** Команда одним вызовом: вывод + код завершения. Без событий (нет гонки onExit). */
+export function execCapture(cmd: string, cwd?: string): Promise<{ ok: boolean; output: string; code: number; error?: string }> {
+  return requireNative().execCapture(cmd, cwd);
 }
 
 export function onOutput(listener: (e: OutputEvent) => void): EventSubscription {

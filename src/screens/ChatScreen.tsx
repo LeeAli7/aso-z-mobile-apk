@@ -41,6 +41,7 @@ import {
   writeFile,
 } from "../core/vibeLocal";
 import { openInTermux, openFolderInFileManager } from "../core/termux";
+import { parseCmdBlocks, runCommandCapture, runtimeAvailable } from "../core/runtime";
 import { IconButton, IconName } from "../design-system/components/IconButton";
 import { Glass, GlassPressable } from "../design-system/components/Glass";
 import { GlassBackdrop } from "../design-system/components/GlassBackdrop";
@@ -286,6 +287,16 @@ export function ChatScreen() {
               });
             }
           }
+          // tool-событие: агент хочет выполнить команду — карточка «выполняю …»
+          const cm = acc.match(/\[CMD:\s*([^\n\]]+)\]/);
+          if (cm && !written.includes("__showed_cmd_" + cm[1])) {
+            written.push("__showed_cmd_" + cm[1]);
+            dispatch({
+              type: "ADD_MSG",
+              sessionId: sid,
+              msg: { id: genId(), role: "assistant", content: "", tool: "выполняю " + cm[1].trim() },
+            });
+          }
         },
         onThinking: (thinking) => {
           if (stopRef.current) return;
@@ -309,6 +320,25 @@ export function ChatScreen() {
               }
             }
             finalText = (finalText || acc).replace(/\[FILE:[^\]]+\]\s*```[^\n]*\n[\s\S]*?```/g, "").trim() || acc;
+          }
+          // выполняем [CMD:…] блоки — по одной, дожидаемся вывода (терминал на устройстве)
+          const cmds = parseCmdBlocks(finalText || acc);
+          const cmdReports: string[] = [];
+          for (const cmd of cmds) {
+            if (!runtimeAvailable()) {
+              cmdReports.push(`$ ${cmd}\nрантайм доступен только на Android`);
+              continue;
+            }
+            const r = await runCommandCapture(cmd, proj?.id);
+            cmdReports.push(
+              r.ok
+                ? `$ ${cmd}\n${r.output.trim()}`
+                : `$ ${cmd}\nошибка: ${r.error || "не удалось выполнить"}`,
+            );
+          }
+          finalText = (finalText || acc).replace(/\[CMD:[^\]]+\]\s*/g, "").trim() || acc;
+          if (cmdReports.length) {
+            finalText = (finalText ? finalText + "\n\n" : "") + cmdReports.join("\n\n");
           }
           dispatch({
             type: "UPDATE_MSG", sessionId: sid, msgId: aiId,
@@ -531,7 +561,7 @@ export function ChatScreen() {
     const msgs = active?.messages ?? [];
     let chain: Msg[] = [];
     const isChainMsg = (m: Msg) =>
-      m.role === "assistant" && !m.error && !m.content && (m.thinking || m.tool);
+      m.role === "assistant" && !m.error && (m.thinking || m.tool);
     const flush = () => {
       if (chain.length) {
         groups.push({ id: "chain-" + chain[0].id, kind: "chain", msgs: chain });
@@ -653,6 +683,23 @@ export function ChatScreen() {
                               bare
                             />
                           ) : null}
+                          {/* итог агента — В ТОМ ЖЕ блоке (раздумья/команды + ответ не разваливаются) */}
+                          {m.content ? (
+                            <View style={{ paddingHorizontal: 12, paddingTop: 6 }}>
+                              {renderMarkdown(m.content, theme)}
+                            </View>
+                          ) : null}
+                          {/* действия для итога: копировать / поделиться */}
+                          {last && m.content && !m.streaming && (
+                            <View style={{ flexDirection: "row", justifyContent: "flex-start", paddingHorizontal: 12, paddingTop: 4, gap: 2 }}>
+                              <Pressable onPress={() => copyMsg(m)} hitSlop={10} accessibilityLabel="Копировать" style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center" }}>
+                                <MaterialIcons name="content-copy" size={17} color={theme.dim} />
+                              </Pressable>
+                              <Pressable onPress={() => shareMsg(m)} hitSlop={10} accessibilityLabel="Поделиться" style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center" }}>
+                                <MaterialIcons name="share" size={17} color={theme.dim} />
+                              </Pressable>
+                            </View>
+                          )}
                           {!last && (
                             <View style={{ height: 1, backgroundColor: theme.border, opacity: 0.6 }} />
                           )}
@@ -685,11 +732,8 @@ export function ChatScreen() {
         />
       )}
 
-      {streaming && (
-        <View style={{ paddingHorizontal: 16, paddingBottom: 2 }}>
-          <Text style={{ color: theme.dim, fontSize: 12 }}>{t("streaming")}</Text>
-        </View>
-      )}
+      {/* streaming-индикатор намеренно убран: ни «обрабатываю запрос…», ни точек —
+          пользователь попросил чистый чат. Раздумья видны в блоке ThinkingBlock. */}
 
       {/* input.
         Android: манифест уже ставит windowSoftInputMode=adjustResize — KAV с behavior="height"
@@ -1008,18 +1052,11 @@ function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions,
       </View>
     );
   }
-  if (msg.streaming) {
-    return (
-      <View style={containerStyle}>
-        <View style={{ paddingHorizontal: 14, paddingVertical: 11, borderRadius: 20, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }}>
-          <View style={{ flexDirection: "row", gap: 4, alignItems: "center" }}>
-            {[0, 1, 2].map((i) => (
-              <View key={i} style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: theme.accentHi }} />
-            ))}
-          </View>
-        </View>
-      </View>
-    );
+  // Стриминг: НИКАКИХ точек-заглушек и скрытия контента — текст рендерится
+  // по мере поступления токенов (раньше `streaming` прятал контент до конца —
+  // пользователь видел «нет стриминга»: всё появлялось разом).
+  if (msg.streaming && !msg.content && !msg.thinking && !msg.tool) {
+    return null;
   }
   if (msg.error && !msg.content) {
     return (
