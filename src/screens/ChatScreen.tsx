@@ -73,7 +73,7 @@ export function ChatScreen() {
   const [detailTarget, setDetailTarget] = useState<Msg | null>(null);
   // прикрепление: окно-меню (фото/камера/файл) и выбранное вложение
   const [attachOpen, setAttachOpen] = useState(false);
-  const [attachment, setAttachment] = useState<{ kind: "image" | "file"; uri: string; name?: string } | null>(null);
+  const [attachment, setAttachment] = useState<{ kind: "image" | "camera" | "file"; uri: string; name?: string } | null>(null);
   // ── окно хранилища (проекты + файлы + инструкции, как у Hermes) ──
   const [projects, setProjects] = useState<VibeProject[]>([]);
   const [storageOpen, setStorageOpen] = useState(false);
@@ -173,7 +173,7 @@ export function ChatScreen() {
       }
       const res = await ImagePicker.launchCameraAsync({ quality: 0.8 });
       if (!res.canceled && res.assets?.[0]?.uri) {
-        setAttachment({ kind: "image", uri: res.assets[0].uri, name: res.assets[0].fileName ?? "photo" });
+        setAttachment({ kind: "camera", uri: res.assets[0].uri, name: res.assets[0].fileName ?? "photo" });
       }
     } catch (e: any) {
       showToast("err", `Не удалось открыть камеру: ${e?.message || "ошибка"}`);
@@ -208,7 +208,7 @@ export function ChatScreen() {
         setActive(sid);
       }
 
-      dispatch({ type: "ADD_MSG", sessionId: sid, msg: { id: genId(), role: "user", content, ...(attachment ? (attachment.kind === "image" ? { image: attachment.uri } : { file: { name: attachment.name ?? "файл", uri: attachment.uri } }) : {}) } });
+      dispatch({ type: "ADD_MSG", sessionId: sid, msg: { id: genId(), role: "user", content, ...(attachment ? (attachment.kind === "file" ? { file: { name: attachment.name ?? "файл", uri: attachment.uri } } : { image: attachment.uri }) : {}) } });
       setAttachment(null);
       setText("");
       setStreaming(true);
@@ -236,7 +236,7 @@ export function ChatScreen() {
       // Текущее вложение (ещё не сохранено в Msg) — строим parts.
       let attachParts: ChatPart[] = [];
       if (attachment) {
-        attachParts = await buildAttachmentParts(attachment.kind, attachment.uri, attachment.name).catch(() => [] as ChatPart[]);
+        attachParts = await buildAttachmentParts(attachment.kind === "file" ? "file" : "image", attachment.uri, attachment.name).catch(() => [] as ChatPart[]);
       }
 
       const prev: ChatMessage[] = [];
@@ -700,17 +700,17 @@ export function ChatScreen() {
         keyboardVerticalOffset={0}
       >
         <View style={{ paddingHorizontal: 12, paddingTop: 6, paddingBottom: insets.bottom + 8 }}>
-          {/* вложения — НАД капсулой, компактные иконки с крестиком (без имён, placeholder не трогаем) */}
+          {/* вложения — НАД капсулой: иконка ТИПА вложения (та же, что в меню «Прикрепить»), крестик для удаления */}
           {attachment && (
             <View style={{ flexDirection: "row", marginBottom: 8, gap: 8 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface, borderRadius: 18, paddingLeft: 6, paddingRight: 4, paddingVertical: 4 }}>
-                {attachment.kind === "image" ? (
-                  <Image source={{ uri: attachment.uri }} style={{ width: 28, height: 28, borderRadius: 9 }} resizeMode="cover" />
-                ) : (
-                  <View style={{ width: 28, height: 28, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: theme.accentDim }}>
-                    <MaterialIcons name="insert-drive-file" size={15} color={theme.accentHi} />
-                  </View>
-                )}
+                <View style={{ width: 28, height: 28, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: theme.accentDim }}>
+                  {attachment.kind === "file" ? (
+                    <MaterialIcons name={fileIconName(attachment.name)} size={15} color={theme.accentHi} />
+                  ) : (
+                    <MaterialIcons name={attachment.kind === "camera" ? "photo-camera" : "photo-library"} size={15} color={theme.accentHi} />
+                  )}
+                </View>
                 <Pressable onPress={() => setAttachment(null)} hitSlop={8} accessibilityLabel="Убрать вложение" style={{ width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: theme.surface2 }}>
                   <MaterialIcons name="close" size={14} color={theme.mute} />
                 </Pressable>
@@ -927,6 +927,7 @@ export function ChatScreen() {
               key={b.label}
               onPress={b.onPress}
               radius={20}
+              blur={false}
               accessibilityLabel={b.label}
               style={{ flex: 1, aspectRatio: 1 }}
             >
@@ -981,6 +982,17 @@ export function ChatScreen() {
       </Sheet>
     </View>
   );
+}
+
+/**
+ * Иконка файла по типу — те же MaterialIcons, что в меню «Прикрепить»:
+ * архив → archive, документ/текст → description, остальное → insert-drive-file.
+ */
+function fileIconName(name?: string): "archive" | "description" | "insert-drive-file" {
+  const ext = (name ?? "").split(".").pop()?.toLowerCase() ?? "";
+  if (["zip", "rar", "7z", "tar", "gz", "bz2", "xz", "tgz", "zst"].includes(ext)) return "archive";
+  if (["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "md", "rtf", "odt", "ods", "odp", "csv"].includes(ext)) return "description";
+  return "insert-drive-file";
 }
 
 function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions, onOpenDetail }: { msg: Msg; theme: any; onCopy: () => void; onShare: () => void; onEdit?: () => void; onLongPress?: () => void; showActions?: boolean; onOpenDetail?: (m: Msg) => void }) {

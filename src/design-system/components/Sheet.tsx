@@ -23,7 +23,6 @@ import {
   Text,
   View,
 } from "react-native";
-import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useApp } from "../../store/AppStore";
 import { radii } from "../tokens";
@@ -100,10 +99,12 @@ export function Sheet({
 
         {/* KAV: инпуты в панели (rename/edit) не должны прятаться за клавиатуру.
             Android: sheet в Modal, системный adjustResize не двигает Modal — двигаем сами. */}
+        {/* ВАЖНО: flex:1 — иначе KAV сжимается по контенту, maxHeight в % у панели
+            не работает, окно вырастает выше экрана и его верх обрезается. */}
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           keyboardVerticalOffset={0}
-          style={{ justifyContent: "flex-end" }}
+          style={{ flex: 1, justifyContent: "flex-end" }}
         >
         {/* стеклянная панель (имитация: полупрозрачный фон + рамка + блик) */}
         <View
@@ -112,7 +113,8 @@ export function Sheet({
             {
               height: auto ? undefined : `${heightPct()}%`,
               maxHeight: auto ? `${autoMaxPct}%` : undefined,
-              backgroundColor: theme.name === "dark" ? "rgba(22,22,26,.60)" : "rgba(250,250,252,.72)",
+              // стекло примитивами (без BlurView — он на Android не обрезается скруглением и выходит за рамки)
+              backgroundColor: theme.name === "dark" ? "rgba(24,24,30,.82)" : "rgba(250,250,252,.88)",
               borderTopLeftRadius: radii.xl,
               borderTopRightRadius: radii.xl,
               borderWidth: 1,
@@ -129,14 +131,6 @@ export function Sheet({
           ]}
           {...pan.panHandlers}
         >
-          {/* блюр-слой: размывает чат/фон за окошком; pointerEvents="none" — не перехватывает тачи */}
-          <BlurView
-            intensity={30}
-            tint={theme.name === "dark" ? "dark" : "light"}
-            style={StyleSheet.absoluteFill}
-            pointerEvents="none"
-          />
-
           {/* handle — симметрично: равные отступы сверху и до контента */}
           <View style={{ alignItems: "center", paddingTop: 10, paddingBottom: 10 }}>
             <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.surface2 }} />
