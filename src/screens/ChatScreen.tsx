@@ -24,8 +24,9 @@ import * as DocumentPicker from "expo-document-picker";
 import { MaterialIcons } from "@expo/vector-icons";
 
 import { useApp, genId, Msg, Session } from "../store/AppStore";
-import { ModelInfo, streamChat, ChatMessage, ChatPart } from "../core/gateway";
+import { ModelInfo, streamChat, streamAgentChat, ChatMessage, ChatPart } from "../core/gateway";
 import { buildAttachmentParts } from "../core/attachments";
+import { getToolDefs } from "../core/tools";
 import { CapBadge } from "../components/ui";
 import { renderMarkdown } from "../components/Markdown";
 import { ThinkingBlock } from "../components/kimi/ThinkingBlock";
@@ -269,91 +270,130 @@ export function ChatScreen() {
       let written: string[] = [];
       const ctrl = new AbortController();
       abortRef.current = ctrl;
-      await streamChat(model, chatMessages, {
-        onToken: (tok) => {
-          if (stopRef.current) return;
-          acc += tok;
-          dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: aiId, patch: { content: acc } });
-          scrollBottom();
-          // tool-событие: агент начал писать файл — карточка как в Kimi
-          if (proj) {
-            const fm = acc.match(/\[FILE:\s*([^\n\]]+)\]/);
-            if (fm && !written.includes("__showed_" + fm[1])) {
-              written.push("__showed_" + fm[1]);
-              dispatch({
-                type: "ADD_MSG",
-                sessionId: sid,
-                msg: { id: genId(), role: "assistant", content: "", tool: "пишу " + fm[1].trim() },
-              });
-            }
-          }
-          // tool-событие: агент хочет выполнить команду — карточка «выполняю …»
-          const cm = acc.match(/\[CMD:\s*([^\n\]]+)\]/);
-          if (cm && !written.includes("__showed_cmd_" + cm[1])) {
-            written.push("__showed_cmd_" + cm[1]);
+
+      // Токены и раздумья — единые для обоих путей (agent: function calling, plain: текст)
+      const onToken = (tok: string) => {
+        if (stopRef.current) return;
+        acc += tok;
+        dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: aiId, patch: { content: acc } });
+        scrollBottom();
+        // tool-событие: агент начал писать файл — карточка как в Kimi
+        if (proj) {
+          const fm = acc.match(/\[FILE:\s*([^\n\]]+)\]/);
+          if (fm && !written.includes("__showed_" + fm[1])) {
+            written.push("__showed_" + fm[1]);
             dispatch({
               type: "ADD_MSG",
               sessionId: sid,
-              msg: { id: genId(), role: "assistant", content: "", tool: "выполняю " + cm[1].trim() },
+              msg: { id: genId(), role: "assistant", content: "", tool: "пишу " + fm[1].trim() },
             });
           }
-        },
-        onThinking: (thinking) => {
-          if (stopRef.current) return;
-          dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: aiId, patch: { thinking } });
-        },
-        onDone: async (clean) => {
-          setStreaming(false);
-          if (stopRef.current && !clean) return; // отменено пользователем — не трогаем
-          let finalText = clean || acc || (stopRef.current ? "" : "(пусто)");
-          if (proj) {
-            const blocks = parseFileBlocks(finalText || acc);
-            for (const b of blocks) {
+        }
+        // fallback: агент написал [CMD: …] текстом (провайдер без tools) — карточка
+        const cm = acc.match(/\[CMD:\s*([^\n\]]+)\]/);
+        if (cm && !written.includes("__showed_cmd_" + cm[1])) {
+          written.push("__showed_cmd_" + cm[1]);
+          dispatch({
+            type: "ADD_MSG",
+            sessionId: sid,
+            msg: { id: genId(), role: "assistant", content: "", tool: "выполняю " + cm[1].trim() },
+          });
+        }
+      };
+      const onThinking = (thinking: string) => {
+        if (stopRef.current) return;
+        dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: aiId, patch: { thinking } });
+      };
+      // Финал: FILE-запись (проекты), текстовые [CMD:] фолбэк, обновление сообщения
+      const finalize = async (clean: string) => {
+        setStreaming(false);
+        if (stopRef.current && !clean) return; // отменено пользователем — не трогаем
+        let finalText = clean || acc || (stopRef.current ? "" : "(пусто)");
+        if (proj) {
+          const blocks = parseFileBlocks(finalText || acc);
+          for (const b of blocks) {
+            try {
+              await writeFile(proj.id, b.path, b.content);
+            } catch (e: any) {
+              dispatch({
+                type: "UPDATE_MSG", sessionId: sid, msgId: aiId,
+                patch: { streaming: false, error: `не удалось записать ${b.path}: ${e?.message || e}`, content: acc || "" },
+              });
+              return;
+            }
+          }
+          finalText = (finalText || acc).replace(/\[FILE:[^\]]+\]\s*```[^\n]*\n[\s\S]*?```/g, "").trim() || acc;
+        }
+        // fallback: выполняем [CMD:…] блоки, если модель написала их текстом
+        const cmds = parseCmdBlocks(finalText || acc);
+        const cmdReports: string[] = [];
+        for (const cmd of cmds) {
+          if (!runtimeAvailable()) {
+            cmdReports.push(`$ ${cmd}\nрантайм доступен только на Android`);
+            continue;
+          }
+          const r = await runCommandCapture(cmd, proj?.id);
+          const detail = !r.ok && r.output?.trim()
+            ? r.output.trim().split("\n").slice(-3).join("\n").slice(-500)
+            : r.output?.trim() || r.error || "не удалось выполнить";
+          cmdReports.push(`$ ${cmd}\n${detail}`);
+        }
+        finalText = (finalText || acc).replace(/\[CMD:[^\]]+\]\s*/g, "").trim() || acc;
+        if (cmdReports.length) {
+          finalText = (finalText ? finalText + "\n\n" : "") + cmdReports.join("\n\n");
+        }
+        dispatch({
+          type: "UPDATE_MSG", sessionId: sid, msgId: aiId,
+          patch: { content: finalText, streaming: false },
+        });
+      };
+      const onError = (err: string) => {
+        setStreaming(false);
+        if (stopRef.current) return; // abort по Стоп — не показываем ошибку
+        dispatch({
+          type: "UPDATE_MSG", sessionId: sid, msgId: aiId,
+          patch: { streaming: false, error: err, content: acc || "" },
+        });
+      };
+
+      // ── Путь А (Android): настоящий function calling — модель вызывает run_command,
+      // результат возвращается модели, цикл до финального ответа.
+      // ── Путь Б (web/dev или провайдер без tools): обычный стрим + текстовые [CMD:].
+      const toolDefs = getToolDefs();
+      if (runtimeAvailable() && toolDefs.length > 0) {
+        await streamAgentChat(
+          model,
+          chatMessages,
+          toolDefs,
+          {
+            onToken,
+            onThinking,
+            onToolCall: (call) => {
+              if (stopRef.current) return;
+              let label = "выполняю " + call.name;
               try {
-                await writeFile(proj.id, b.path, b.content);
-              } catch (e: any) {
-                dispatch({
-                  type: "UPDATE_MSG", sessionId: sid, msgId: aiId,
-                  patch: { streaming: false, error: `не удалось записать ${b.path}: ${e?.message || e}`, content: acc || "" },
-                });
-                return;
-              }
-            }
-            finalText = (finalText || acc).replace(/\[FILE:[^\]]+\]\s*```[^\n]*\n[\s\S]*?```/g, "").trim() || acc;
-          }
-          // выполняем [CMD:…] блоки — по одной, дожидаемся вывода (терминал на устройстве)
-          const cmds = parseCmdBlocks(finalText || acc);
-          const cmdReports: string[] = [];
-          for (const cmd of cmds) {
-            if (!runtimeAvailable()) {
-              cmdReports.push(`$ ${cmd}\nрантайм доступен только на Android`);
-              continue;
-            }
-            const r = await runCommandCapture(cmd, proj?.id);
-            // при ошибке показываем ВЫВОД bash — там конкретная причина (Permission denied / Exec format error)
-            const detail = !r.ok && r.output?.trim()
-              ? r.output.trim().split("\n").slice(-3).join("\n").slice(-500)
-              : r.output?.trim() || r.error || "не удалось выполнить";
-            cmdReports.push(`$ ${cmd}\n${detail}`);
-          }
-          finalText = (finalText || acc).replace(/\[CMD:[^\]]+\]\s*/g, "").trim() || acc;
-          if (cmdReports.length) {
-            finalText = (finalText ? finalText + "\n\n" : "") + cmdReports.join("\n\n");
-          }
-          dispatch({
-            type: "UPDATE_MSG", sessionId: sid, msgId: aiId,
-            patch: { content: finalText, streaming: false },
-          });
-        },
-        onError: (err) => {
-          setStreaming(false);
-          if (stopRef.current) return; // abort по Стоп — не показываем ошибку
-          dispatch({
-            type: "UPDATE_MSG", sessionId: sid, msgId: aiId,
-            patch: { streaming: false, error: err, content: acc || "" },
-          });
-        },
-      }, ctrl.signal);
+                const a = JSON.parse(call.arguments || "{}");
+                if (a.command) label += " " + String(a.command);
+              } catch {}
+              dispatch({
+                type: "ADD_MSG",
+                sessionId: sid,
+                msg: { id: genId(), role: "assistant", content: "", tool: label },
+              });
+            },
+            onDone: (finalText) => { void finalize(finalText); },
+            onError,
+          },
+          ctrl.signal,
+        );
+      } else {
+        await streamChat(model, chatMessages, {
+          onToken,
+          onThinking,
+          onDone: (clean) => { void finalize(clean || acc); },
+          onError,
+        }, ctrl.signal);
+      }
     },
     [text, streaming, active, dispatch, model, setActive, scrollBottom, attachment],
   );

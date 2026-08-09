@@ -10,6 +10,7 @@ import { decrypt } from "./crypto";
 import { normalizeChatUrl } from "./url";
 import { Platform } from "react-native";
 import { config } from "./env";
+import { executeTool } from "./tools";
 
 export interface ModelInfo {
   /** Уникальный ключ модели (напр. "sys:deepseek-v4-flash-free" или кастомный). */
@@ -278,6 +279,226 @@ export async function streamChat(
 
     callbacks.onDone(resText || "");
     return;
+  }
+}
+
+/**
+ * streamAgentChat — НАСТОЯЩИЙ function calling (вариант А, как Hermes).
+ *
+ * Отличие от streamChat: в payload добавляются tools (JSON-Schema), SSE-парсер
+ * накапливает delta.tool_calls (name — присваивание, arguments — конкатенация),
+ * вызовы исполняются, результаты возвращаются модели {role:"tool", tool_call_id},
+ * и цикл повторяется, пока модель не ответит без tool_calls (или не кончится бюджет).
+ */
+export interface AgentToolCall {
+  id: string;
+  name: string;
+  arguments: string;
+}
+
+export interface AgentCallbacks {
+  onToken: (text: string) => void;
+  onThinking?: (text: string) => void;
+  /** Модель вызвала тул — UI показывает карточку выполнения. */
+  onToolCall?: (call: AgentToolCall) => void;
+  onDone: (finalText: string, messages: ChatMessage[]) => void;
+  onError: (message: string) => void;
+}
+
+export interface AgentRequestResult {
+  text: string;
+  reasoning: string;
+  calls: AgentToolCall[];
+  /** Провайдер отверг tools (400) — повторить запрос без них. */
+  toolsRejected: boolean;
+}
+
+const MAX_AGENT_ITERATIONS = 8;
+
+export async function streamAgentChat(
+  model: ModelInfo,
+  initialMessages: ChatMessage[],
+  tools: { type: "function"; function: unknown }[],
+  callbacks: AgentCallbacks,
+  signal?: AbortSignal,
+): Promise<void> {
+  const ctrl = new AbortController();
+  if (signal) {
+    if (signal.aborted) ctrl.abort();
+    else signal.addEventListener("abort", () => ctrl.abort(), { once: true });
+  }
+
+  let messages: any[] = [...initialMessages];
+  if (model.systemPrompt && !messages.some((m) => m.role === "system")) {
+    messages = [{ role: "system", content: model.systemPrompt }, ...messages];
+  }
+
+  let toolsEnabled = true;
+  let lastText = "";
+
+  for (let iter = 0; iter < MAX_AGENT_ITERATIONS; iter++) {
+    let r: AgentRequestResult;
+    try {
+      r = await agentRequest(model, messages, toolsEnabled ? tools : [], ctrl.signal);
+    } catch (e: any) {
+      if (ctrl.signal.aborted) {
+        callbacks.onDone(lastText, messages);
+        return;
+      }
+      callbacks.onError(e instanceof Error ? e.message : String(e));
+      return;
+    }
+
+    if (r.toolsRejected && toolsEnabled) {
+      // провайдер не понимает tools — отключаем навсегда и запрашиваем заново
+      toolsEnabled = false;
+      continue;
+    }
+
+    if (r.text) {
+      lastText = r.text;
+      callbacks.onToken(r.text);
+    }
+    if (r.reasoning) callbacks.onThinking?.(r.reasoning);
+
+    if (r.calls.length === 0) {
+      // финал: ответ без тулов
+      callbacks.onDone(r.text || lastText, messages);
+      return;
+    }
+
+    // ── tool loop: исполняем вызовы, результат возвращаем модели ──
+    messages.push({
+      role: "assistant",
+      content: r.text || null,
+      ...(r.reasoning ? { reasoning_content: r.reasoning } : {}),
+      tool_calls: r.calls.map((c) => ({
+        id: c.id,
+        type: "function",
+        function: { name: c.name, arguments: c.arguments },
+      })),
+    });
+    for (const c of r.calls) {
+      callbacks.onToolCall?.(c);
+      const { result } = await executeTool(c.name, parseToolArgs(c.arguments), {});
+      messages.push({ role: "tool", tool_call_id: c.id, name: c.name, content: result });
+    }
+    // последняя итерация бюджета — просим финальный ответ без тулов
+    if (iter === MAX_AGENT_ITERATIONS - 1) toolsEnabled = false;
+  }
+
+  callbacks.onDone(lastText, messages);
+}
+
+/** Один запрос к провайдеру: стриминг + накопление tool_calls. */
+async function agentRequest(
+  model: ModelInfo,
+  messages: any[],
+  tools: { type: "function"; function: unknown }[],
+  signal: AbortSignal,
+): Promise<AgentRequestResult> {
+  let endpoint = normalizeChatUrl(model.baseUrl);
+  if (Platform.OS === "web") {
+    endpoint = `${config.apiBase}/api/mobile/gw?url=${encodeURIComponent(endpoint)}`;
+  }
+  const payload: Record<string, unknown> = {
+    model: model.apiModel ?? model.modelName,
+    messages,
+    temperature: model.temperature ?? 0.7,
+    max_tokens: 4096,
+    stream: true,
+    stream_options: { include_usage: true },
+  };
+  if (tools.length) payload.tools = tools;
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "User-Agent":
+      "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36",
+    Accept: "text/event-stream",
+  };
+  if (model.apiKey) headers.Authorization = `Bearer ${model.apiKey}`;
+
+  let resp: Response;
+  try {
+    resp = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(payload), signal });
+  } catch (e: unknown) {
+    if (signal.aborted) throw new Error("aborted");
+    throw e;
+  }
+
+  if (resp.status === 400 && tools.length > 0) {
+    // провайдер не поддерживает tools — вернём флаг для fallback
+    try { await resp.text(); } catch {}
+    return { text: "", reasoning: "", calls: [], toolsRejected: true };
+  }
+  if (!resp.ok) {
+    let detail = `HTTP ${resp.status}`;
+    try { detail = `${detail}: ${(await resp.text()).slice(0, 300)}`; } catch {}
+    throw new Error(detail);
+  }
+  if (resp.body == null) throw new Error("empty response body");
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let full = "";
+  let reasoning = "";
+  const tcAcc = new Map<number, AgentToolCall>();
+  let streamEnded = false;
+
+  while (true) {
+    let chunk: ReadableStreamReadResult<Uint8Array>;
+    try {
+      chunk = await reader.read();
+    } catch {
+      if (signal.aborted) throw new Error("aborted");
+      throw new Error("stream read failed");
+    }
+    if (chunk.done) break;
+    buffer += decoder.decode(chunk.value, { stream: true });
+
+    let idx: number;
+    while ((idx = buffer.indexOf("\n")) >= 0) {
+      let line = buffer.slice(0, idx).trim();
+      buffer = buffer.slice(idx + 1);
+      if (line.startsWith("data:")) line = line.slice(5).trim();
+      if (line === "[DONE]") { streamEnded = true; break; }
+      if (!line) continue;
+      try {
+        const obj = JSON.parse(line);
+        const delta = obj?.choices?.[0]?.delta;
+        if (!delta) continue;
+        if (delta.content) full += delta.content;
+        const reas = delta.reasoning_content || delta.reasoning || "";
+        if (reas) reasoning += reas;
+        if (delta.tool_calls) {
+          for (const tcd of delta.tool_calls) {
+            const idx2 = tcd.index ?? 0;
+            let e = tcAcc.get(idx2) ?? { id: "", name: "", arguments: "" };
+            if (tcd.id) e.id = tcd.id;
+            if (tcd.function?.name) e.name = tcd.function.name; // name — атомарен, присваивание!
+            if (tcd.function?.arguments) e.arguments += tcd.function.arguments; // аргументы — конкатенация
+            tcAcc.set(idx2, e);
+          }
+        }
+      } catch {}
+    }
+    if (streamEnded) break;
+  }
+
+  const calls = [...tcAcc.values()]
+    .filter((c) => c.name)
+    .map((c) => ({ ...c, arguments: c.arguments || "{}" }));
+  return { text: full, reasoning, calls, toolsRejected: false };
+}
+
+function parseToolArgs(raw: string): Record<string, unknown> {
+  try {
+    const obj = JSON.parse(raw || "{}");
+    return obj && typeof obj === "object" ? obj : {};
+  } catch {
+    return {};
   }
 }
 
