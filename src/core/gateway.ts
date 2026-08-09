@@ -302,6 +302,8 @@ export interface AgentCallbacks {
   onThinking?: (text: string) => void;
   /** Модель вызвала тул — UI показывает карточку выполнения. */
   onToolCall?: (call: AgentToolCall) => void;
+  /** Тул завершился — UI закрывает пульсацию и показывает результат. */
+  onToolResult?: (call: AgentToolCall, ok: boolean, result: string) => void;
   onDone: (finalText: string, messages: ChatMessage[]) => void;
   onError: (message: string) => void;
 }
@@ -429,8 +431,9 @@ export async function streamAgentChat(
         onProgress: options?.onToolProgress,
         model, // для delegate_task
       };
-      const { result } = await executeTool(c.name, parseToolArgs(c.arguments), toolCtx);
-      messages.push({ role: "tool", tool_call_id: c.id, name: c.name, content: result });
+      const res = await executeTool(c.name, parseToolArgs(c.arguments), toolCtx);
+      callbacks.onToolResult?.(c, res.ok, res.result);
+      messages.push({ role: "tool", tool_call_id: c.id, name: c.name, content: res.result });
     }
     // последняя итерация бюджета — просим финальный ответ без тулов
     if (iter === MAX_AGENT_ITERATIONS - 1) toolsEnabled = false;

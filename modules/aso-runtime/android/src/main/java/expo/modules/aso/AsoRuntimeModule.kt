@@ -242,6 +242,30 @@ class AsoRuntimeModule : Module() {
     }
 
     /**
+     * Гарантирует битам исполнения на бинарниках bootstrap.
+     * Старые APK (маркер уже стоит, installBootstrap не перезапускается) оставили
+     * файлы bin/ без +x → exit 126. Проверка одного файла — дёшево, полный проход
+     * — только если прав нет (иначе каждый exec чинил бы всё подряд).
+     */
+    private fun ensureExecutable(prefix: String) {
+        val bash = File(prefix, "bin/bash")
+        if (!bash.exists() || bash.canExecute()) return
+        Log.w(tag, "бинарники bootstrap без +x — чиню права (bin/, libexec/, apt)")
+        val roots = listOf(
+            File(prefix, "bin"),
+            File(prefix, "libexec"),
+            File(prefix, "lib/apt/apt-helper"),
+            File(prefix, "lib/apt/methods"),
+        )
+        for (root in roots) {
+            if (!root.isDirectory) continue
+            root.walkTopDown().filter { it.isFile }.forEach { f ->
+                try { Os.chmod(f.absolutePath, 0x1C0 /*0700*/) } catch (_: Exception) {}
+            }
+        }
+    }
+
+    /**
      * Переписывает shebang скриптов с чужого Termux-PREFIX на наш:
      * `#!/data/data/com.termux/files/usr/bin/sh` → `#!<наш prefix>/bin/sh`.
      * Иначе интерпретатор не существует и команда падает с 126.
@@ -285,6 +309,12 @@ class AsoRuntimeModule : Module() {
         val home = homeDir().absolutePath
         val shell = "$prefix/bin/bash"
         val shellFallback = "/system/bin/sh"
+
+        // Старые установки (маркер .bootstrap-done уже есть) не получали chmod при
+        // обновлении APK — бинарники лежат без права на выполнение, любая команда
+        // падает с exit 126 (Permission denied). Чиним ДО каждого запуска: быстро
+        // проверяем bash, при отсутствии прав — полный проход chmod 0700.
+        ensureExecutable(prefix)
 
         val pb = ProcessBuilder(listOf(shell, "-c", cmd))
         pb.directory(File(cwd ?: home))

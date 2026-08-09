@@ -24,7 +24,7 @@ import * as DocumentPicker from "expo-document-picker";
 import { MaterialIcons } from "@expo/vector-icons";
 
 import { useApp, genId, Msg, Session } from "../store/AppStore";
-import { ModelInfo, streamChat, streamAgentChat, ChatMessage, ChatPart } from "../core/gateway";
+import { ModelInfo, streamChat, streamAgentChat, ChatMessage, ChatPart, AgentToolCall } from "../core/gateway";
 import { buildAttachmentParts } from "../core/attachments";
 import { getToolDefs } from "../core/tools";
 import { dueJobs, markJobRun } from "../core/cron";
@@ -385,21 +385,37 @@ export function ChatScreen() {
         }
       } catch {}
 
-      const aiId = genId();
-      dispatch({ type: "ADD_MSG", sessionId: sid, msg: { id: aiId, role: "assistant", content: "", streaming: true } });
-
       let acc = "";
-      let written: string[] = [];
+      let textAcc = "";
+      let thinkId: string | null = null;
+      let textId: string | null = null;
+      const toolIds: string[] = [];
+      let toolIdx = 0;
+      const written: string[] = [];
+      const usedTools = new Set<string>();
+      let hadToolError = false;
       const ctrl = new AbortController();
       abortRef.current = ctrl;
 
-      // Токены и раздумья — единые для обоих путей (agent: function calling, plain: текст)
+      const closeMsg = (id: string | null, patch: Record<string, unknown> = {}) => {
+        if (id) dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: id, patch: { streaming: false, ...patch } });
+      };
+
+      // Токены текста: создаём своё сообщение при первом токене; после тула
+      // сообщение закрывается и следующий текст (итог) уходит в НОВОЕ сообщение —
+      // поэтому текст агента всегда остаётся на своём месте в цепочке.
       const onToken = (tok: string) => {
         if (stopRef.current) return;
         acc += tok;
-        dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: aiId, patch: { content: acc } });
+        textAcc += tok;
+        if (!textId) {
+          textId = genId();
+          dispatch({ type: "ADD_MSG", sessionId: sid, msg: { id: textId, role: "assistant", content: textAcc, streaming: true } });
+        } else {
+          dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: textId, patch: { content: textAcc } });
+        }
         scrollBottom();
-        // tool-событие: агент начал писать файл — карточка как в Kimi
+        // fallback (plain-путь): агент написал [FILE:]/[CMD:] текстом — карточка как в Kimi
         if (proj) {
           const fm = acc.match(/\[FILE:\s*([^\n\]]+)\]/);
           if (fm && !written.includes("__showed_" + fm[1])) {
@@ -411,7 +427,6 @@ export function ChatScreen() {
             });
           }
         }
-        // fallback: агент написал [CMD: …] текстом (провайдер без tools) — карточка
         const cm = acc.match(/\[CMD:\s*([^\n\]]+)\]/);
         if (cm && !written.includes("__showed_cmd_" + cm[1])) {
           written.push("__showed_cmd_" + cm[1]);
@@ -422,68 +437,117 @@ export function ChatScreen() {
           });
         }
       };
+      // Раздумья: отдельное сообщение (своя карточка в блоке цепочки).
+      // streaming=true только ПОКА модель думает; при старте команды гаснет.
       const onThinking = (thinking: string) => {
         if (stopRef.current) return;
-        dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: aiId, patch: { thinking } });
+        if (!thinkId) {
+          thinkId = genId();
+          dispatch({ type: "ADD_MSG", sessionId: sid, msg: { id: thinkId, role: "assistant", content: "", thinking, streaming: true } });
+        } else {
+          dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: thinkId, patch: { thinking, streaming: true } });
+        }
       };
-      // Финал: FILE-запись (проекты), текстовые [CMD:] фолбэк, обновление сообщения
+      // Тул начат: закрываем текущий текст (он остаётся в цепочке на своём месте),
+      // думалка гаснет (анимации — только у активного шага), создаём карточку тула с пульсацией.
+      const onToolCall = (call: AgentToolCall) => {
+        if (stopRef.current) return;
+        usedTools.add(call.name);
+        let label = "выполняю " + call.name;
+        try {
+          const a = JSON.parse(call.arguments || "{}");
+          if (a.command) label += " " + String(a.command);
+        } catch {}
+        if (thinkId) closeMsg(thinkId);
+        if (textId) { closeMsg(textId); textId = null; textAcc = ""; }
+        const tid = genId();
+        toolIds.push(tid);
+        dispatch({
+          type: "ADD_MSG",
+          sessionId: sid,
+          msg: { id: tid, role: "assistant", content: "", tool: label, toolState: "loading" },
+        });
+      };
+      // Тул завершён: гасим пульсацию, показываем результат.
+      const onToolResult = (_call: AgentToolCall, ok: boolean, result: string) => {
+        if (stopRef.current) return;
+        const tid = toolIds[toolIdx++];
+        if (!tid) return;
+        dispatch({
+          type: "UPDATE_MSG", sessionId: sid, msgId: tid,
+          patch: { toolState: ok ? "done" : "error", toolOutput: String(result ?? "").slice(0, 2000) },
+        });
+      };
+      // Финал: FILE-запись (проекты, plain-путь), [CMD:] фолбэк, закрытие стриминга.
       const finalize = async (clean: string) => {
         setStreaming(false);
         if (stopRef.current && !clean) return; // отменено пользователем — не трогаем
         let finalText = clean || acc || (stopRef.current ? "" : "(пусто)");
-        if (proj) {
+        if (proj && toolIds.length === 0) {
           const blocks = parseFileBlocks(finalText || acc);
           for (const b of blocks) {
             try {
               await writeFile(proj.id, b.path, b.content);
             } catch (e: any) {
-              dispatch({
-                type: "UPDATE_MSG", sessionId: sid, msgId: aiId,
-                patch: { streaming: false, error: `не удалось записать ${b.path}: ${e?.message || e}`, content: acc || "" },
-              });
+              closeMsg(thinkId);
+              if (textId) {
+                dispatch({
+                  type: "UPDATE_MSG", sessionId: sid, msgId: textId,
+                  patch: { streaming: false, error: `не удалось записать ${b.path}: ${e?.message || e}`, content: textAcc || "" },
+                });
+              }
               return;
             }
           }
           finalText = (finalText || acc).replace(/\[FILE:[^\]]+\]\s*```[^\n]*\n[\s\S]*?```/g, "").trim() || acc;
         }
-        // fallback: выполняем [CMD:…] блоки, если модель написала их текстом
-        const cmds = parseCmdBlocks(finalText || acc);
-        const cmdReports: string[] = [];
-        for (const cmd of cmds) {
-          if (!runtimeAvailable()) {
-            cmdReports.push(`$ ${cmd}\nрантайм доступен только на Android`);
-            continue;
+        if (toolIds.length === 0) {
+          const cmds = parseCmdBlocks(finalText || acc);
+          const cmdReports: string[] = [];
+          for (const cmd of cmds) {
+            if (!runtimeAvailable()) {
+              cmdReports.push(`$ ${cmd}\nрантайм доступен только на Android`);
+              continue;
+            }
+            const r = await runCommandCapture(cmd, proj?.id);
+            const detail = !r.ok && r.output?.trim()
+              ? r.output.trim().split("\n").slice(-3).join("\n").slice(-500)
+              : r.output?.trim() || r.error || "не удалось выполнить";
+            cmdReports.push(`$ ${cmd}\n${detail}`);
           }
-          const r = await runCommandCapture(cmd, proj?.id);
-          const detail = !r.ok && r.output?.trim()
-            ? r.output.trim().split("\n").slice(-3).join("\n").slice(-500)
-            : r.output?.trim() || r.error || "не удалось выполнить";
-          cmdReports.push(`$ ${cmd}\n${detail}`);
+          finalText = (finalText || acc).replace(/\[CMD:[^\]]+\]\s*/g, "").trim() || acc;
+          if (cmdReports.length) {
+            finalText = (finalText ? finalText + "\n\n" : "") + cmdReports.join("\n\n");
+          }
         }
-        finalText = (finalText || acc).replace(/\[CMD:[^\]]+\]\s*/g, "").trim() || acc;
-        if (cmdReports.length) {
-          finalText = (finalText ? finalText + "\n\n" : "") + cmdReports.join("\n\n");
+        closeMsg(thinkId);
+        thinkId = null;
+        if (textId) {
+          dispatch({
+            type: "UPDATE_MSG", sessionId: sid, msgId: textId,
+            patch: { content: finalText || textAcc || "", streaming: false },
+          });
+          textId = null;
         }
-        dispatch({
-          type: "UPDATE_MSG", sessionId: sid, msgId: aiId,
-          patch: { content: finalText, streaming: false },
-        });
       };
       const onError = (err: string) => {
         setStreaming(false);
         if (stopRef.current) return; // abort по Стоп — не показываем ошибку
-        dispatch({
-          type: "UPDATE_MSG", sessionId: sid, msgId: aiId,
-          patch: { streaming: false, error: err, content: acc || "" },
-        });
+        closeMsg(thinkId);
+        if (textId) {
+          dispatch({
+            type: "UPDATE_MSG", sessionId: sid, msgId: textId,
+            patch: { streaming: false, error: err, content: textAcc || "" },
+          });
+        } else {
+          dispatch({ type: "ADD_MSG", sessionId: sid, msg: { id: genId(), role: "assistant", content: "", error: err } });
+        }
       };
 
       // ── Путь А (Android): настоящий function calling — модель вызывает run_command,
       // результат возвращается модели, цикл до финального ответа.
       // ── Путь Б (web/dev или провайдер без tools): обычный стрим + текстовые [CMD:].
       const toolDefs = getToolDefs();
-      const usedTools = new Set<string>();
-      let hadToolError = false;
       if (runtimeAvailable() && toolDefs.length > 0) {
         await streamAgentChat(
           model,
@@ -492,20 +556,8 @@ export function ChatScreen() {
           {
             onToken,
             onThinking,
-            onToolCall: (call) => {
-              if (stopRef.current) return;
-              usedTools.add(call.name);
-              let label = "выполняю " + call.name;
-              try {
-                const a = JSON.parse(call.arguments || "{}");
-                if (a.command) label += " " + String(a.command);
-              } catch {}
-              dispatch({
-                type: "ADD_MSG",
-                sessionId: sid,
-                msg: { id: genId(), role: "assistant", content: "", tool: label },
-              });
-            },
+            onToolCall,
+            onToolResult,
             onDone: (finalText) => {
               void finalize(finalText);
               // ── Self-improve (P1.3): после сложного хода (2+ тула) тихо анализируем ──
@@ -761,23 +813,31 @@ export function ChatScreen() {
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .filter((s) => !search.trim() || s.name.toLowerCase().includes(search.trim().toLowerCase()));
 
-  // Цепочки: подряд идущие assistant-сообщения с thinking/tool (без итога) —
-  // накапливаются в ОДНОМ стеклянном блоке (как в QIWI); итог агента — отдельный Bubble.
+  // Цепочки: подряд идущие assistant-сообщения, начатые думалкой/командой —
+  // накапливаются в ОДНОМ стеклянном блоке (как в QIWI). Итог агента (content)
+  // остаётся В ТОМ ЖЕ блоке, пока не придёт user-сообщение.
   const chainGroups = useMemo(() => {
     const groups: Group[] = [];
     const msgs = active?.messages ?? [];
     let chain: Msg[] = [];
-    const isChainMsg = (m: Msg) =>
-      m.role === "assistant" && !m.error && !m.content && (m.thinking || m.tool);
+    let chainOpen = false;
     const flush = () => {
       if (chain.length) {
         groups.push({ id: "chain-" + chain[0].id, kind: "chain", msgs: chain });
         chain = [];
       }
+      chainOpen = false;
     };
     for (const m of msgs) {
-      if (isChainMsg(m)) chain.push(m);
-      else {
+      if (m.role === "assistant" && !m.error) {
+        // думалка/команда открывает цепочку, дальше тянем ВСЁ подряд
+        if (chainOpen || m.thinking || m.tool) {
+          chain.push(m);
+          chainOpen = true;
+        } else {
+          groups.push({ id: m.id, kind: "single", msg: m });
+        }
+      } else {
         flush();
         groups.push({ id: m.id, kind: "single", msg: m });
       }
@@ -1140,7 +1200,7 @@ export function ChatScreen() {
       </Sheet>
 
       {/* ── Edit message (изменить отправленное сообщение) ── */}
-      <Sheet visible={!!editTarget} onClose={() => setEditTarget(null)} title="Изменить сообщение" snapPoints={["auto"]} autoMaxPct={65}>
+      <Sheet visible={!!editTarget} onClose={() => setEditTarget(null)} title="Изменить сообщение" snapPoints={["auto"]} autoMaxPct={85}>
         {editTarget && (
           <>
             <Text style={{ color: theme.dim, fontSize: 12, marginBottom: 6 }}>
@@ -1180,7 +1240,15 @@ export function ChatScreen() {
               radius={20}
               blur={false}
               accessibilityLabel={b.label}
-              style={{ flex: 1, aspectRatio: 1 }}
+              style={{
+                flex: 1,
+                aspectRatio: 1,
+                // фон/тень не должны вылезать за скруглённую рамку кнопки
+                shadowOpacity: 0,
+                elevation: 0,
+                borderTopWidth: 0,
+                overflow: "hidden",
+              }}
             >
               <MaterialIcons name={b.icon} size={34} color={theme.dim} />
             </GlassPressable>

@@ -282,13 +282,16 @@ export function RichMarkdown({ content }: { content: string }) {
         const headerRow = norm[0];
         const bodyRows = norm.slice(1);
         // 1–2 колонки — растягиваем на всю ширину; больше — фиксированная ширина
-        // колонок и горизонтальный свайп (таблица не сжимается, скроллится влево-вправо)
+        // колонок и горизонтальный свайп (таблица не сжимается, скроллится влево-вправо).
+        // nestedScrollEnabled: вложенный ScrollView внутри FlatList на Android иначе
+        // не ловит горизонтальный жест (таблица «не свайпалась»).
         const scroll = width > 2;
-        const cellW = (ci: number) => (scroll ? { width: 132 } : { flex: 1 });
+        const cellW = (ci: number) => (scroll ? { width: 140 } : { flex: 1 });
         out.push(
           <ScrollView
             key={`tbl${k++}`}
             horizontal
+            nestedScrollEnabled
             showsHorizontalScrollIndicator={false}
             style={{ marginVertical: 6, borderRadius: 16, flexGrow: 0 }}
             contentContainerStyle={{ flexGrow: scroll ? 0 : 1 }}
