@@ -28,6 +28,9 @@ export interface AsoRuntimeNative {
   exec(cmd: string, cwd?: string): Promise<ExecResult>;
   kill(sessionId: number): Promise<boolean>;
   execCapture(cmd: string, cwd?: string): Promise<{ ok: boolean; output: string; code: number; error?: string }>;
+  hasStorageAccess?(): Promise<boolean>;
+  openStorageSettings?(): Promise<boolean>;
+  resetBootstrap?(): Promise<boolean>;
 }
 
 type AsoRuntimeEvents = {
@@ -78,6 +81,21 @@ export function kill(sessionId: number): Promise<boolean> {
 /** Команда одним вызовом: вывод + код завершения. Без событий (нет гонки onExit). */
 export function execCapture(cmd: string, cwd?: string): Promise<{ ok: boolean; output: string; code: number; error?: string }> {
   return requireNative().execCapture(cmd, cwd);
+}
+
+/** Есть ли доступ «Все файлы» / запись в хранилище (Android). */
+export function hasStorageAccess(): Promise<boolean> {
+  return native ? native.hasStorageAccess?.().catch(() => false) ?? Promise.resolve(false) : Promise.resolve(false);
+}
+
+/** Открыть системный экран разрешения «Все файлы» (Android 11+). */
+export function openStorageSettings(): Promise<boolean> {
+  return native ? native.openStorageSettings?.().catch(() => false) ?? Promise.resolve(false) : Promise.resolve(false);
+}
+
+/** Переустановить среду: сброс маркера bootstrap → следующая команда распакует заново. */
+export function resetBootstrap(): Promise<boolean> {
+  return native ? native.resetBootstrap?.().catch(() => false) ?? Promise.resolve(false) : Promise.resolve(false);
 }
 
 export function onOutput(listener: (e: OutputEvent) => void): EventSubscription {

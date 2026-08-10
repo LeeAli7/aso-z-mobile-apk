@@ -538,38 +538,29 @@ export function StorageSheet({
             </Text>
           </GlassPressable>
 
-          {/* Доступ ко всем файлам (Android 11+): агент пишет вне песочницы */}
+          {/* Переустановка Linux-среды: чинит битые файлы старых установок */}
           <GlassPressable
             radius={16}
             blur={false}
             onPress={async () => {
               try {
-                const IntentLauncher = (await import("expo-intent-launcher")).default;
-                await IntentLauncher.startActivityAsync(
-                  "android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION",
-                  { data: "package:app.aso.zmobile" },
-                );
-              } catch {
-                try {
-                  const IntentLauncher = (await import("expo-intent-launcher")).default;
-                  await IntentLauncher.startActivityAsync("android.settings.APPLICATION_DETAILS_SETTINGS", {
-                    data: "package:app.aso.zmobile",
-                  });
-                } catch (e: any) {
-                  showToast("err", `Не удалось открыть настройки: ${e?.message || "ошибка"}`);
-                }
+                const { resetBootstrap } = await import("../../../modules/aso-runtime/src");
+                const ok = await resetBootstrap();
+                showToast(ok ? "ok" : "err", ok ? "Среда сброшена — перезапустите приложение" : "Не удалось сбросить среду");
+              } catch (e: any) {
+                showToast("err", `Ошибка: ${e?.message || "не удалось"}`);
               }
             }}
             style={{ padding: 16, marginTop: 8 }}
           >
             <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
               <View style={{ width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.08)" : "rgba(255,255,255,.55)" }}>
-                <MaterialIcons name="folder-open" size={20} color={theme.accentHi} />
+                <MaterialIcons name="restart-alt" size={20} color={theme.accentHi} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ color: theme.text, fontSize: 13.5, fontWeight: "600" }}>Доступ ко всем файлам</Text>
+                <Text style={{ color: theme.text, fontSize: 13.5, fontWeight: "600" }}>Переустановить среду</Text>
                 <Text style={{ color: theme.mute, fontSize: 11.5, lineHeight: 16, marginTop: 2 }}>
-                  Разрешает агенту читать и создавать файлы в хранилище устройства (папки рядом с Aso-z, Download и т.п.).
+                  Заново распакует встроенный Linux при следующей команде. Помогает, если команды падают с 126 (битые файлы от старых версий).
                 </Text>
               </View>
               <MaterialIcons name="chevron-right" size={18} color={theme.mute} />

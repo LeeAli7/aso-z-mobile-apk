@@ -66,7 +66,21 @@ export function ChatScreen() {
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [modelsOpen, setModelsOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const [streaming, setStreaming] = useState(false);
+  // Стриминг — per-session: каждая сессия отвечает независимо, переключение
+  // на другую сессию не блокирует и не рвёт текущий ответ.
+  const [streamingSessions, setStreamingSessions] = useState<Record<string, boolean>>({});
+  const streamingRef = useRef<Record<string, boolean>>({});
+  // Стоп/abort — тоже per-session (кнопка «Стоп» останавливает только активную).
+  const runStateRef = useRef<Record<string, { stop: boolean; ctrl: AbortController | null }>>({});
+  const getRun = (sid: string) => {
+    if (!runStateRef.current[sid]) runStateRef.current[sid] = { stop: false, ctrl: null };
+    return runStateRef.current[sid];
+  };
+  const isStreaming = (sid?: string | null) => (sid ? !!streamingRef.current[sid] : false);
+  const markStreaming = (sid: string, on: boolean) => {
+    streamingRef.current[sid] = on;
+    setStreamingSessions((p) => ({ ...p, [sid]: on }));
+  };
   const [msgMenuTarget, setMsgMenuTarget] = useState<Msg | null>(null);
   const [renameTarget, setRenameTarget] = useState<Session | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -82,8 +96,6 @@ export function ChatScreen() {
   // ── окно хранилища (проекты + файлы + инструкции, как у Hermes) ──
   const [projects, setProjects] = useState<VibeProject[]>([]);
   const [storageOpen, setStorageOpen] = useState(false);
-  const stopRef = useRef(false);
-  const abortRef = useRef<AbortController | null>(null);
   const listRef = useRef<FlatList<any>>(null);
 
   const active = state.sessions.find((s) => s.id === state.activeSessionId) ?? null;
@@ -278,7 +290,7 @@ export function ChatScreen() {
   const sendText = useCallback(
     async (raw: string) => {
       const content = raw.trim();
-      if (!content || streaming || !model) return;
+      if (!content || isStreaming(active?.id) || !model) return;
 
       // ensure session
       let sid = active?.id;
@@ -313,8 +325,8 @@ export function ChatScreen() {
       dispatch({ type: "ADD_MSG", sessionId: sid, msg: { id: genId(), role: "user", content, ...(attachment ? (attachment.kind === "file" ? { file: { name: attachment.name ?? "файл", uri: attachment.uri } } : { image: attachment.uri }) : {}) } });
       setAttachment(null);
       setText("");
-      setStreaming(true);
-      stopRef.current = false;
+      markStreaming(sid, true);
+      getRun(sid).stop = false;
       scrollBottom();
 
       const cur = state.sessions.find((s) => s.id === sid);
@@ -395,7 +407,7 @@ export function ChatScreen() {
       const usedTools = new Set<string>();
       let hadToolError = false;
       const ctrl = new AbortController();
-      abortRef.current = ctrl;
+      getRun(sid).ctrl = ctrl;
 
       const closeMsg = (id: string | null, patch: Record<string, unknown> = {}) => {
         if (id) dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: id, patch: { streaming: false, ...patch } });
@@ -405,7 +417,7 @@ export function ChatScreen() {
       // сообщение закрывается и следующий текст (итог) уходит в НОВОЕ сообщение —
       // поэтому текст агента всегда остаётся на своём месте в цепочке.
       const onToken = (tok: string) => {
-        if (stopRef.current) return;
+        if (getRun(sid).stop) return;
         acc += tok;
         textAcc += tok;
         if (!textId) {
@@ -440,7 +452,7 @@ export function ChatScreen() {
       // Раздумья: отдельное сообщение (своя карточка в блоке цепочки).
       // streaming=true только ПОКА модель думает; при старте команды гаснет.
       const onThinking = (thinking: string) => {
-        if (stopRef.current) return;
+        if (getRun(sid).stop) return;
         if (!thinkId) {
           thinkId = genId();
           dispatch({ type: "ADD_MSG", sessionId: sid, msg: { id: thinkId, role: "assistant", content: "", thinking, streaming: true } });
@@ -451,7 +463,7 @@ export function ChatScreen() {
       // Тул начат: закрываем текущий текст (он остаётся в цепочке на своём месте),
       // думалка гаснет (анимации — только у активного шага), создаём карточку тула с пульсацией.
       const onToolCall = (call: AgentToolCall) => {
-        if (stopRef.current) return;
+        if (getRun(sid).stop) return;
         usedTools.add(call.name);
         let label = "выполняю " + call.name;
         try {
@@ -470,7 +482,7 @@ export function ChatScreen() {
       };
       // Тул завершён: гасим пульсацию, показываем результат.
       const onToolResult = (_call: AgentToolCall, ok: boolean, result: string) => {
-        if (stopRef.current) return;
+        if (getRun(sid).stop) return;
         const tid = toolIds[toolIdx++];
         if (!tid) return;
         dispatch({
@@ -480,9 +492,9 @@ export function ChatScreen() {
       };
       // Финал: FILE-запись (проекты, plain-путь), [CMD:] фолбэк, закрытие стриминга.
       const finalize = async (clean: string) => {
-        setStreaming(false);
-        if (stopRef.current && !clean) return; // отменено пользователем — не трогаем
-        let finalText = clean || acc || (stopRef.current ? "" : "(пусто)");
+        markStreaming(sid, false);
+        if (getRun(sid).stop && !clean) return; // отменено пользователем — не трогаем
+        let finalText = clean || acc || (getRun(sid).stop ? "" : "(пусто)");
         if (proj && toolIds.length === 0) {
           const blocks = parseFileBlocks(finalText || acc);
           for (const b of blocks) {
@@ -531,8 +543,8 @@ export function ChatScreen() {
         }
       };
       const onError = (err: string) => {
-        setStreaming(false);
-        if (stopRef.current) return; // abort по Стоп — не показываем ошибку
+        markStreaming(sid, false);
+        if (getRun(sid).stop) return; // abort по Стоп — не показываем ошибку
         closeMsg(thinkId);
         if (textId) {
           dispatch({
@@ -561,7 +573,7 @@ export function ChatScreen() {
             onDone: (finalText) => {
               void finalize(finalText);
               // ── Self-improve (P1.3): после сложного хода (2+ тула) тихо анализируем ──
-              if (!stopRef.current && usedTools.size >= 2 && !hadToolError) {
+              if (!getRun(sid).stop && usedTools.size >= 2 && !hadToolError) {
                 void runSelfReview(model, {
                   toolCalls: usedTools.size,
                   toolNames: [...usedTools],
@@ -573,7 +585,7 @@ export function ChatScreen() {
             onError,
           },
           ctrl.signal,
-          { projectId: proj?.id, onToolProgress: (msg) => { if (!stopRef.current) setToolNote(msg); } },
+          { projectId: proj?.id, onToolProgress: (msg) => { if (!getRun(sid).stop) setToolNote(msg); } },
         );
       } else {
         await streamChat(model, chatMessages, {
@@ -584,7 +596,7 @@ export function ChatScreen() {
         }, ctrl.signal);
       }
     },
-    [text, streaming, active, dispatch, model, setActive, scrollBottom, attachment, runSlashCommand],
+    [text, active, dispatch, model, setActive, scrollBottom, attachment, runSlashCommand, streamingSessions],
   );
 
   // ── Cron-раннер автозадач (P2.2) ──
@@ -719,8 +731,8 @@ export function ChatScreen() {
     }
     setEditTarget(null);
     setEditValue("");
-    setStreaming(true);
-    stopRef.current = false;
+    markStreaming(sid, true);
+    getRun(sid).stop = false;
 
     // история: все до вопроса включительно, с отредактированным текстом.
     // Вложения (image/file) сохраняются как части сообщения.
@@ -749,29 +761,29 @@ export function ChatScreen() {
 
     let acc = "";
     const ctrl = new AbortController();
-    abortRef.current = ctrl;
+    getRun(sid).ctrl = ctrl;
     await streamChat(model, history, {
       onToken: (tok) => {
-        if (stopRef.current) return;
+        if (getRun(sid).stop) return;
         acc += tok;
         dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: aiId, patch: { content: acc } });
         scrollBottom();
       },
       onThinking: (thinking) => {
-        if (stopRef.current) return;
+        if (getRun(sid).stop) return;
         dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: aiId, patch: { thinking } });
       },
       onDone: (clean) => {
-        setStreaming(false);
-        if (stopRef.current && !clean) return;
+        markStreaming(sid, false);
+        if (getRun(sid).stop && !clean) return;
         dispatch({
           type: "UPDATE_MSG", sessionId: sid, msgId: aiId,
-          patch: { content: clean || acc || (stopRef.current ? "" : "(пусто)"), streaming: false },
+          patch: { content: clean || acc || (getRun(sid).stop ? "" : "(пусто)"), streaming: false },
         });
       },
       onError: (err) => {
-        setStreaming(false);
-        if (stopRef.current) return;
+        markStreaming(sid, false);
+        if (getRun(sid).stop) return;
         dispatch({
           type: "UPDATE_MSG", sessionId: sid, msgId: aiId,
           patch: { streaming: false, error: err, content: acc || "" },
@@ -1063,9 +1075,15 @@ export function ChatScreen() {
                   : { minHeight: 44, maxHeight: 76, paddingVertical: 0, lineHeight: 20 }),
               }}
             />
-            {streaming ? (
+            {isStreaming(active?.id) ? (
               <Pressable
-                onPress={() => { stopRef.current = true; setStreaming(false); abortRef.current?.abort(); }}
+                onPress={() => {
+                  const s = active?.id;
+                  if (!s) return;
+                  getRun(s).stop = true;
+                  getRun(s).ctrl?.abort();
+                  markStreaming(s, false);
+                }}
                 style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.danger, alignItems: "center", justifyContent: "center" }}
                 accessibilityLabel="Остановить"
               >
@@ -1219,7 +1237,7 @@ export function ChatScreen() {
                 <Button title="Отмена" variant="secondary" onPress={() => setEditTarget(null)} fullWidth />
               </View>
               <View style={{ flex: 1 }}>
-                <Button title="Отправить" onPress={confirmEdit} disabled={!editValue.trim() || streaming} fullWidth />
+                <Button title="Отправить" onPress={confirmEdit} disabled={!editValue.trim() || isStreaming(active?.id)} fullWidth />
               </View>
             </View>
           </>

@@ -146,6 +146,58 @@ class AsoRuntimeModule : Module() {
                 }
             }
         }
+
+        // Доступ «Все файлы» (MANAGE_EXTERNAL_STORAGE, Android 11+).
+        // Приложение может писать в хранилище только после того, как пользователь
+        // выдал разрешение в системных настройках. Проверка честная: без диалогов.
+        AsyncFunction("hasStorageAccess") { promise: expo.modules.kotlin.Promise ->
+            try {
+                val ctx = context()
+                val ok = if (Build.VERSION.SDK_INT >= 30) {
+                    Environment.isExternalStorageManager()
+                } else {
+                    ctx.checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+                        android.content.pm.PackageManager.PERMISSION_GRANTED
+                }
+                promise.resolve(ok)
+            } catch (e: Exception) {
+                promise.resolve(false)
+            }
+        }
+
+        // Открывает системный экран разрешения «Все файлы» (Android 11+).
+        AsyncFunction("openStorageSettings") { promise: expo.modules.kotlin.Promise ->
+            try {
+                val ctx = context()
+                if (Build.VERSION.SDK_INT >= 30 && !Environment.isExternalStorageManager()) {
+                    val intent = android.content.Intent(
+                        android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                    )
+                    intent.data = android.net.Uri.parse("package:${ctx.packageName}")
+                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    ctx.startActivity(intent)
+                }
+                promise.resolve(true)
+            } catch (e: Exception) {
+                promise.resolve(false)
+            }
+        }
+
+        // Переустановка среды: сброс маркера .bootstrap-done + остановка сервиса.
+        // При следующей команде bootstrap распакуется ЗАНОВО (chmod, symlinks, shebang,
+        // probe) — чинит среды, оставшиеся от старых APK с битыми файлами.
+        AsyncFunction("resetBootstrap") { promise: expo.modules.kotlin.Promise ->
+            try {
+                bootstrapMarker().delete()
+                bootstrapMarker().parentFile?.listFiles()?.forEach { f ->
+                    if (f.name != ".bootstrap-done") f.deleteRecursively()
+                }
+                AsoRuntimeService.stop(context())
+                promise.resolve(true)
+            } catch (e: Exception) {
+                promise.resolve(false)
+            }
+        }
     }
 
     // ── Установка bootstrap ───────────────────────────────────────────────────
