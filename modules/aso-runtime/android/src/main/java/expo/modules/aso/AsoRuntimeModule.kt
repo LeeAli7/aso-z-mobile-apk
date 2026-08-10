@@ -2,6 +2,7 @@ package expo.modules.aso
 
 import android.content.Context
 import android.os.Build
+import android.os.Environment
 import android.system.Os
 import android.util.Log
 import expo.modules.kotlin.modules.Module
