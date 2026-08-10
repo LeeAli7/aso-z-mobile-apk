@@ -40,6 +40,8 @@ export interface Msg {
   image?: string;
   /** Вложение пользователя: файл. */
   file?: { name: string; uri: string };
+  /** Мультивложение (несколько файлов/фото за раз). */
+  attachments?: { kind: "image" | "camera" | "file"; uri: string; name?: string }[];
 }
 
 export interface Session {

@@ -12,7 +12,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const { withDangerousMod, withAndroidManifest, AndroidConfig } = require("@expo/config-plugins");
+const { withDangerousMod, withAndroidManifest, withMainActivity, AndroidConfig } = require("@expo/config-plugins");
 
 const FOREGROUND_PERMISSIONS = [
   "android.permission.FOREGROUND_SERVICE",
@@ -77,6 +77,25 @@ module.exports = function asoRuntimePlugin(config) {
       });
     }
     app.service = services;
+    return cfg;
+  });
+
+  // 3) edge-to-edge: убирает чёрную системную полосу внизу (навбар) и сверху —
+  // контент рисуется под системные панели, навбар становится прозрачным.
+  // Капсула ввода больше не «висит на чёрной полоске».
+  config = withMainActivity(config, (cfg) => {
+    let src = cfg.modResults.contents;
+    if (!src.includes("enableEdgeToEdge")) {
+      src = src.replace(
+        "import expo.modules.ReactActivityDelegateWrapper",
+        "import expo.modules.ReactActivityDelegateWrapper\nimport androidx.activity.enableEdgeToEdge",
+      );
+      src = src.replace(
+        "setTheme(R.style.AppTheme);",
+        "setTheme(R.style.AppTheme);\n    enableEdgeToEdge();",
+      );
+      cfg.modResults.contents = src;
+    }
     return cfg;
   });
 

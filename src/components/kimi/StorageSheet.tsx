@@ -16,7 +16,7 @@
  * Всё в стиле Kimi: стеклянные панели, капсулы, Geist Mono, без эмодзи.
  */
 import React, { useCallback, useEffect, useState } from "react";
-import { Pressable, Switch, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, Switch, Text, TextInput, View } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useApp } from "../../store/AppStore";
 import { Sheet } from "../../design-system/components/Sheet";
@@ -36,6 +36,8 @@ import { memorySnapshot, clearMemory } from "../../core/memory";
 import { loadTodos, runTodoOps, clearTodos } from "../../core/todo";
 import { loadJobs, upsertJob, removeJob, setJobEnabled, upcoming } from "../../core/cron";
 import { runCurator } from "../../core/selfImprove";
+import { listSkills, viewSkill, saveSkill, deleteSkill } from "../../core/skills";
+import { runCommandCapture, runtimeAvailable } from "../../core/runtime";
 
 const INSTRUCTIONS_FILE = "INSTRUCTIONS.md";
 
@@ -43,8 +45,8 @@ const INSTRUCTIONS_FILE = "INSTRUCTIONS.md";
 type Path = string[];
 
 const ROOT_FOLDERS: { key: string; label: string; icon: keyof typeof MaterialIcons.glyphMap; desc: string }[] = [
-  { key: "projects", label: "Проекты", icon: "folder", desc: "папки-проекты агента" },
-  { key: "skills", label: "Скиллы", icon: "extension", desc: "навыки, инструкции, самообучение" },
+  { key: "storage", label: "Хранилище", icon: "storage", desc: "файлы и папки рабочей среды агента" },
+  { key: "skills", label: "Скиллы", icon: "extension", desc: "навыки агента (SKILL.md), управление" },
   { key: "memory", label: "Память", icon: "memory", desc: "факты о пользователе, заметки агента" },
   { key: "todo", label: "Задачи", icon: "checklist", desc: "план дел агента (todo)" },
   { key: "cron", label: "Автозадачи", icon: "schedule", desc: "расписание, напоминания, отчёты" },
@@ -217,7 +219,7 @@ export function StorageSheet({
 
   const folderLabel = (p: string) => ROOT_FOLDERS.find((f) => f.key === p)?.label ?? p;
   const inRoot = path.length === 0;
-  const inProjects = path[0] === "projects";
+  const inStorage = path[0] === "storage";
   const inSkills = path[0] === "skills";
   const inMemory = path[0] === "memory";
   const inTodo = path[0] === "todo";
@@ -273,11 +275,19 @@ export function StorageSheet({
         </View>
       )}
 
-      {/* ── ПРОЕКТЫ ── */}
-      {inProjects && (
+      {/* ── ХРАНИЛИЩЕ: файлы рабочей среды агента + проект сессии ── */}
+      {inStorage && (
         <View style={{ marginTop: 6 }}>
           <Text style={{ color: theme.mute, fontSize: 10.5, letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>
-            Папка «Проекты» · {projects.length}
+            Папка «Хранилище» · workspace агента
+          </Text>
+
+          {/* файловый менеджер реальной файловой системы агента (workspace) */}
+          <WorkspaceFiles theme={theme} />
+
+          {/* выбор проекта-контекста сессии (vibe-проекты) */}
+          <Text style={{ color: theme.mute, fontSize: 10.5, letterSpacing: 1, textTransform: "uppercase", marginTop: 14, marginBottom: 4 }}>
+            Проект сессии · {projects.length}
           </Text>
           {loading ? (
             <Text style={{ color: theme.dim, fontSize: 13, marginTop: 8 }}>Загрузка…</Text>
@@ -345,57 +355,17 @@ export function StorageSheet({
           previewPath={previewPath}
           previewContent={previewContent}
           openPreview={openPreview}
-          onBack={() => { setPath(["projects"]); setPreviewPath(null); setPreviewContent(""); }}
+          onBack={() => { setPath(["storage"]); setPreviewPath(null); setPreviewContent(""); }}
         />
       )}
 
-      {/* ── СКИЛЛЫ (инструкции + самообучение + навыки — всё это скиллы) ── */}
+      {/* ── СКИЛЛЫ: управление навыками (список/создать/редактировать/удалить) ── */}
       {inSkills && (
         <View style={{ marginTop: 6 }}>
           <Text style={{ color: theme.mute, fontSize: 10.5, letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>
             Папка «Скиллы»
           </Text>
-          {activeProj ? (
-            <>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 }}>
-                <MaterialIcons name="menu-book" size={15} color={theme.accentHi} />
-                <Text numberOfLines={1} style={{ color: theme.text, fontSize: 12.5, fontFamily: fonts.mono, flex: 1 }}>
-                  {activeProj.name}/INSTRUCTIONS.md
-                </Text>
-              </View>
-              <TextInput
-                value={instrText}
-                onChangeText={(t) => { setInstrText(t); setInstrDirty(true); }}
-                multiline
-                textAlignVertical="top"
-                placeholder="Правила и контекст для агента…"
-                placeholderTextColor={theme.mute}
-                style={{
-                  backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.07)" : "rgba(255,255,255,.6)",
-                  borderColor: theme.border, borderWidth: 1,
-                  borderRadius: 18, padding: 12, fontSize: 12.5, color: theme.codeText,
-                  fontFamily: fonts.mono, lineHeight: 19, minHeight: 140,
-                }}
-              />
-              <View style={{ marginTop: 10 }}>
-                <Button title="Сохранить" onPress={saveInstructions} disabled={!instrDirty} fullWidth />
-              </View>
-            </>
-          ) : (
-            <GlassPressable radius={16} blur={false} style={{ padding: 16 }}>
-              <Text style={{ color: theme.dim, fontSize: 13, lineHeight: 19 }}>
-                Выбери проект, чтобы настроить инструкции (INSTRUCTIONS.md). Инструкции, самообучение и промпты — всё это навыки агента.
-              </Text>
-            </GlassPressable>
-          )}
-          <GlassPressable radius={16} blur={false} style={{ padding: 16, marginTop: 10 }}>
-            <View style={{ width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.08)" : "rgba(255,255,255,.55)", marginBottom: 10 }}>
-              <MaterialIcons name="extension" size={20} color={theme.accentHi} />
-            </View>
-            <Text style={{ color: theme.dim, fontSize: 13, lineHeight: 20 }}>
-              Здесь агент хранит навыки: инструкции, самообучение (что узнал и записал), заготовки промптов. Всё сводится к скиллам — агент осваивает и переиспользует их.
-            </Text>
-          </GlassPressable>
+          <SkillsManager theme={theme} />
         </View>
       )}
 
@@ -645,4 +615,356 @@ function ProjectFiles({
       )}
     </View>
   );
+}
+
+/* ── Менеджер скиллов (Конфиг → Скиллы): список/просмотр/создание/редактирование/удаление ── */
+function SkillsManager({ theme }: { theme: any }) {
+  const [skills, setSkills] = useState<{ name: string; description: string }[]>([]);
+  const [mode, setMode] = useState<"list" | "form" | "view">("list");
+  const [editingName, setEditingName] = useState<string | null>(null);
+  const [viewBody, setViewBody] = useState("");
+  const [draft, setDraft] = useState({ name: "", description: "", body: "" });
+
+  const refresh = useCallback(async () => {
+    setSkills(await listSkills().catch(() => []));
+  }, []);
+
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  const startCreate = () => {
+    setEditingName(null);
+    setDraft({ name: "", description: "", body: "" });
+    setMode("form");
+  };
+
+  const startEdit = async (name: string) => {
+    const body = await viewSkill(name).catch(() => "");
+    // убираем frontmatter при редактировании
+    const m = body.match(/^---\s*\n[\s\S]*?\n---\s*\n?([\s\S]*)$/);
+    const clean = m ? m[1].trim() : body;
+    const desc = skills.find((s) => s.name === name)?.description ?? "";
+    setEditingName(name);
+    setDraft({ name, description: desc, body: clean });
+    setMode("form");
+  };
+
+  const openView = async (name: string) => {
+    const body = await viewSkill(name).catch(() => "(не удалось прочитать)");
+    setViewBody(body);
+    setMode("view");
+  };
+
+  const save = async () => {
+    if (!draft.name.trim() || !draft.body.trim()) {
+      showToast("err", "Заполни имя и тело навыка");
+      return;
+    }
+    const name = draft.name.trim().toLowerCase().replace(/\s+/g, "_");
+    const msg = await saveSkill(name, draft.description.trim(), draft.body.trim());
+    showToast(msg.startsWith("Навык") ? "ok" : "err", msg.slice(0, 120));
+    setMode("list");
+    setEditingName(null);
+    setDraft({ name: "", description: "", body: "" });
+    void refresh();
+  };
+
+  const del = async (name: string) => {
+    Alert.alert("Удалить навык", `«${name}» будет удалён безвозвратно.`, [
+      { text: "Отмена", style: "cancel" },
+      {
+        text: "Удалить", style: "destructive",
+        onPress: async () => {
+          const msg = await deleteSkill(name);
+          showToast(msg.startsWith("Навык") ? "ok" : "err", msg.slice(0, 120));
+          void refresh();
+        },
+      },
+    ]);
+  };
+
+  const input = {
+    borderWidth: 1, borderColor: theme.border, borderRadius: 12,
+    backgroundColor: theme.surface2, color: theme.text, fontSize: 12.5,
+    paddingHorizontal: 10, paddingVertical: 8,
+  };
+
+  if (mode === "form") {
+    return (
+      <View style={{ borderRadius: 16, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.05)" : "rgba(255,255,255,.6)", padding: 12 }}>
+        <Text style={{ color: theme.dim, fontSize: 12, marginBottom: 8 }}>
+          {editingName ? `Редактирование «${editingName}»` : "Новый навык"}
+        </Text>
+        <TextInput value={draft.name} onChangeText={(v) => setDraft({ ...draft, name: v })} placeholder="имя (латиница/дефисы)" placeholderTextColor={theme.mute} autoCapitalize="none" style={[input, { fontFamily: fonts.mono }]} />
+        <View style={{ height: 6 }} />
+        <TextInput value={draft.description} onChangeText={(v) => setDraft({ ...draft, description: v })} placeholder="описание (по чему искать)" placeholderTextColor={theme.mute} style={input} />
+        <View style={{ height: 6 }} />
+        <TextInput value={draft.body} onChangeText={(v) => setDraft({ ...draft, body: v })} placeholder="тело навыка: шаги, команды, питфоллы" placeholderTextColor={theme.mute} multiline textAlignVertical="top" style={[input, { minHeight: 110 }]} />
+        <View style={{ height: 10 }} />
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <View style={{ flex: 1 }}><Button title="Отмена" variant="secondary" onPress={() => setMode("list")} fullWidth /></View>
+          <View style={{ flex: 1 }}><Button title="Сохранить" variant="primary" onPress={save} fullWidth /></View>
+        </View>
+      </View>
+    );
+  }
+
+  if (mode === "view") {
+    return (
+      <View style={{ borderRadius: 16, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.05)" : "rgba(255,255,255,.6)", padding: 12 }}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <Text style={{ color: theme.accentHi, fontSize: 11, fontFamily: fonts.mono }}>SKILL.md</Text>
+          <Pressable onPress={() => setMode("list")} hitSlop={8}><Text style={{ color: theme.dim, fontSize: 11 }}>назад</Text></Pressable>
+        </View>
+        <Text selectable style={{ color: theme.codeText, fontSize: 11.5, fontFamily: fonts.mono, lineHeight: 17 }}>
+          {viewBody}
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ borderRadius: 16, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.05)" : "rgba(255,255,255,.6)", padding: 12 }}>
+      {skills.length === 0 ? (
+        <Text style={{ color: theme.dim, fontSize: 12.5, marginBottom: 10 }}>Навыков пока нет. Агент создаёт их сам после сложных задач — каждый в отдельном SKILL.md.</Text>
+      ) : (
+        skills.map((s) => (
+          <View key={s.name} style={{ flexDirection: "row", alignItems: "center", paddingVertical: 7, gap: 6 }}>
+            <Pressable onPress={() => openView(s.name)} style={{ flex: 1 }} android_ripple={{ color: theme.ripple }}>
+              <Text style={{ color: theme.text, fontSize: 13, fontWeight: "600", fontFamily: fonts.mono }}>{s.name}</Text>
+              <Text numberOfLines={1} style={{ color: theme.dim, fontSize: 11, marginTop: 1 }}>{s.description}</Text>
+            </Pressable>
+            <Pressable onPress={() => startEdit(s.name)} hitSlop={8} style={{ padding: 4 }}>
+              <MaterialIcons name="edit" size={16} color={theme.dim} />
+            </Pressable>
+            <Pressable onPress={() => del(s.name)} hitSlop={8} style={{ padding: 4 }}>
+              <MaterialIcons name="delete-outline" size={17} color={theme.danger} />
+            </Pressable>
+          </View>
+        ))
+      )}
+      <View style={{ height: 1, backgroundColor: theme.border, marginVertical: 8 }} />
+      <Button title="Новый навык" variant="primary" onPress={startCreate} fullWidth />
+      <View style={{ height: 8 }} />
+      <Button title="Запустить куратора (архив старых)" variant="ghost" fullWidth onPress={async () => {
+        const msg = await runCurator();
+        showToast("info", msg.slice(0, 120));
+        void refresh();
+      }} />
+    </View>
+  );
+}
+
+/* ── Файловый менеджер workspace агента (реальная ФС: $PREFIX/home) ── */
+function WorkspaceFiles({ theme }: { theme: any }) {
+  const [path, setPath] = useState<string[]>([]);
+  const [entries, setEntries] = useState<{ name: string; isDir: boolean }[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState<"dir" | "file" | null>(null);
+  const [newName, setNewName] = useState("");
+  const [editing, setEditing] = useState<string | null>(null); // относительный путь файла
+  const [editContent, setEditContent] = useState("");
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+
+  const relPath = path.join("/");
+  // безопасное экранирование сегмента пути (одинарные кавычки)
+  const q = (s: string) => "'" + s.replace(/'/g, "'\\''") + "'";
+  const target = path.map(q).join("/");
+
+  const refresh = useCallback(async () => {
+    if (!runtimeAvailable()) { setEntries([]); return; }
+    setLoading(true);
+    try {
+      const cd = relPath ? `cd ${target}` : "";
+      const r = await runCommandCapture(`${cd}; for f in * .[!.]*; do [ -e "$f" ] || continue; if [ -d "$f" ]; then echo "D:$f"; else echo "F:$f"; fi; done`, undefined);
+      const es = (r.output || "").split("\n").filter((l) => l.length > 2)
+        .map((l) => ({ name: l.slice(2), isDir: l[0] === "D" }))
+        .sort((a, b) => (a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1));
+      setEntries(es);
+    } catch {} finally { setLoading(false); }
+  }, [relPath, target]);
+
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  const run = async (cmd: string): Promise<boolean> => {
+    const r = await runCommandCapture(cmd, undefined);
+    if (!r.ok) showToast("err", (r.output?.trim() || r.error || "ошибка").slice(0, 140));
+    return r.ok;
+  };
+
+  const doCreate = async () => {
+    const name = newName.trim();
+    if (!name) return;
+    const ok = creating === "dir"
+      ? await run(`mkdir -p ${target ? `${target}/` : ""}${q(name)}`)
+      : await run(`echo ${utf8ToB64("")} | base64 -d > ${target ? `${target}/` : ""}${q(name)}`);
+    if (ok) { setNewName(""); setCreating(null); void refresh(); }
+  };
+
+  const openEditor = async (name: string) => {
+    const r = await runCommandCapture(`cat ${target ? `${target}/` : ""}${q(name)}`, undefined);
+    setEditContent(r.output ?? "");
+    setEditing(name);
+  };
+
+  const saveEdit = async () => {
+    if (!editing) return;
+    const ok = await run(`echo ${utf8ToB64(editContent)} | base64 -d > ${target ? `${target}/` : ""}${q(editing)}`);
+    if (ok) { setEditing(null); showToast("ok", "Файл сохранён"); void refresh(); }
+  };
+
+  const doRename = async () => {
+    const name = renameValue.trim();
+    if (!renaming || !name) return;
+    const ok = await run(`mv ${target ? `${target}/` : ""}${q(renaming)} ${target ? `${target}/` : ""}${q(name)}`);
+    if (ok) { setRenaming(null); setRenameValue(""); void refresh(); }
+  };
+
+  const doDelete = async (name: string, isDir: boolean) => {
+    Alert.alert("Удалить", `«${name}» будет удалён${isDir ? " вместе с содержимым" : ""}.`, [
+      { text: "Отмена", style: "cancel" },
+      {
+        text: "Удалить", style: "destructive",
+        onPress: async () => {
+          const ok = await run(`rm ${isDir ? "-rf" : "-f"} ${target ? `${target}/` : ""}${q(name)}`);
+          if (ok) void refresh();
+        },
+      },
+    ]);
+  };
+
+  if (!runtimeAvailable()) {
+    return (
+      <GlassPressable radius={16} blur={false} style={{ padding: 16 }}>
+        <Text style={{ color: theme.dim, fontSize: 13, lineHeight: 19 }}>
+          Файлы рабочей среды видны только на Android (встроенный Linux-рантайм).
+        </Text>
+      </GlassPressable>
+    );
+  }
+
+  return (
+    <View style={{ borderRadius: 16, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.05)" : "rgba(255,255,255,.6)", padding: 12 }}>
+      {/* путь */}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexWrap: "wrap", marginBottom: 6 }}>
+        <Pressable onPress={() => setPath([])} hitSlop={6}>
+          <Text style={{ color: theme.accentHi, fontSize: 11, fontFamily: fonts.mono }}>~/</Text>
+        </Pressable>
+        {path.map((seg, i) => (
+          <React.Fragment key={seg + i}>
+            <MaterialIcons name="chevron-right" size={11} color={theme.mute} />
+            <Pressable onPress={() => setPath(path.slice(0, i + 1))} hitSlop={6}>
+              <Text style={{ color: theme.dim, fontSize: 11, fontFamily: fonts.mono }}>{seg}</Text>
+            </Pressable>
+          </React.Fragment>
+        ))}
+      </View>
+
+      {/* создание */}
+      {creating ? (
+        <View style={{ flexDirection: "row", gap: 6, marginBottom: 8 }}>
+          <TextInput
+            value={newName}
+            onChangeText={setNewName}
+            placeholder={creating === "dir" ? "имя папки" : "имя файла"}
+            placeholderTextColor={theme.mute}
+            autoFocus
+            autoCapitalize="none"
+            onSubmitEditing={doCreate}
+            style={{ flex: 1, borderWidth: 1, borderColor: theme.border, borderRadius: 10, backgroundColor: theme.surface2, color: theme.text, fontSize: 12.5, paddingHorizontal: 10, paddingVertical: 7, fontFamily: fonts.mono }}
+          />
+          <Button title="OK" variant="primary" onPress={doCreate} />
+          <Button title="✕" variant="secondary" onPress={() => setCreating(null)} />
+        </View>
+      ) : (
+        <View style={{ flexDirection: "row", gap: 6, marginBottom: 8 }}>
+          <Button title="+ Папка" variant="secondary" onPress={() => setCreating("dir")} />
+          <Button title="+ Файл" variant="secondary" onPress={() => setCreating("file")} />
+        </View>
+      )}
+
+      {loading ? <Text style={{ color: theme.dim, fontSize: 12, marginBottom: 6 }}>Загрузка…</Text> : null}
+
+      {entries.length === 0 && !loading ? (
+        <Text style={{ color: theme.dim, fontSize: 12.5, marginBottom: 8 }}>Папка пуста.</Text>
+      ) : (
+        entries.map((e) => (
+          <View key={e.name} style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 6 }}>
+            {renaming === e.name ? (
+              <>
+                <TextInput
+                  value={renameValue}
+                  onChangeText={setRenameValue}
+                  autoFocus
+                  autoCapitalize="none"
+                  onSubmitEditing={doRename}
+                  style={{ flex: 1, borderWidth: 1, borderColor: theme.border, borderRadius: 10, backgroundColor: theme.surface2, color: theme.text, fontSize: 12.5, paddingHorizontal: 10, paddingVertical: 5, fontFamily: fonts.mono }}
+                />
+                <Button title="OK" variant="primary" onPress={doRename} />
+                <Button title="✕" variant="secondary" onPress={() => setRenaming(null)} />
+              </>
+            ) : (
+              <>
+                <Pressable
+                  onPress={() => (e.isDir ? setPath([...path, e.name]) : openEditor(e.name))}
+                  style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 8 }}
+                >
+                  <MaterialIcons name={e.isDir ? "folder" : fileKindIcon(e.name)} size={16} color={e.isDir ? theme.warn : theme.accentHi} />
+                  <Text numberOfLines={1} style={{ color: theme.text, fontSize: 12.5, fontFamily: fonts.mono, flexShrink: 1 }}>{e.name}</Text>
+                </Pressable>
+                <Pressable onPress={() => { setRenaming(e.name); setRenameValue(e.name); }} hitSlop={8} style={{ padding: 3 }}>
+                  <MaterialIcons name="edit" size={15} color={theme.dim} />
+                </Pressable>
+                <Pressable onPress={() => doDelete(e.name, e.isDir)} hitSlop={8} style={{ padding: 3 }}>
+                  <MaterialIcons name="delete-outline" size={16} color={theme.danger} />
+                </Pressable>
+              </>
+            )}
+          </View>
+        ))
+      )}
+
+      {/* редактор файла */}
+      {editing && (
+        <View style={{ marginTop: 10, borderTopWidth: 1, borderTopColor: theme.border, paddingTop: 10 }}>
+          <Text style={{ color: theme.dim, fontSize: 11, fontFamily: fonts.mono, marginBottom: 6 }}>{editing}</Text>
+          <TextInput
+            value={editContent}
+            onChangeText={setEditContent}
+            multiline
+            textAlignVertical="top"
+            placeholder="содержимое файла…"
+            placeholderTextColor={theme.mute}
+            style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 12, backgroundColor: theme.codeBg, color: theme.codeText, fontSize: 12, fontFamily: fonts.mono, lineHeight: 17, minHeight: 120, padding: 10 }}
+          />
+          <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
+            <View style={{ flex: 1 }}><Button title="Отмена" variant="secondary" onPress={() => setEditing(null)} fullWidth /></View>
+            <View style={{ flex: 1 }}><Button title="Сохранить" variant="primary" onPress={saveEdit} fullWidth /></View>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
+/** Иконка файла по расширению (для хранилища). */
+function fileKindIcon(name: string): "archive" | "description" | "insert-drive-file" | "image" | "code" {
+  const ext = (name || "").split(".").pop()?.toLowerCase() ?? "";
+  if (["zip", "rar", "7z", "tar", "gz", "bz2", "xz", "tgz", "zst"].includes(ext)) return "archive";
+  if (["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "heic"].includes(ext)) return "image";
+  if (["js", "ts", "tsx", "jsx", "py", "rb", "go", "rs", "java", "kt", "c", "h", "cpp", "css", "html", "json", "sh", "bash", "yaml", "yml", "toml"].includes(ext)) return "code";
+  if (["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "md", "rtf", "odt", "csv", "log"].includes(ext)) return "description";
+  return "insert-drive-file";
+}
+
+/** UTF-8 → base64 (RN-safe, без Buffer). */
+function utf8ToB64(str: string): string {
+  try {
+    const bytes = new TextEncoder().encode(str);
+    let bin = "";
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin);
+  } catch {
+    return btoa(unescape(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))));
+  }
 }

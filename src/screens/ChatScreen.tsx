@@ -8,6 +8,7 @@ import {
   Easing,
   FlatList,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -89,10 +90,23 @@ export function ChatScreen() {
   const [editValue, setEditValue] = useState("");
   // детали команды/раздумий — bottom-sheet как окно сессии
   const [detailTarget, setDetailTarget] = useState<Msg | null>(null);
-  // прикрепление: окно-меню (фото/камера/файл) и выбранное вложение
+  // прикрепление: окно-меню (фото/камера/файл) и выбранные вложения
   const [attachOpen, setAttachOpen] = useState(false);
-  const [attachment, setAttachment] = useState<{ kind: "image" | "camera" | "file"; uri: string; name?: string } | null>(null);
+  // ── Мультивложение (t9): массив выбранных файлов/фото ──
+  const [attachments, setAttachments] = useState<{ kind: "image" | "camera" | "file"; uri: string; name?: string }[]>([]);
   const [toolNote, setToolNote] = useState<string | null>(null);
+
+  // ── Клавиатура (t4/t11): на Android капсула ввода должна подниматься над клавиатурой.
+  // Манифест имеет adjustResize, но при плавающей капсуле/edge-to-edge он не срабатывает —
+  // слушаем Keyboard и добавляем отступ снизу вручную. Это же убирает «чёрную полосу»
+  // под капсулой: капсула висит над навигационной панелью, а не на ней.
+  const [kbH, setKbH] = useState(0);
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    const sh = Keyboard.addListener("keyboardDidShow", (e) => setKbH(e.endCoordinates.height));
+    const hd = Keyboard.addListener("keyboardDidHide", () => setKbH(0));
+    return () => { sh.remove(); hd.remove(); };
+  }, []);
   // ── окно хранилища (проекты + файлы + инструкции, как у Hermes) ──
   const [projects, setProjects] = useState<VibeProject[]>([]);
   const [storageOpen, setStorageOpen] = useState(false);
@@ -164,16 +178,19 @@ export function ChatScreen() {
   const copyMsg = (m: Msg) => Clipboard.setStringAsync(m.content).catch(() => {});
   const shareMsg = (m: Msg) => Share.share({ message: m.content }).catch(() => {});
 
-  // ── Прикрепление: фото (галерея), камера, файл — всё рабочее ──
+  // ── Прикрепление: фото (галерея, мультивыбор), камера, файл (мультивыбор) ──
   const pickImage = useCallback(async () => {
     setAttachOpen(false);
     try {
       const res = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images"],
         quality: 0.8,
+        allowsMultipleSelection: true,
+        selectionLimit: 10,
       });
-      if (!res.canceled && res.assets?.[0]?.uri) {
-        setAttachment({ kind: "image", uri: res.assets[0].uri, name: res.assets[0].fileName ?? "photo" });
+      if (!res.canceled && res.assets?.length) {
+        const items = res.assets.map((a) => ({ kind: "image" as const, uri: a.uri, name: a.fileName ?? "photo" }));
+        setAttachments((prev) => [...prev, ...items]);
       }
     } catch (e: any) {
       showToast("err", `Не удалось открыть галерею: ${e?.message || "ошибка"}`);
@@ -190,7 +207,7 @@ export function ChatScreen() {
       }
       const res = await ImagePicker.launchCameraAsync({ quality: 0.8 });
       if (!res.canceled && res.assets?.[0]?.uri) {
-        setAttachment({ kind: "camera", uri: res.assets[0].uri, name: res.assets[0].fileName ?? "photo" });
+        setAttachments((prev) => [...prev, { kind: "camera", uri: res.assets![0].uri, name: res.assets![0].fileName ?? "photo" }]);
       }
     } catch (e: any) {
       showToast("err", `Не удалось открыть камеру: ${e?.message || "ошибка"}`);
@@ -200,9 +217,10 @@ export function ChatScreen() {
   const pickFile = useCallback(async () => {
     setAttachOpen(false);
     try {
-      const res = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true });
-      if (!res.canceled && res.assets?.[0]) {
-        setAttachment({ kind: "file", uri: res.assets[0].uri, name: res.assets[0].name ?? "файл" });
+      const res = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: true });
+      if (!res.canceled && res.assets?.length) {
+        const items = res.assets.map((a) => ({ kind: "file" as const, uri: a.uri, name: a.name ?? "файл" }));
+        setAttachments((prev) => [...prev, ...items]);
       }
     } catch (e: any) {
       showToast("err", `Не удалось выбрать файл: ${e?.message || "ошибка"}`);
@@ -315,15 +333,15 @@ export function ChatScreen() {
             type: "ADD_MSG", sessionId: sid,
             msg: { id: genId(), role: "assistant", content: reply },
           });
-          setAttachment(null);
+          setAttachments([]);
           setText("");
           scrollBottom();
           return;
         }
       }
 
-      dispatch({ type: "ADD_MSG", sessionId: sid, msg: { id: genId(), role: "user", content, ...(attachment ? (attachment.kind === "file" ? { file: { name: attachment.name ?? "файл", uri: attachment.uri } } : { image: attachment.uri }) : {}) } });
-      setAttachment(null);
+      dispatch({ type: "ADD_MSG", sessionId: sid, msg: { id: genId(), role: "user", content, ...(attachments.length ? { attachments: [...attachments] } : {}) } });
+      setAttachments([]);
       setText("");
       markStreaming(sid, true);
       getRun(sid).stop = false;
@@ -336,21 +354,31 @@ export function ChatScreen() {
         const parts: ChatPart[] = [];
         const content = (overrideText ?? m?.content ?? "").trim();
         if (content) parts.push({ type: "text", text: content });
-        if (m?.image) {
-          const p = await buildAttachmentParts("image", m.image, m.file?.name).catch(() => [] as ChatPart[]);
-          parts.push(...p);
-        } else if (m?.file) {
-          const p = await buildAttachmentParts("file", m.file.uri, m.file.name).catch(() => [] as ChatPart[]);
-          parts.push(...p);
+        // мультивложение: все прикреплённые файлы/фото (новый формат)
+        if (m?.attachments?.length) {
+          for (const a of m.attachments) {
+            const p = await buildAttachmentParts(a.kind === "file" ? "file" : "image", a.uri, a.name).catch(() => [] as ChatPart[]);
+            parts.push(...p);
+          }
+        } else {
+          // старый формат: одиночное вложение
+          if (m?.image) {
+            const p = await buildAttachmentParts("image", m.image, m.file?.name).catch(() => [] as ChatPart[]);
+            parts.push(...p);
+          } else if (m?.file) {
+            const p = await buildAttachmentParts("file", m.file.uri, m.file.name).catch(() => [] as ChatPart[]);
+            parts.push(...p);
+          }
         }
         parts.push(...extraParts);
         return { role: m?.role === "assistant" ? "assistant" : "user", content: parts.length ? parts : content };
       };
 
-      // Текущее вложение (ещё не сохранено в Msg) — строим parts.
+      // Текущие вложения (ещё не сохранены в Msg) — строим parts.
       let attachParts: ChatPart[] = [];
-      if (attachment) {
-        attachParts = await buildAttachmentParts(attachment.kind === "file" ? "file" : "image", attachment.uri, attachment.name).catch(() => [] as ChatPart[]);
+      for (const a of attachments) {
+        const p = await buildAttachmentParts(a.kind === "file" ? "file" : "image", a.uri, a.name).catch(() => [] as ChatPart[]);
+        attachParts.push(...p);
       }
 
       const prev: ChatMessage[] = [];
@@ -470,7 +498,7 @@ export function ChatScreen() {
           const a = JSON.parse(call.arguments || "{}");
           if (a.command) label += " " + String(a.command);
         } catch {}
-        if (thinkId) closeMsg(thinkId);
+        if (thinkId) { closeMsg(thinkId); thinkId = null; } // думалка закрыта — следующая будет НОВЫМ блоком (t6)
         if (textId) { closeMsg(textId); textId = null; textAcc = ""; }
         const tid = genId();
         toolIds.push(tid);
@@ -596,7 +624,7 @@ export function ChatScreen() {
         }, ctrl.signal);
       }
     },
-    [text, active, dispatch, model, setActive, scrollBottom, attachment, runSlashCommand, streamingSessions],
+    [text, active, dispatch, model, setActive, scrollBottom, attachments, runSlashCommand, streamingSessions],
   );
 
   // ── Cron-раннер автозадач (P2.2) ──
@@ -740,12 +768,19 @@ export function ChatScreen() {
       const parts: ChatPart[] = [];
       const text = (j === idx ? newText : m.content).trim();
       if (text) parts.push({ type: "text", text });
-      if (m.image) {
-        const p = await buildAttachmentParts("image", m.image, m.file?.name).catch(() => [] as ChatPart[]);
-        parts.push(...p);
-      } else if (m.file) {
-        const p = await buildAttachmentParts("file", m.file.uri, m.file.name).catch(() => [] as ChatPart[]);
-        parts.push(...p);
+      if (m.attachments?.length) {
+        for (const a of m.attachments) {
+          const p = await buildAttachmentParts(a.kind === "file" ? "file" : "image", a.uri, a.name).catch(() => [] as ChatPart[]);
+          parts.push(...p);
+        }
+      } else {
+        if (m.image) {
+          const p = await buildAttachmentParts("image", m.image, m.file?.name).catch(() => [] as ChatPart[]);
+          parts.push(...p);
+        } else if (m.file) {
+          const p = await buildAttachmentParts("file", m.file.uri, m.file.name).catch(() => [] as ChatPart[]);
+          parts.push(...p);
+        }
       }
       return { role: m.role, content: parts.length ? parts : text };
     };
@@ -826,8 +861,9 @@ export function ChatScreen() {
     .filter((s) => !search.trim() || s.name.toLowerCase().includes(search.trim().toLowerCase()));
 
   // Цепочки: подряд идущие assistant-сообщения, начатые думалкой/командой —
-  // накапливаются в ОДНОМ стеклянном блоке (как в QIWI). Итог агента (content)
-  // остаётся В ТОМ ЖЕ блоке, пока не придёт user-сообщение.
+  // накапливаются в ОДНОМ стеклянном блоке (как в QIWI). Финальный ответ агента
+  // (последнее сообщение цепочки с content) выносится ИЗ капсулы и рендерится
+  // обычным сообщением — «за капсулой» (требование пользователя).
   const chainGroups = useMemo(() => {
     const groups: Group[] = [];
     const msgs = active?.messages ?? [];
@@ -835,15 +871,23 @@ export function ChatScreen() {
     let chainOpen = false;
     const flush = () => {
       if (chain.length) {
-        groups.push({ id: "chain-" + chain[0].id, kind: "chain", msgs: chain });
+        const last = chain[chain.length - 1];
+        const body = chain.slice(0, -1);
+        // финальный ответ (content, без думалки/тула) — вне капсулы
+        if (last.content && !last.tool && !last.thinking) {
+          if (body.length) groups.push({ id: "chain-" + chain[0].id, kind: "chain", msgs: body });
+          groups.push({ id: last.id, kind: "single", msg: last });
+        } else {
+          groups.push({ id: "chain-" + chain[0].id, kind: "chain", msgs: chain });
+        }
         chain = [];
       }
       chainOpen = false;
     };
     for (const m of msgs) {
       if (m.role === "assistant" && !m.error) {
-        // думалка/команда открывает цепочку, дальше тянем ВСЁ подряд
-        if (chainOpen || m.thinking || m.tool) {
+        // думалка/команда/текст открывает цепочку, дальше тянем ВСЁ подряд
+        if (chainOpen || m.thinking || m.tool || m.content) {
           chain.push(m);
           chainOpen = true;
         } else {
@@ -936,11 +980,14 @@ export function ChatScreen() {
             if (g.kind === "chain") {
               // единый блок: раздумья + команды накапливаются внутри (как в QIWI)
               const onDetail = (m: Msg) => setDetailTarget(m);
+              // думалки всегда первыми (t10), потом команды, потом текст
+              const rank = (m: Msg) => (m.thinking ? 0 : m.tool ? 1 : 2);
+              const ordered = [...g.msgs].sort((a, b) => rank(a) - rank(b));
               return (
                 <View style={{ width: "94%", alignSelf: "flex-start", marginBottom: 10 }}>
                   <Glass radius={20} style={{ overflow: "hidden", width: "100%", paddingTop: 8, paddingBottom: 8, paddingLeft: 12, paddingRight: 12 }}>
-                    {g.msgs.map((m, i) => {
-                      const last = i === g.msgs.length - 1;
+                    {ordered.map((m, i) => {
+                      const last = i === ordered.length - 1;
                       return (
                         <View key={m.id}>
                           {m.thinking ? (
@@ -1015,29 +1062,32 @@ export function ChatScreen() {
           пользователь попросил чистый чат. Раздумья видны в блоке ThinkingBlock. */}
 
       {/* input.
-        Android: манифест уже ставит windowSoftInputMode=adjustResize — KAV с behavior="height"
-        ломает это (инпут прыгает за клавиатуру). На Android полагаемся на нативный resize.
-        iOS: behaviour="padding" сдвигает панель над клавиатурой. */}
+        Android: капсулу поднимаем вручную через kbH (Keyboard listeners выше) —
+        манифестный adjustResize не двигает плавающую капсулу при edge-to-edge.
+        iOS: KAV с behavior="padding" сдвигает панель. */}
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={0}
       >
-        <View style={{ paddingHorizontal: 12, paddingTop: 6, paddingBottom: insets.bottom + 8 }}>
-          {/* вложения — НАД капсулой: иконка ТИПА вложения (та же, что в меню «Прикрепить»), крестик для удаления */}
-          {attachment && (
-            <View style={{ flexDirection: "row", marginBottom: 8, gap: 8 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface, borderRadius: 18, paddingLeft: 6, paddingRight: 4, paddingVertical: 4 }}>
-                <View style={{ width: 28, height: 28, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: theme.accentDim }}>
-                  {attachment.kind === "file" ? (
-                    <MaterialIcons name={fileIconName(attachment.name)} size={15} color={theme.accentHi} />
-                  ) : (
-                    <MaterialIcons name={attachment.kind === "camera" ? "photo-camera" : "photo-library"} size={15} color={theme.accentHi} />
-                  )}
+        <View style={{ paddingHorizontal: 12, paddingTop: 6, paddingBottom: Platform.OS === "android" ? kbH + insets.bottom + 8 : insets.bottom + 8 }}>
+          {/* вложения — НАД капсулой: иконка ТИПА каждого вложения (та же, что в меню «Прикрепить»), крестики для удаления */}
+          {attachments.length > 0 && (
+            <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: 8, gap: 8 }}>
+              {attachments.map((a, ai) => (
+                <View key={ai} style={{ flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface, borderRadius: 18, paddingLeft: 6, paddingRight: 4, paddingVertical: 4 }}>
+                  <View style={{ width: 28, height: 28, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: theme.accentDim }}>
+                    {a.kind === "file" ? (
+                      <MaterialIcons name={fileIconName(a.name)} size={15} color={theme.accentHi} />
+                    ) : (
+                      <MaterialIcons name={a.kind === "camera" ? "photo-camera" : "photo-library"} size={15} color={theme.accentHi} />
+                    )}
+                  </View>
+                  <Text numberOfLines={1} style={{ color: theme.dim, fontSize: 11, maxWidth: 110, flexShrink: 1 }}>{a.name ?? "файл"}</Text>
+                  <Pressable onPress={() => setAttachments((prev) => prev.filter((_, i) => i !== ai))} hitSlop={8} accessibilityLabel="Убрать вложение" style={{ width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: theme.surface2 }}>
+                    <MaterialIcons name="close" size={14} color={theme.mute} />
+                  </Pressable>
                 </View>
-                <Pressable onPress={() => setAttachment(null)} hitSlop={8} accessibilityLabel="Убрать вложение" style={{ width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: theme.surface2 }}>
-                  <MaterialIcons name="close" size={14} color={theme.mute} />
-                </Pressable>
-              </View>
+              ))}
             </View>
           )}
           {/* стеклянная капсула ввода: pill, единый padding 8 со всех сторон, gap 8, всё по центру */}
@@ -1199,7 +1249,7 @@ export function ChatScreen() {
       </Sheet>
 
       {/* ── Детали команды/раздумий — bottom-sheet как окно сессии ── */}
-      <Sheet visible={!!detailTarget} onClose={() => setDetailTarget(null)} title={detailTarget?.tool ? "Ход выполнения" : "Раздумья агента"} snapPoints={["auto"]} autoMaxPct={60}>
+      <Sheet visible={!!detailTarget} onClose={() => setDetailTarget(null)} title={detailTarget?.tool ? "Ход выполнения" : "Думаю"} snapPoints={["auto"]} autoMaxPct={60}>
         {detailTarget && (
           <>
             {detailTarget.tool ? (
@@ -1218,7 +1268,7 @@ export function ChatScreen() {
       </Sheet>
 
       {/* ── Edit message (изменить отправленное сообщение) ── */}
-      <Sheet visible={!!editTarget} onClose={() => setEditTarget(null)} title="Изменить сообщение" snapPoints={["auto"]} autoMaxPct={85}>
+      <Sheet visible={!!editTarget} onClose={() => setEditTarget(null)} title="Изменить сообщение" snapPoints={["auto"]} autoMaxPct={92}>
         {editTarget && (
           <>
             <Text style={{ color: theme.dim, fontSize: 12, marginBottom: 6 }}>
@@ -1370,15 +1420,30 @@ function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions,
       {user ? (
         // юзер: синяя капсула (KMBlue), белый текст, радиус 20
         <View style={{ backgroundColor: theme.userBubble, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 10 }}>
-          {msg.image ? (
-            <Image source={{ uri: msg.image }} style={{ width: 200, height: 200, borderRadius: 14, marginBottom: 6 }} resizeMode="cover" />
-          ) : null}
-          {msg.file ? (
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 }}>
-              <MaterialIcons name="insert-drive-file" size={16} color="rgba(255,255,255,.9)" />
-              <Text numberOfLines={1} style={{ color: theme.userText, fontSize: 12, flexShrink: 1 }}>{msg.file.name}</Text>
-            </View>
-          ) : null}
+          {(() => {
+            // все вложения: новый формат (attachments) или старый (image/file)
+            const fallback: { kind: "image" | "file"; uri: string; name?: string }[] =
+              msg.image || msg.file
+                ? [{ kind: msg.image ? "image" : "file", uri: msg.image ?? msg.file!.uri, name: msg.file?.name }]
+                : [];
+            const list: { kind: "image" | "camera" | "file"; uri: string; name?: string }[] =
+              msg.attachments?.length ? msg.attachments : fallback;
+            if (!list.length) return null;
+            return (
+              <View>
+                {list.map((a, i) =>
+                  a.kind === "file" ? (
+                    <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                      <MaterialIcons name={fileIconName(a.name)} size={16} color="rgba(255,255,255,.9)" />
+                      <Text numberOfLines={1} style={{ color: theme.userText, fontSize: 12, flexShrink: 1 }}>{a.name}</Text>
+                    </View>
+                  ) : (
+                    <Image key={i} source={{ uri: a.uri }} style={{ width: 200, height: 200, borderRadius: 14, marginBottom: 6 }} resizeMode="cover" />
+                  ),
+                )}
+              </View>
+            );
+          })()}
           {msg.content ? (
             <Text style={{ color: theme.userText, fontSize: 14, lineHeight: 20 }}>{msg.content}</Text>
           ) : null}

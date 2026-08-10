@@ -57,15 +57,15 @@ export function ThinkingBlock({ text, status, onSkip, onOpen, theme, bare }: Pro
         <View style={[styles.iconBox, { backgroundColor: theme.surface2 }]}>
           {isThinking ? (
             <Animated.View style={{ transform: [{ rotate: spin }] }}>
-              <MaterialIcons name="psychology" size={15} color={theme.dim} />
+              <MaterialIcons name="lightbulb" size={15} color={theme.accentHi} />
             </Animated.View>
           ) : (
-            <MaterialIcons name="psychology" size={15} color={theme.dim} />
+            <MaterialIcons name="lightbulb" size={15} color={theme.dim} />
           )}
         </View>
 
         <Text style={{ color: theme.dim, fontSize: 12.5, fontWeight: "500", flexShrink: 1 }}>
-          {isThinking ? "Обдумывание" : "Раздумья"}
+          {isThinking ? "Думаю…" : "Думаю"}
         </Text>
 
         {isThinking && onSkip && (

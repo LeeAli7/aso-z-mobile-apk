@@ -133,7 +133,7 @@ export async function streamChat(
     model: model.apiModel ?? model.modelName,
     messages,
     temperature: model.temperature ?? 0.7,
-    max_tokens: 4096,
+    max_tokens: 8192,
     stream: true,
   };
   const headers: Record<string, string> = {
@@ -249,6 +249,9 @@ export async function streamChat(
       // [DONE] уже обработан во внутреннем цикле — выходим из внешнего
       if (streamEnded) break;
     }
+    // flush: добиваем байты многобайтовых UTF-8 символов, разорванных чанками
+    // (иначе хвост ответа обрезается «в полуслове»)
+    buffer += decoder.decode();
     // добиваем хвост (если поток завершился TCP-EOF без [DONE])
     if (!streamEnded && buffer.trim()) {
       const line = buffer.trim();
@@ -458,7 +461,7 @@ async function agentRequest(
     model: model.apiModel ?? model.modelName,
     messages,
     temperature: model.temperature ?? 0.7,
-    max_tokens: 4096,
+    max_tokens: 8192,
     stream: true,
     stream_options: { include_usage: true },
   };
@@ -555,6 +558,29 @@ async function agentRequest(
       } catch {}
     }
     if (streamEnded) break;
+  }
+
+  // flush декодера: остатки разорванных многобайтовых символов в конце потока
+  buffer += decoder.decode();
+  if (buffer.trim()) {
+    const tailLine = buffer.trim();
+    try {
+      const obj = JSON.parse(tailLine.replace(/^data:\s*/, ""));
+      const d = obj?.choices?.[0]?.delta;
+      if (d?.content) full += d.content;
+      const tr = d?.reasoning_content || d?.reasoning || "";
+      if (tr) reasoning += tr;
+      if (d?.tool_calls) {
+        for (const tcd of d.tool_calls) {
+          const idx2 = tcd.index ?? 0;
+          let e = tcAcc.get(idx2) ?? { id: "", name: "", arguments: "" };
+          if (tcd.id) e.id = tcd.id;
+          if (tcd.function?.name) e.name = tcd.function.name;
+          if (tcd.function?.arguments) e.arguments += tcd.function.arguments;
+          tcAcc.set(idx2, e);
+        }
+      }
+    } catch {}
   }
 
   const calls = [...tcAcc.values()]

@@ -21,33 +21,34 @@ export function GlassBackdrop({ fixed = false }: { fixed?: boolean }) {
   const pos = (fixed ? { position: "fixed" } : { position: "absolute" }) as any;
   return (
     <View pointerEvents="none" style={[pos, styles.root, { backgroundColor: theme.bg }]}>
-      {/* мягкое свечение: синее (KMBlue), фиолетовое (агент), оранжевое */}
+      {/* мягкое свечение: синее (KMBlue), фиолетовое (агент), оранжевое — усилено,
+          чтобы стеклу было что преломлять (фон остаётся чёрным) */}
       <View
         style={[
           styles.blob,
           styles.blobA,
-          { backgroundColor: dark ? "rgba(26,136,255,.30)" : "rgba(23,131,255,.34)" },
+          { backgroundColor: dark ? "rgba(26,136,255,.42)" : "rgba(23,131,255,.44)" },
         ]}
       />
       <View
         style={[
           styles.blob,
           styles.blobB,
-          { backgroundColor: dark ? "rgba(161,107,255,.20)" : "rgba(152,95,251,.26)" },
+          { backgroundColor: dark ? "rgba(161,107,255,.30)" : "rgba(152,95,251,.34)" },
         ]}
       />
       <View
         style={[
           styles.blob,
           styles.blobC,
-          { backgroundColor: dark ? "rgba(255,149,0,.14)" : "rgba(255,149,0,.20)" },
+          { backgroundColor: dark ? "rgba(255,149,0,.22)" : "rgba(255,149,0,.26)" },
         ]}
       />
       <View
         style={[
           styles.blob,
           styles.blobD,
-          { backgroundColor: dark ? "rgba(22,196,86,.10)" : "rgba(22,196,86,.16)" },
+          { backgroundColor: dark ? "rgba(22,196,86,.16)" : "rgba(22,196,86,.20)" },
         ]}
       />
       {/* свечение в углу сцены, на котором особенно виден блюр кнопок */}
@@ -55,7 +56,7 @@ export function GlassBackdrop({ fixed = false }: { fixed?: boolean }) {
         style={[
           styles.sheen,
           {
-            backgroundColor: dark ? "rgba(77,166,255,.13)" : "rgba(6,102,255,.16)",
+            backgroundColor: dark ? "rgba(77,166,255,.20)" : "rgba(6,102,255,.22)",
           },
         ]}
       />
@@ -69,43 +70,43 @@ const styles = StyleSheet.create({
   },
   blob: {
     position: "absolute",
-    width: 420,
-    height: 420,
+    width: 520,
+    height: 520,
     borderRadius: 999,
-    opacity: 0.55,
+    opacity: 0.7,
   },
   blobA: {
-    top: -140,
-    left: -120,
+    top: -160,
+    left: -140,
   },
   blobB: {
-    top: 120,
-    right: -160,
-    width: 460,
-    height: 460,
+    top: 100,
+    right: -180,
+    width: 560,
+    height: 560,
   },
   blobC: {
-    bottom: 40,
-    left: -150,
-    width: 380,
-    height: 380,
-    opacity: 0.4,
+    bottom: 20,
+    left: -170,
+    width: 480,
+    height: 480,
+    opacity: 0.55,
   },
   blobD: {
-    bottom: -120,
-    right: -80,
-    width: 360,
-    height: 360,
-    opacity: 0.35,
+    bottom: -140,
+    right: -100,
+    width: 440,
+    height: 440,
+    opacity: 0.5,
   },
   sheen: {
     position: "absolute",
-    width: 600,
-    height: 340,
+    width: 700,
+    height: 400,
     borderRadius: 999,
-    top: -140,
-    right: -160,
-    opacity: 0.5,
+    top: -160,
+    right: -180,
+    opacity: 0.6,
     transform: [{ rotate: "-12deg" }],
   },
 });

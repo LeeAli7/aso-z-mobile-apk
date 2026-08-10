@@ -13,6 +13,7 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   PanResponder,
@@ -48,6 +49,22 @@ export function Sheet({
   const [offsetY, setOffsetY] = useState(0);
   const offsetRef = useRef(0);
   const startYRef = useRef(0);
+
+  // Android: KeyboardAvoidingView внутри Modal не сдвигает панель (события клавиатуры
+  // уходят корневому активити, а не окну Modal). Слушаем Keyboard глобально и
+  // поднимаем панель вручную — иначе инпуты в окнах (rename/edit/новый чат)
+  // прячутся за клавиатуру.
+  const [kbH, setKbH] = useState(0);
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    const sh = Keyboard.addListener("keyboardDidShow", (e) => setKbH(e.endCoordinates.height));
+    const sh2 = Keyboard.addListener("keyboardWillShow", (e) => setKbH(e.endCoordinates.height));
+    const hd = Keyboard.addListener("keyboardDidHide", () => setKbH(0));
+    const hd2 = Keyboard.addListener("keyboardWillHide", () => setKbH(0));
+    return () => {
+      sh.remove(); sh2.remove(); hd.remove(); hd2.remove();
+    };
+  }, []);
 
   // числовая высота панели из первого snapPoint (напр. "60%" -> 60), "auto" — по контенту
   const auto = snapPoints[0] === "auto";
@@ -98,11 +115,12 @@ export function Sheet({
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Закрыть" />
 
         {/* KAV: инпуты в панели (rename/edit) не должны прятаться за клавиатуру.
-            Android: sheet в Modal, системный adjustResize не двигает Modal — двигаем сами. */}
+            Android: sheet в Modal, системный adjustResize не двигает Modal — двигаем сами
+            через kbH (Keyboard listeners выше). iOS: behaviour="padding" сдвигает. */}
         {/* ВАЖНО: flex:1 — иначе KAV сжимается по контенту, maxHeight в % у панели
             не работает, окно вырастает выше экрана и его верх обрезается. */}
         <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
           keyboardVerticalOffset={0}
           style={{ flex: 1, justifyContent: "flex-end" }}
         >
@@ -113,6 +131,8 @@ export function Sheet({
             {
               height: auto ? undefined : `${heightPct()}%`,
               maxHeight: auto ? `${autoMaxPct}%` : undefined,
+              // Android: поднимаем панель над клавиатурой вручную
+              marginBottom: Platform.OS === "android" ? kbH : 0,
               // стекло примитивами (без BlurView — он на Android не обрезается скруглением и выходит за рамки)
               backgroundColor: theme.name === "dark" ? "rgba(24,24,30,.82)" : "rgba(250,250,252,.88)",
               borderTopLeftRadius: radii.xl,

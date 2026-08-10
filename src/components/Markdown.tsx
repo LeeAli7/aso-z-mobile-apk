@@ -7,7 +7,7 @@
  * цитаты, ссылки, bold/italic/inline-code, таблицы (базово, как текст).
  */
 import React, { useMemo, useState } from "react";
-import { Linking, Pressable, ScrollView, Text, View } from "react-native";
+import { Linking, Pressable, Text, View, ViewStyle } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useApp } from "../store/AppStore";
 import { fonts } from "../theme/tokens";
@@ -281,42 +281,41 @@ export function RichMarkdown({ content }: { content: string }) {
         });
         const headerRow = norm[0];
         const bodyRows = norm.slice(1);
-        // 1–2 колонки — растягиваем на всю ширину; больше — фиксированная ширина
-        // колонок и горизонтальный свайп (таблица не сжимается, скроллится влево-вправо).
-        // nestedScrollEnabled: вложенный ScrollView внутри FlatList на Android иначе
-        // не ловит горизонтальный жест (таблица «не свайпалась»).
-        const scroll = width > 2;
-        const cellW = (ci: number) => (scroll ? { width: 140 } : { flex: 1 });
+        // ВСЕ колонки — равные (flex:1): строка всегда делится на одинаковые столбцы,
+        // вертикальные линии идут сплошными сверху донизу, независимо от длины текста.
+        // Много колонок — мельче шрифт, но геометрия остаётся ровной (без свайпа).
+        const cellFs = width > 5 ? 10.5 : width > 3 ? 11.5 : 12.5;
+        const cell = (ci: number): ViewStyle => ({
+          flex: 1,
+          paddingHorizontal: 8,
+          paddingVertical: 6,
+          borderRightWidth: ci < width - 1 ? 1 : 0,
+          borderRightColor: theme.border,
+        });
         out.push(
-          <ScrollView
+          <View
             key={`tbl${k++}`}
-            horizontal
-            nestedScrollEnabled
-            showsHorizontalScrollIndicator={false}
-            style={{ marginVertical: 6, borderRadius: 16, flexGrow: 0 }}
-            contentContainerStyle={{ flexGrow: scroll ? 0 : 1 }}
+            style={{ marginVertical: 6, borderWidth: 1, borderColor: theme.border, borderRadius: 16, overflow: "hidden" }}
           >
-            <View style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 16, overflow: "hidden", width: scroll ? undefined : "100%" }}>
-              {/* шапка */}
-              <View style={{ flexDirection: "row", backgroundColor: theme.surface2, borderBottomWidth: 1, borderBottomColor: theme.border }}>
-                {headerRow.map((c, ci) => (
-                  <View key={ci} style={[{ paddingHorizontal: 8, paddingVertical: 6, borderRightWidth: ci < headerRow.length - 1 ? 1 : 0, borderRightColor: theme.border }, cellW(ci)]}>
-                    <Text style={{ color: theme.text, fontSize: 12.5, fontWeight: "700" }}>{renderInline(c, theme, `th${k}-${ci}`)}</Text>
-                  </View>
-                ))}
-              </View>
-              {/* тело */}
-              {bodyRows.map((row, ri) => (
-                <View key={ri} style={{ flexDirection: "row", backgroundColor: ri % 2 === 1 ? theme.surface : "transparent", borderBottomWidth: ri < bodyRows.length - 1 ? 1 : 0, borderBottomColor: theme.border }}>
-                  {row.map((c, ci) => (
-                    <View key={ci} style={[{ paddingHorizontal: 8, paddingVertical: 5, borderRightWidth: ci < row.length - 1 ? 1 : 0, borderRightColor: theme.border }, cellW(ci)]}>
-                      <Text style={{ color: theme.text, fontSize: 12.5, lineHeight: 17 }}>{renderInline(c, theme, `td${k}-${ri}-${ci}`)}</Text>
-                    </View>
-                  ))}
+            {/* шапка */}
+            <View style={{ flexDirection: "row", backgroundColor: theme.surface2, borderBottomWidth: 1, borderBottomColor: theme.border }}>
+              {headerRow.map((c, ci) => (
+                <View key={ci} style={cell(ci)}>
+                  <Text style={{ color: theme.text, fontSize: cellFs, fontWeight: "700", lineHeight: cellFs + 5 }}>{renderInline(c, theme, `th${k}-${ci}`)}</Text>
                 </View>
               ))}
             </View>
-          </ScrollView>,
+            {/* тело */}
+            {bodyRows.map((row, ri) => (
+              <View key={ri} style={{ flexDirection: "row", backgroundColor: ri % 2 === 1 ? theme.surface : "transparent", borderBottomWidth: ri < bodyRows.length - 1 ? 1 : 0, borderBottomColor: theme.border }}>
+                {row.map((c, ci) => (
+                  <View key={ci} style={cell(ci)}>
+                    <Text style={{ color: theme.text, fontSize: cellFs, lineHeight: cellFs + 5, flexShrink: 1 }}>{renderInline(c, theme, `td${k}-${ri}-${ci}`)}</Text>
+                  </View>
+                ))}
+              </View>
+            ))}
+          </View>,
         );
         continue;
       }

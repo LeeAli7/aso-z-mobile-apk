@@ -15,24 +15,48 @@
 import React from "react";
 import { StyleSheet, View, ViewStyle, Pressable } from "react-native";
 import { BlurView } from "expo-blur";
+import { LinearGradient } from "expo-linear-gradient";
 import { useApp } from "../../store/AppStore";
 
-/** Стеклянные стили (фон, рамка, блик, тень) — используются всеми компонентами. */
+/**
+ * Стеклянные стили (фон, рамка, блик, тень) — используются всеми компонентами.
+ * «Физика стекла»: светлый край сверху-слева (блик), почти прозрачный снизу-справа,
+ * полупрозрачная градиентная заливка, мягкая тень — элементы читаются как матовое стекло.
+ */
 export function glassStyle(theme: any, radius: number): ViewStyle {
   const dark = theme.name === "dark";
   return {
     borderRadius: radius,
     borderWidth: 1,
-    borderColor: dark ? "rgba(255,255,255,.20)" : "rgba(255,255,255,.75)",
-    backgroundColor: dark ? "rgba(20,20,24,.55)" : "rgba(255,255,255,.52)",
-    // внутренний верхний блик — имитация света на стекле
-    borderTopWidth: 1.5,
+    // световой край грани: верх/лево — полупрозрачный белый (блик), низ/право — почти прозрачный
+    borderTopColor: dark ? "rgba(255,255,255,.22)" : "rgba(255,255,255,.9)",
+    borderLeftColor: dark ? "rgba(255,255,255,.16)" : "rgba(255,255,255,.85)",
+    borderRightColor: dark ? "rgba(255,255,255,.05)" : "rgba(255,255,255,.45)",
+    borderBottomColor: dark ? "rgba(255,255,255,.03)" : "rgba(255,255,255,.35)",
+    backgroundColor: dark ? "rgba(22,22,28,.62)" : "rgba(255,255,255,.58)",
     shadowColor: "#000",
-    shadowOpacity: dark ? 0.5 : 0.2,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 7 },
-    elevation: 5,
+    shadowOpacity: dark ? 0.45 : 0.2,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
   };
+}
+
+/** Градиентная подложка стекла: светлее в верхнем-левом углу, прозрачнее к низу-правому. */
+export function GlassTint({ dark }: { dark: boolean }) {
+  return (
+    <LinearGradient
+      colors={
+        dark
+          ? ["rgba(255,255,255,.07)", "rgba(255,255,255,.02)"]
+          : ["rgba(255,255,255,.72)", "rgba(255,255,255,.35)"]
+      }
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={StyleSheet.absoluteFill}
+      pointerEvents="none"
+    />
+  );
 }
 
 /** Стеклянная карточка-контейнер (некликабельная). */
@@ -48,16 +72,18 @@ export function Glass({
   blur?: boolean;
 }) {
   const { theme } = useApp();
+  const dark = theme.name === "dark";
   return (
     <View style={[glassStyle(theme, radius), { borderRadius: radius, overflow: "hidden" }, style]}>
       {blur && (
         <BlurView
           intensity={26}
-          tint={theme.name === "dark" ? "dark" : "light"}
+          tint={dark ? "dark" : "light"}
           style={StyleSheet.absoluteFill}
           pointerEvents="none"
         />
       )}
+      <GlassTint dark={dark} />
       {children}
     </View>
   );
@@ -84,6 +110,7 @@ export function GlassPressable({
   blur?: boolean;
 }) {
   const { theme } = useApp();
+  const dark = theme.name === "dark";
   return (
     <Pressable
       onPress={onPress}
@@ -106,11 +133,12 @@ export function GlassPressable({
       {blur && (
         <BlurView
           intensity={26}
-          tint={theme.name === "dark" ? "dark" : "light"}
+          tint={dark ? "dark" : "light"}
           style={StyleSheet.absoluteFill}
           pointerEvents="none"
         />
       )}
+      <GlassTint dark={dark} />
       {children}
     </Pressable>
   );
