@@ -304,25 +304,68 @@ class AsoRuntimeModule : Module() {
 
     // ── Процесс и стриминг ───────────────────────────────────────────────────
 
+    private var runtimeUsable: Boolean? = null
+
+    /**
+     * Проверяет, может ли система исполнять бинарники bootstrap из app-data.
+     * На MIUI (SELinux enforcing) execve файлов с меткой app_data_file запрещён
+     * → даже после chmod +x любая команда падает с exit 126 (avc: denied execute).
+     * Если bootstrap не исполняем — работаем через системный PATH (toybox, ~200
+     * команд) и /system/bin/sh. Результат кэшируем на время жизни процесса.
+     */
+    private fun probeRuntimeUsable(prefix: String): Boolean {
+        runtimeUsable?.let { return it }
+        val sh = File(prefix, "bin/sh")
+        if (!sh.exists()) {
+            runtimeUsable = false
+            return false
+        }
+        return try {
+            val p = ProcessBuilder(listOf(sh.absolutePath, "-c", "echo ok"))
+                .redirectErrorStream(true)
+                .start()
+            val out = p.inputStream.bufferedReader().readText().trim()
+            val code = p.waitFor()
+            val ok = code == 0 && out == "ok"
+            runtimeUsable = ok
+            if (!ok) Log.w(tag, "SELinux блокирует bootstrap (probe exit=$code) — переключаюсь на системный PATH / toybox")
+            ok
+        } catch (e: Exception) {
+            Log.w(tag, "probe bootstrap failed: $e — системный PATH", e)
+            runtimeUsable = false
+            false
+        }
+    }
+
     private fun startProcess(cmd: String, cwd: String?): Process {
         val prefix = prefixDir().absolutePath
         val home = homeDir().absolutePath
-        val shell = "$prefix/bin/bash"
+        val useBootstrap = probeRuntimeUsable(prefix)
+        val shell = if (useBootstrap) "$prefix/bin/bash" else "/system/bin/sh"
         val shellFallback = "/system/bin/sh"
 
         // Старые установки (маркер .bootstrap-done уже есть) не получали chmod при
         // обновлении APK — бинарники лежат без права на выполнение, любая команда
         // падает с exit 126 (Permission denied). Чиним ДО каждого запуска: быстро
         // проверяем bash, при отсутствии прав — полный проход chmod 0700.
-        ensureExecutable(prefix)
+        if (useBootstrap) ensureExecutable(prefix)
+
+        // Системные пути Android: toybox-команды (ls, mkdir, sed, find, tar, ps…)
+        // работают без нашей песочницы. Если bootstrap исполняем — его bin/ идёт
+        // ПЕРВЫМ (bash/apt/python), иначе системный PATH без usr/bin (SELinux).
+        val sysPath = "/system/bin:/system/xbin:/product/bin:/apex/com.android.runtime/bin:" +
+            "/apex/com.android.art/bin:/system_ext/bin:/odm/bin:/vendor/bin:/vendor/xbin"
+        val path = if (useBootstrap) "$prefix/bin:$prefix/bin/applets:$sysPath" else sysPath
 
         val pb = ProcessBuilder(listOf(shell, "-c", cmd))
         pb.directory(File(cwd ?: home))
         pb.environment()["PREFIX"] = prefix
         pb.environment()["TERMUX_PREFIX"] = prefix
         pb.environment()["HOME"] = home
-        pb.environment()["PATH"] = "$prefix/bin:$prefix/bin/applets:" + (System.getenv("PATH") ?: "/system/bin:/system/xbin")
-        pb.environment()["LD_LIBRARY_PATH"] = "$prefix/lib"
+        pb.environment()["PATH"] = path
+        // LD_LIBRARY_PATH указываем только когда bootstrap исполняем: системные
+        // toybox-бинарники не зависят от наших lib/, а чужие lib впереди могут поломать их.
+        if (useBootstrap) pb.environment()["LD_LIBRARY_PATH"] = "$prefix/lib"
         // Android-песочница: /tmp как такового нет — даём свой (иначе bash/apt падают).
         val tmpDir = File(prefixDir(), "tmp")
         try { tmpDir.mkdirs() } catch (_: Exception) {}

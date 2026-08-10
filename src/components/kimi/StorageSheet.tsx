@@ -537,6 +537,44 @@ export function StorageSheet({
               Подключённые сервисы и инструменты агента: файлы, терминал, Telegram, внешние API. Новые коннекторы подключаются через агента.
             </Text>
           </GlassPressable>
+
+          {/* Доступ ко всем файлам (Android 11+): агент пишет вне песочницы */}
+          <GlassPressable
+            radius={16}
+            blur={false}
+            onPress={async () => {
+              try {
+                const IntentLauncher = (await import("expo-intent-launcher")).default;
+                await IntentLauncher.startActivityAsync(
+                  "android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION",
+                  { data: "package:app.aso.zmobile" },
+                );
+              } catch {
+                try {
+                  const IntentLauncher = (await import("expo-intent-launcher")).default;
+                  await IntentLauncher.startActivityAsync("android.settings.APPLICATION_DETAILS_SETTINGS", {
+                    data: "package:app.aso.zmobile",
+                  });
+                } catch (e: any) {
+                  showToast("err", `Не удалось открыть настройки: ${e?.message || "ошибка"}`);
+                }
+              }
+            }}
+            style={{ padding: 16, marginTop: 8 }}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <View style={{ width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.08)" : "rgba(255,255,255,.55)" }}>
+                <MaterialIcons name="folder-open" size={20} color={theme.accentHi} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: theme.text, fontSize: 13.5, fontWeight: "600" }}>Доступ ко всем файлам</Text>
+                <Text style={{ color: theme.mute, fontSize: 11.5, lineHeight: 16, marginTop: 2 }}>
+                  Разрешает агенту читать и создавать файлы в хранилище устройства (папки рядом с Aso-z, Download и т.п.).
+                </Text>
+              </View>
+              <MaterialIcons name="chevron-right" size={18} color={theme.mute} />
+            </View>
+          </GlassPressable>
         </View>
       )}
     </Sheet>

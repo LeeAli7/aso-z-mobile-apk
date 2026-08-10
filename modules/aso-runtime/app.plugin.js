@@ -17,6 +17,9 @@ const { withDangerousMod, withAndroidManifest, AndroidConfig } = require("@expo/
 const FOREGROUND_PERMISSIONS = [
   "android.permission.FOREGROUND_SERVICE",
   "android.permission.POST_NOTIFICATIONS",
+  // Доступ «Все файлы» (Android 11+): агент может читать/писать хранилище
+  // за пределами песочницы приложения (папки рядом с Aso-z и т.п.).
+  "android.permission.MANAGE_EXTERNAL_STORAGE",
 ];
 
 module.exports = function asoRuntimePlugin(config) {
