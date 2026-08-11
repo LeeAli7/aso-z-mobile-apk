@@ -209,12 +209,13 @@ export async function streamChat(
       try {
         chunk = await reader.read();
       } catch {
-        // abort во время чтения — завершаем тихо
+        // Обрыв чтения (сеть/провайдер упал) — не ошибка: выходим с накопленным,
+        // ниже анти-обрыв сделает дозапрос (как Hermes). abort — тихий финал.
         if (ctrl.signal.aborted) {
           callbacks.onDone("");
           return;
         }
-        throw new Error("stream read failed");
+        break;
       }
       if (chunk.done) break;
       buffer += decoder.decode(chunk.value, { stream: true });
@@ -423,7 +424,8 @@ export async function streamAgentChat(
 
   let toolsEnabled = true;
   let lastText = "";
-  let tailRetried = false;
+  let tailRetries = 0;
+  const MAX_TAIL_RETRIES = 2;
 
   for (let iter = 0; iter < MAX_AGENT_ITERATIONS; iter++) {
     // компрессия контекста при переполнении (P0.5)
@@ -452,25 +454,37 @@ export async function streamAgentChat(
     }
     if (r.reasoning) callbacks.onThinking?.(r.reasoning);
 
+    // ── АНТИ-ОБРЫВ (все тулы): стрим не завершился штатно ([DONE]/finish_reason stop/tool_calls) ──
+    // Провайдер порвал соединение на полуслове. Это касается ЛЮБОГО контента:
+    // думалки, текста, И tool_calls (write_file/todo/memory/… — аргументы JSON
+    // обрезаются на полуслове). Ничего не исполняем вслепую, а дозапрашиваем
+    // модель с передачей оборванного хвоста — она повторит/завершит (Hermes-паттерн).
+    // Покрывает и «пустой обрыв» (0 байт контента, нет text/reasoning/calls) —
+    // раньше такой случай молча завершался пустотой.
+    if (!r.finished && !ctrl.signal.aborted && tailRetries < MAX_TAIL_RETRIES) {
+      tailRetries++;
+      const tailText = (r.text || "").trim().slice(-200);
+      const tailThink = (r.reasoning || "").trim().slice(-200);
+      const callNames = r.calls.map((c) => c.name).filter(Boolean).join(", ");
+      const promptText =
+        "[System: The previous response was cut off by a network error mid-stream. Continue exactly where you left off. Do not restart or repeat prior text." +
+        (callNames
+          ? ` The tool call(s) [${callNames}] were interrupted before completion — if you had not finished issuing them, repeat them fully now.`
+          : "") +
+        " Finish the answer directly.]";
+      // оборванный assistant кладём БЕЗ tool_calls: битые вызовы модели передавать
+      // нельзя (она будет ждать результаты), поэтому только текст/размышления +
+      // явный промпт «продолжи/повтори вызов».
+      messages.push({
+        role: "assistant",
+        content: r.text || null,
+        ...(r.reasoning ? { reasoning_content: r.reasoning } : {}),
+      });
+      messages.push({ role: "user", content: `${promptText}\n\nТекст: …${tailText}\nРазмышления: …${tailThink}` });
+      continue;
+    }
+
     if (r.calls.length === 0) {
-      // финал: ответ без тулов. Если стрим оборвался (длинная ДУМАЛКА или текст —
-      // провайдер порвал соединение на полуслове, Hermes #30963) — один дозапрос.
-      const hasPartial =
-        !r.finished && ((r.text && r.text.trim()) || (r.reasoning && r.reasoning.trim()));
-      if (hasPartial && !tailRetried && !ctrl.signal.aborted) {
-        tailRetried = true;
-        const tailText = (r.text || "").trim().slice(-200);
-        const tailThink = (r.reasoning || "").trim().slice(-200);
-        const promptText =
-          "[System: The previous response was cut off by a network error mid-stream. Continue exactly where you left off. Do not restart or repeat prior text. Finish the answer directly.]";
-        messages.push({
-          role: "assistant",
-          content: r.text || null,
-          ...(r.reasoning ? { reasoning_content: r.reasoning } : {}),
-        });
-        messages.push({ role: "user", content: `${promptText}\n\nТекст: …${tailText}\nРазмышления: …${tailThink}` });
-        continue;
-      }
       callbacks.onDone(r.text || lastText, messages);
       return;
     }
@@ -586,8 +600,11 @@ async function agentRequest(
     try {
       chunk = await reader.read();
     } catch {
-      if (signal.aborted) throw new Error("aborted");
-      throw new Error("stream read failed");
+      // Обрыв чтения (сеть/провайдер упал) — это НЕ ошибка для пользователя:
+      // возвращаем то, что накопилось, с finished=false → streamAgentChat сделает
+      // дозапрос (анти-обрыв). Если сигнал отменён — тоже тихо завершаем цикл.
+      if (!signal.aborted) sawDone = false; // гарантируем finished=false (нет [DONE])
+      break;
     }
     if (chunk.done) break;
     buffer += decoder.decode(chunk.value, { stream: true });
@@ -657,17 +674,9 @@ async function agentRequest(
     (sawDone && finishReason !== "length");
 
   // ── Обрыв mid-tool: провайдер порвал стрим ПОКА модель генерировала tool_calls ──
-  // (net drop / length без [DONE]). Аргументы могут быть обрезаны на полуслове JSON —
-  // исполнять такой вызов нельзя (команда уйдёт битой). Помечаем finished=false,
-  // чтобы стримAgentChat сделал дозапрос (Hermes-паттерн), а не выполнял мусор.
-  if (!finished && calls.length > 0) {
-    const allArgsParse = calls.every((c) => {
-      try { JSON.parse(c.arguments || "{}"); return true; } catch { return false; }
-    });
-    if (!allArgsParse) {
-      return { text: full, reasoning, calls: [], toolsRejected: false, finished: false };
-    }
-  }
+  // (net drop / length без [DONE]). finished=false — streamAgentChat не будет исполнять
+  // вызовы вслепую, а сделает дозапрос (анти-обрыв). Сам calls оставляем (имя тула
+  // полезно для промпта «повтори вызов»); аргументы могли обрезаться на полуслове.
   return { text: full, reasoning, calls, toolsRejected: false, finished };
   }
 }
