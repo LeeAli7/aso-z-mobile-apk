@@ -479,8 +479,15 @@ export function ChatScreen() {
       };
       // Раздумья: отдельное сообщение (своя карточка в блоке цепочки).
       // streaming=true только ПОКА модель думает; при старте команды гаснет.
+      // Если думалка пришла ПОСЛЕ начала текста (plain-путь, без тулов) — приклеиваем
+      // её к текстовому сообщению: она рендерится НАД ответом, а не отдельным блоком снизу.
       const onThinking = (thinking: string) => {
         if (getRun(sid).stop) return;
+        const plainNoTools = toolIds.length === 0;
+        if (plainNoTools && !thinkId && textId) {
+          dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: textId, patch: { thinking, streaming: true } });
+          return;
+        }
         if (!thinkId) {
           thinkId = genId();
           dispatch({ type: "ADD_MSG", sessionId: sid, msg: { id: thinkId, role: "assistant", content: "", thinking, streaming: true } });
@@ -873,8 +880,10 @@ export function ChatScreen() {
       if (chain.length) {
         const last = chain[chain.length - 1];
         const body = chain.slice(0, -1);
-        // финальный ответ (content, без думалки/тула) — вне капсулы
-        if (last.content && !last.tool && !last.thinking) {
+        // финальный ответ (content, не команда) — вне капсулы.
+        // thinking здесь может быть приклеенной думалкой plain-пути — она рендерится
+        // над текстом в обычном Bubble, а не в стеклянном блоке.
+        if (last.content && !last.tool) {
           if (body.length) groups.push({ id: "chain-" + chain[0].id, kind: "chain", msgs: body });
           groups.push({ id: last.id, kind: "single", msg: last });
         } else {
@@ -980,14 +989,13 @@ export function ChatScreen() {
             if (g.kind === "chain") {
               // единый блок: раздумья + команды накапливаются внутри (как в QIWI)
               const onDetail = (m: Msg) => setDetailTarget(m);
-              // думалки всегда первыми (t10), потом команды, потом текст
-              const rank = (m: Msg) => (m.thinking ? 0 : m.tool ? 1 : 2);
-              const ordered = [...g.msgs].sort((a, b) => rank(a) - rank(b));
+              // ВАЖНО: хронологический порядок сообщений как есть — думалка → команда →
+              // думалка → команда (никакой перегруппировки: всё должно быть на своих местах)
               return (
                 <View style={{ width: "94%", alignSelf: "flex-start", marginBottom: 10 }}>
                   <Glass radius={20} style={{ overflow: "hidden", width: "100%", paddingTop: 8, paddingBottom: 8, paddingLeft: 12, paddingRight: 12 }}>
-                    {ordered.map((m, i) => {
-                      const last = i === ordered.length - 1;
+                    {g.msgs.map((m, i) => {
+                      const last = i === g.msgs.length - 1;
                       return (
                         <View key={m.id}>
                           {m.thinking ? (

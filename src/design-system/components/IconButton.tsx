@@ -12,6 +12,7 @@ import * as Haptics from "expo-haptics";
 import { BlurView } from "expo-blur";
 import { useApp } from "../../store/AppStore";
 import { hitSlop, touchTarget } from "../tokens";
+import { GlassTint, GlassRim } from "./Glass";
 
 export type IconName = keyof typeof MaterialIcons.glyphMap;
 
@@ -76,6 +77,9 @@ export function IconButton({
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
+      {/* капля-блик + преломляющая кромка (liquid glass) */}
+      <GlassTint dark={dark} />
+      <GlassRim radius={touchTarget / 2} dark={dark} />
       <MaterialIcons name={name} size={size} color={color ?? theme.dim} />
     </Pressable>
   );

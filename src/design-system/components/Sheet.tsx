@@ -26,6 +26,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useApp } from "../../store/AppStore";
+import { LinearGradient } from "expo-linear-gradient";
 import { radii } from "../tokens";
 
 export function Sheet({
@@ -155,6 +156,25 @@ export function Sheet({
           <View style={{ alignItems: "center", paddingTop: 10, paddingBottom: 10 }}>
             <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.surface2 }} />
           </View>
+
+          {/* жидкое стекло: капля-блик сверху (преломление света на грани панели) */}
+          <LinearGradient
+            colors={theme.name === "dark" ? ["rgba(255,255,255,.09)", "rgba(255,255,255,0)"] : ["rgba(255,255,255,.9)", "rgba(255,255,255,.28)"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={{ position: "absolute", top: 0, left: 0, right: 0, height: "58%", pointerEvents: "none" }}
+          />
+          {/* преломляющая кромка сверху */}
+          <View
+            pointerEvents="none"
+            style={{
+              position: "absolute",
+              top: 0.5, left: 0.5, right: 0.5,
+              height: 1,
+              backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.22)" : "rgba(255,255,255,.95)",
+              opacity: 0.8,
+            }}
+          />
 
           {/* header — только заголовок; закрытие свайпом вниз или тапом по фону */}
           {title ? (

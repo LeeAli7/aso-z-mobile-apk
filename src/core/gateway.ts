@@ -200,6 +200,9 @@ export async function streamChat(
     let thinking = "";
     let resText = "";
     let streamEnded = false;
+    let sawDone = false;
+    let finishReason: string | null = null;
+    let tailAttempts = 0;
 
     while (true) {
       let chunk: ReadableStreamReadResult<Uint8Array>;
@@ -223,8 +226,7 @@ export async function streamChat(
         buffer = buffer.slice(idx + 1);
         if (line.startsWith("data:")) line = line.slice(5).trim();
         if (line === "[DONE]") {
-          const clean = thinking && !full ? extractFromThinking(thinking) : full;
-          resText = clean || full || "";
+          sawDone = true;
           streamEnded = true;
           break;
         }
@@ -232,6 +234,8 @@ export async function streamChat(
         try {
           const obj = JSON.parse(line);
           const delta = obj?.choices?.[0]?.delta;
+          const fr = obj?.choices?.[0]?.finish_reason;
+          if (typeof fr === "string" && fr) finishReason = fr;
           const content = delta?.content || "";
           const reasoning =
             delta?.reasoning_content || delta?.reasoning || "";
@@ -279,6 +283,32 @@ export async function streamChat(
     // переподсоединяемся (до maxRetries раз), чтобы не отдавать пустоту.
     if ((!resText || !resText.trim()) && !ctrl.signal.aborted && attempt < maxRetries) {
       await new Promise((r) => setTimeout(r, 1200));
+      continue;
+    }
+
+    // ── АВТОПРОДОЛЖЕНИЕ при обрыве (до 2 раз) — как в Hermes ──
+    // Провайдер оборвал ответ на полуслове: finish_reason="length", либо поток
+    // закрылся без [DONE] и без finish_reason, а текст обрывается не на знаке
+    // препинания (известное поведение free-эндпоинтов — Hermes issue #30963/#31998).
+    // Передаём модели ЕЁ оборванный ответ + честный промпт: продолжить с места обрыва.
+    const finished = sawDone || finishReason === "stop" || finishReason === "tool_calls";
+    const lastChar = resText.trim().slice(-1);
+    const cutOff =
+      finishReason === "length" ||
+      (!sawDone && !finishReason && !/[.,!?;:)}»"`\n]/.test(lastChar));
+    if (!finished && cutOff && resText.trim() && tailAttempts < 2 && !ctrl.signal.aborted) {
+      tailAttempts++;
+      const tail = resText.trim().slice(-200);
+      const isLength = finishReason === "length";
+      const promptText = isLength
+        ? "[System: Your previous response was truncated by the output length limit. Continue exactly where you left off. Do not restart or repeat prior text. Finish the answer directly.]"
+        : "[System: The previous response was cut off by a network error mid-stream. Continue exactly where you left off. Do not restart or repeat prior text. Finish the answer directly.]";
+      messages = [
+        ...messages,
+        { role: "assistant", content: resText || null },
+        { role: "user", content: `${promptText}\n\n…${tail}` },
+      ] as ChatMessage[];
+      await new Promise((r) => setTimeout(r, 800));
       continue;
     }
 
@@ -357,6 +387,8 @@ export interface AgentRequestResult {
   calls: AgentToolCall[];
   /** Провайдер отверг tools (400) — повторить запрос без них. */
   toolsRejected: boolean;
+  /** Стрим завершился штатно ([DONE] или finish_reason stop/tool_calls). */
+  finished?: boolean;
 }
 
 const MAX_AGENT_ITERATIONS = 8;
@@ -382,6 +414,7 @@ export async function streamAgentChat(
 
   let toolsEnabled = true;
   let lastText = "";
+  let tailRetried = false;
 
   for (let iter = 0; iter < MAX_AGENT_ITERATIONS; iter++) {
     // компрессия контекста при переполнении (P0.5)
@@ -411,7 +444,17 @@ export async function streamAgentChat(
     if (r.reasoning) callbacks.onThinking?.(r.reasoning);
 
     if (r.calls.length === 0) {
-      // финал: ответ без тулов
+      // финал: ответ без тулов. Если стрим оборвался (провайдер порвал соединение
+      // на полуслове — Hermes issue #30963) — один дозапрос на продолжение с места обрыва.
+      if (!r.finished && r.text && r.text.trim() && !tailRetried && !ctrl.signal.aborted) {
+        tailRetried = true;
+        const tail = r.text.trim().slice(-200);
+        const promptText =
+          "[System: The previous response was cut off by a network error mid-stream. Continue exactly where you left off. Do not restart or repeat prior text. Finish the answer directly.]";
+        messages.push({ role: "assistant", content: r.text || null });
+        messages.push({ role: "user", content: `${promptText}\n\n…${tail}` });
+        continue;
+      }
       callbacks.onDone(r.text || lastText, messages);
       return;
     }
@@ -519,6 +562,8 @@ async function agentRequest(
   let reasoning = "";
   const tcAcc = new Map<number, AgentToolCall>();
   let streamEnded = false;
+  let sawDone = false;
+  let finishReason: string | null = null;
 
   while (true) {
     let chunk: ReadableStreamReadResult<Uint8Array>;
@@ -536,12 +581,14 @@ async function agentRequest(
       let line = buffer.slice(0, idx).trim();
       buffer = buffer.slice(idx + 1);
       if (line.startsWith("data:")) line = line.slice(5).trim();
-      if (line === "[DONE]") { streamEnded = true; break; }
+      if (line === "[DONE]") { sawDone = true; streamEnded = true; break; }
       if (!line) continue;
       try {
         const obj = JSON.parse(line);
         const delta = obj?.choices?.[0]?.delta;
         if (!delta) continue;
+        const fr = obj?.choices?.[0]?.finish_reason;
+        if (typeof fr === "string" && fr) finishReason = fr;
         if (delta.content) full += delta.content;
         const reas = delta.reasoning_content || delta.reasoning || "";
         if (reas) reasoning += reas;
@@ -567,6 +614,8 @@ async function agentRequest(
     try {
       const obj = JSON.parse(tailLine.replace(/^data:\s*/, ""));
       const d = obj?.choices?.[0]?.delta;
+      const fr = obj?.choices?.[0]?.finish_reason;
+      if (typeof fr === "string" && fr) finishReason = fr;
       if (d?.content) full += d.content;
       const tr = d?.reasoning_content || d?.reasoning || "";
       if (tr) reasoning += tr;
@@ -586,7 +635,8 @@ async function agentRequest(
   const calls = [...tcAcc.values()]
     .filter((c) => c.name)
     .map((c) => ({ ...c, arguments: c.arguments || "{}" }));
-  return { text: full, reasoning, calls, toolsRejected: false };
+  const finished = sawDone || finishReason === "stop" || finishReason === "tool_calls";
+  return { text: full, reasoning, calls, toolsRejected: false, finished };
   }
 }
 

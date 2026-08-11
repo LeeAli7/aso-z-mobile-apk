@@ -42,19 +42,82 @@ export function glassStyle(theme: any, radius: number): ViewStyle {
   };
 }
 
-/** Градиентная подложка стекла: светлее в верхнем-левом углу, прозрачнее к низу-правому. */
+/**
+ * «Жидкое стекло» (liquid glass, как в iOS): подложка-линза с преломлением.
+ * Состоит из трёх слоёв:
+ *  1. диагональный градиент — базовая полупрозрачность стекла,
+ *  2. капля-блик (specular) — свет, преломлённый линзой, у верхнего левого края,
+ *  3. нижняя каустика — слабый отсвет у нижней грани (свет «прошёл сквозь» каплю).
+ */
 export function GlassTint({ dark }: { dark: boolean }) {
   return (
-    <LinearGradient
-      colors={
-        dark
-          ? ["rgba(255,255,255,.07)", "rgba(255,255,255,.02)"]
-          : ["rgba(255,255,255,.72)", "rgba(255,255,255,.35)"]
-      }
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={StyleSheet.absoluteFill}
+    <>
+      {/* 1) диагональная подложка: светлее сверху-слева */}
+      <LinearGradient
+        colors={
+          dark
+            ? ["rgba(255,255,255,.07)", "rgba(255,255,255,.02)"]
+            : ["rgba(255,255,255,.72)", "rgba(255,255,255,.35)"]
+        }
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
+      {/* 2) капля-блик: мягкое пятно света у верхнего левого края (преломление линзы) */}
+      <LinearGradient
+        colors={
+          dark
+            ? ["rgba(255,255,255,.17)", "rgba(255,255,255,0)"]
+            : ["rgba(255,255,255,.95)", "rgba(255,255,255,0)"]
+        }
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          width: "60%",
+          height: "64%",
+          borderRadius: 999,
+          pointerEvents: "none",
+        }}
+      />
+      {/* 3) нижняя каустика: свет прошёл сквозь каплю и собрался у нижней грани */}
+      <LinearGradient
+        colors={
+          dark
+            ? ["rgba(255,255,255,0)", "rgba(255,255,255,.05)"]
+            : ["rgba(255,255,255,0)", "rgba(255,255,255,.22)"]
+        }
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
+    </>
+  );
+}
+
+/**
+ * Преломляющая кромка (rim): тонкая светлая линия ВНУТРИ по краю стекла.
+ * В iOS-стекле край линзы всегда светится — это «кромка капли».
+ */
+export function GlassRim({ radius, dark }: { radius: number; dark: boolean }) {
+  return (
+    <View
       pointerEvents="none"
+      style={{
+        position: "absolute",
+        top: 0.5,
+        left: 0.5,
+        right: 0.5,
+        bottom: 0.5,
+        borderRadius: Math.max(2, radius - 1),
+        borderWidth: 1,
+        borderColor: dark ? "rgba(255,255,255,.13)" : "rgba(255,255,255,.75)",
+        opacity: 0.85,
+      }}
     />
   );
 }
@@ -84,6 +147,7 @@ export function Glass({
         />
       )}
       <GlassTint dark={dark} />
+      <GlassRim radius={radius} dark={dark} />
       {children}
     </View>
   );
@@ -139,6 +203,7 @@ export function GlassPressable({
         />
       )}
       <GlassTint dark={dark} />
+      <GlassRim radius={radius} dark={dark} />
       {children}
     </Pressable>
   );
