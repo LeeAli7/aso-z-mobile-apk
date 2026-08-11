@@ -565,7 +565,7 @@ class AsoRuntimeModule : Module() {
         // 1) proot: предпочтительная среда (у python в ней ЕСТЬ — это и просил пользователь)
         val mode = when {
             probeProotUsable() -> "proot"
-            probeBootstrapUsable() -> "bootstrap"
+            probeBootstrapUsable(prefixDir().absolutePath) -> "bootstrap"
             else -> "toybox"
         }
         runtimeMode = mode
