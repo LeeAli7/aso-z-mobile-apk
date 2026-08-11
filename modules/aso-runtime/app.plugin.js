@@ -23,29 +23,36 @@ const FOREGROUND_PERMISSIONS = [
 ];
 
 module.exports = function asoRuntimePlugin(config) {
-  // 1) копируем bootstrap-архивы в assets
+  // 1) копируем bootstrap-архивы (Termux bootstrap) в assets
   config = withDangerousMod(config, [
     "android",
     (cfg) => {
-      const srcDir = path.join(cfg.modRequest.projectRoot, "assets", "bootstrap");
+      const srcBootstrap = path.join(cfg.modRequest.projectRoot, "assets", "bootstrap");
+      const srcRootfs = path.join(cfg.modRequest.projectRoot, "assets", "rootfs");
+      const srcProot = path.join(cfg.modRequest.projectRoot, "assets", "proot");
       const destDir = path.join(
         cfg.modRequest.platformProjectRoot,
         "app",
         "src",
         "main",
         "assets",
-        "bootstrap",
       );
-      if (!fs.existsSync(srcDir)) return cfg;
-      fs.mkdirSync(destDir, { recursive: true });
-      for (const file of fs.readdirSync(srcDir)) {
-        if (!file.endsWith(".zip")) continue;
-        const src = path.join(srcDir, file);
-        const dest = path.join(destDir, file);
-        if (!fs.existsSync(dest) || fs.statSync(src).size !== fs.statSync(dest).size) {
-          fs.copyFileSync(src, dest);
+      const copyDir = (srcDir, sub) => {
+        if (!fs.existsSync(srcDir)) return;
+        const dest = path.join(destDir, sub);
+        fs.mkdirSync(dest, { recursive: true });
+        for (const file of fs.readdirSync(srcDir)) {
+          if (!file.endsWith(".zip") && !sub.startsWith("rootfs") && !sub.startsWith("proot")) continue;
+          const src = path.join(srcDir, file);
+          const d = path.join(dest, file);
+          if (!fs.existsSync(d) || fs.statSync(src).size !== fs.statSync(d).size) {
+            fs.copyFileSync(src, d);
+          }
         }
-      }
+      };
+      copyDir(srcBootstrap, "bootstrap");
+      copyDir(srcRootfs, "rootfs");
+      copyDir(srcProot, "proot");
       return cfg;
     },
   ]);

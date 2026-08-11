@@ -47,6 +47,15 @@ class AsoRuntimeModule : Module() {
 
     private fun homeDir(): File = File(dataRoot(), "home")
 
+    // ── proot: полноценный Linux (Alpine rootfs) как рабочая среда агента ──
+    // proot-бинарник статический (не зависит от SELinux-исполняемости app-data),
+    // rootfs содержит bash, python3, pip, git, apk — «python не может юзать» уходит.
+    private fun prootDir(): File = File(dataRoot(), "proot")
+
+    private fun prootBin(): File = File(prootDir(), "proot")
+
+    private fun rootfsDir(): File = File(dataRoot(), "proot/rootfs")
+
     private fun bootstrapMarker(): File = File(dataRoot(), ".bootstrap-done")
 
     private fun abi(): String =
@@ -58,6 +67,20 @@ class AsoRuntimeModule : Module() {
         // x86_64 (эмулятор) — arm64-архив НЕЛЬЗЯ: ELF другой архитектуры -> exec 126.
         abi().contains("x86_64") -> "bootstrap-x86_64.zip"
         else -> "bootstrap-aarch64.zip"
+    }
+
+    private fun prootAssetName(): String = when {
+        abi() == "arm64-v8a" -> "proot-aarch64-static"
+        abi() == "armeabi-v7a" || abi().startsWith("arm") -> "proot-arm-static"
+        abi().contains("x86_64") -> "proot-x86_64-static"
+        else -> "proot-aarch64-static"
+    }
+
+    private fun rootfsAssetName(): String = when {
+        abi() == "arm64-v8a" -> "rootfs-aarch64.tar.gz"
+        abi() == "armeabi-v7a" || abi().startsWith("arm") -> "rootfs-armv7.tar.gz"
+        abi().contains("x86_64") -> "rootfs-x86_64.tar.gz"
+        else -> "rootfs-aarch64.tar.gz"
     }
 
     // ── Module definition ─────────────────────────────────────────────────────
@@ -287,11 +310,165 @@ class AsoRuntimeModule : Module() {
             fixShebangs()
         }
 
-        // Маркер ставим только после успешной распаковки.
+        // Mark bootstrap as done only after successful unpack.
         if (!bootstrapMarker().createNewFile()) {
             throw IllegalStateException("marker exists after install")
         }
+
+        // ── proot: бинарник + rootfs (полноценная Linux-среда, python3) ──
+        // rootfs и proot НЕ критичны для установки (если собьются при распаковке —
+        // останется старый путь toybox/bash), поэтому оборачиваем в try/catch.
+        try {
+            installProot()
+        } catch (e: Exception) {
+            Log.e(tag, "proot install failed — остаёмся на bootstrap/toybox", e)
+        }
+
         Log.i(tag, "bootstrap installed OK (abi=${abi()}, asset=$assetName)")
+    }
+
+    /** Распаковать proot-бинарник и Alpine rootfs (python3, pip, git, bash, apk). */
+    private fun installProot() {
+        prootDir().mkdirs()
+        rootfsDir().mkdirs()
+
+        // 1) статический proot
+        val pName = prootAssetName()
+        val pAsset = context().assets.open("proot/$pName")
+        val pOut = prootBin()
+        pOut.outputStream().use { out -> pAsset.copyTo(out) }
+        try { Os.chmod(pOut.absolutePath, 0x1ED /*0755*/) } catch (_: Exception) {}
+        Log.i(tag, "proot binary: $pName (${pOut.length()} bytes)")
+
+        // 2) rootfs (tar.gz)
+        val rName = rootfsAssetName()
+        val rAsset = context().assets.open("rootfs/$rName")
+        extractTarGz(rAsset.buffered(), rootfsDir())
+        Log.i(tag, "rootfs installed: $rName")
+    }
+
+    /**
+     * Распаковка tar.gz с сохранением прав (Alpine rootfs).
+     * Android не имеет встроенного tar — пишем минимальный USTAR/pax-парсер:
+     *  - 'x' (pax extended header) — длинные имена (>100 символов, 123 шт в rootfs)
+     *  - '1' (hardlink) — копия уже распакованного файла (gawk-5.3.1/unzip)
+     *  - '2' (symlink) — символическая ссылка
+     *  - '5' (dir) / '0','\0' (file)
+     * Права: bin-каталоги → 0755 (исполняемые), остальное → 0644.
+     */
+    private fun extractTarGz(input: java.io.InputStream, dest: File) {
+        val gzip = java.util.zip.GZIPInputStream(input)
+        val hdr = ByteArray(512)
+        var longName: String? = null
+        var paxName: String? = null
+
+        while (true) {
+            if (!readFully(gzip, hdr)) break
+            val type = hdr[156].toInt().toChar()
+            val size = parseOctal(hdr, 124, 12).toInt()
+            val data = ByteArray(size)
+            readFully(gzip, data)
+            // выравнивание до 512
+            val pad = (512 - size % 512) % 512
+            skip(gzip, pad.toLong())
+
+            when (type) {
+                'x' -> {
+                    // pax extended header: "path=<длинное имя>\n"
+                    val txt = String(data, Charsets.UTF_8)
+                    txt.lineSequence().forEach { line ->
+                        val sp = line.indexOf(' ')
+                        if (sp > 0 && line.indexOf('=', sp) > 0) {
+                            val key = line.substring(sp + 1, line.indexOf('=', sp))
+                            if (key == "path") paxName = line.substring(line.indexOf('=', sp) + 1)
+                        }
+                    }
+                }
+                'L' -> {
+                    longName = String(data, Charsets.UTF_8).trimEnd('\u0000')
+                }
+                else -> {
+                    var name = longName ?: paxName ?: String(hdr, 0, 100, Charsets.UTF_8).trimEnd('\u0000', ' ')
+                    longName = null
+                    paxName = null
+                    if (name.isEmpty()) break // нулевой блок = конец архива
+                    val target = File(dest, name)
+                    when (type) {
+                        '5' -> {
+                            target.mkdirs()
+                            try { Os.chmod(target.absolutePath, 0x1ED /*0755*/) } catch (_: Exception) {}
+                        }
+                        '2' -> {
+                            val link = String(hdr, 157, 100, Charsets.UTF_8).trimEnd('\u0000', ' ')
+                            target.parentFile?.mkdirs()
+                            try { if (!target.exists()) Os.symlink(link, target.absolutePath) } catch (_: Exception) {}
+                        }
+                        '1' -> {
+                            // hardlink: копируем целевой файл (в rootfs их 2: gawk-5.3.1, zipinfo)
+                            val link = String(hdr, 157, 100, Charsets.UTF_8).trimEnd('\u0000', ' ')
+                            val src = File(dest, link)
+                            target.parentFile?.mkdirs()
+                            try {
+                                src.copyTo(target, overwrite = true)
+                                chmodTarMode(target, hdr)
+                            } catch (_: Exception) {}
+                        }
+                        else -> {
+                            target.parentFile?.mkdirs()
+                            target.outputStream().use { out ->
+                                // данные уже в data (мы их прочитали); в реальном tar размер
+                                // data = size, поэтому просто пишем
+                                out.write(data)
+                            }
+                            chmodTarMode(target, hdr)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Права из tar-заголовка (поле mode, offset 100). ВАЖНО: ld-musl интерпретатор
+     * (/lib/ld-musl-*.so.1) обязан быть 0755, иначе execve падает «Permission denied».
+     * Биты exec берём как в архиве; владелец/группа — не нужны (одно приложение).
+     */
+    private fun chmodTarMode(f: File, hdr: ByteArray) {
+        val mode = (parseOctal(hdr, 100, 8).toInt() and 0x1FF) // rwx для user/group/other
+        val mode7 = mode and 0x1C0 != 0 // хоть один x-бит (0700) — считаем исполняемым
+        val mode1 = mode and 0x1 != 0 // x для all
+        val use755 = mode7 || mode1
+        try {
+            Os.chmod(f.absolutePath, if (use755) 0x1ED /*0755*/ else 0x1A4 /*0644*/)
+        } catch (_: Exception) {}
+    }
+
+    private fun parseOctal(b: ByteArray, off: Int, len: Int): Long {
+        val s = String(b, off, len, Charsets.UTF_8).trimEnd('\u0000', ' ').trim()
+        if (s.isEmpty()) return 0
+        return s.toLongOrNull(8) ?: 0
+    }
+
+    /** Читает ровно size байт или пока не кончится поток. */
+    private fun readFully(zis: java.io.InputStream, b: ByteArray): Boolean {
+        var off = 0
+        while (off < b.size) {
+            val n = zis.read(b, off, b.size - off)
+            if (n < 0) break
+            off += n
+        }
+        return off > 0
+    }
+
+    private fun skip(zis: java.io.InputStream, n: Long) {
+        var remaining = n
+        val buf = ByteArray(4096)
+        while (remaining > 0) {
+            val toRead = minOf(remaining, buf.size.toLong()).toInt()
+            val read = zis.read(buf, 0, toRead)
+            if (read < 0) break
+            remaining -= read
+        }
     }
 
     /**
@@ -357,22 +534,79 @@ class AsoRuntimeModule : Module() {
 
     // ── Процесс и стриминг ───────────────────────────────────────────────────
 
-    private var runtimeUsable: Boolean? = null
+    private var runtimeMode: String? = null // "proot" | "bootstrap" | "toybox"
+
+    /**
+     * Выбирает рабочую среду агента:
+     *   1. proot (Alpine rootfs: python3, pip, bash, git, apk) — полноценный Linux,
+     *      работает даже если SELinux блокирует прямой execve из app-data (MIUI).
+     *   2. Termux bootstrap (bash/apt) — если proot недоступен/не установился.
+     *   3. toybox (/system/bin/sh) — последний шанс.
+     * Результат кэшируем на время жизни процесса.
+     */
+    private fun detectRuntimeMode(): String {
+        runtimeMode?.let { return it }
+
+        // ВАЖНО: чиним права bootstrap ДО любого probe. Старые установки (маркер стоит,
+        // файлы лежат) после обновления APK теряют +x — probe падал с 126, и мы навсегда
+        // уходили в toybox, потому что ensureExecutable вызывался ТОЛЬКО при useBootstrap=true
+        // (замкнутый круг: probe=false → чинить некому). Теперь chmod всегда первым.
+        if (prefixDir().resolve("bin/bash").exists()) ensureExecutable(prefixDir().absolutePath)
+
+        // proot мог не установиться при апдейте (маркер .bootstrap-done уже был с прошлой
+        // версии — installBootstrap не перезапускается). Доустанавливаем, если бинарник
+        // или rootfs отсутствуют; при сбое — тихо уходим на bootstrap/toybox.
+        if (!prootBin().exists() || !File(rootfsDir(), "bin/sh").exists()) {
+            try { installProot() } catch (e: Exception) {
+                Log.e(tag, "lazy proot install failed — bootstrap/toybox", e)
+            }
+        }
+
+        // 1) proot: предпочтительная среда (у python в ней ЕСТЬ — это и просил пользователь)
+        val mode = when {
+            probeProotUsable() -> "proot"
+            probeBootstrapUsable() -> "bootstrap"
+            else -> "toybox"
+        }
+        runtimeMode = mode
+        Log.i(tag, "runtime mode: $mode")
+        return mode
+    }
+
+    /** proot-среда: статический proot + Alpine rootfs с python3. Полный тест — запуск sh. */
+    private fun probeProotUsable(): Boolean {
+        val pbin = prootBin()
+        if (!pbin.exists()) return false
+        val sh = File(rootfsDir(), "bin/sh")
+        if (!sh.exists()) return false
+        return try {
+            val args = ArrayList<String>()
+            args.add(pbin.absolutePath); args.add("-0"); args.add("-r"); args.add(rootfsDir().absolutePath)
+            for (sys in listOf("/system", "/dev", "/proc", "/sys", "/storage")) {
+                if (File(sys).exists()) { args.add("-b"); args.add("$sys:$sys") }
+            }
+            args.add("-w"); args.add("/root"); args.add("/bin/sh"); args.add("-c"); args.add("echo ok")
+            val p = ProcessBuilder(args).redirectErrorStream(true).start()
+            val out = p.inputStream.bufferedReader().readText().trim()
+            val code = p.waitFor()
+            val ok = code == 0 && out == "ok"
+            if (!ok) Log.w(tag, "proot probe fail (exit=$code out=$out) — переключение на bootstrap/toybox")
+            ok
+        } catch (e: Exception) {
+            Log.w(tag, "proot probe exception: $e")
+            false
+        }
+    }
 
     /**
      * Проверяет, может ли система исполнять бинарники bootstrap из app-data.
      * На MIUI (SELinux enforcing) execve файлов с меткой app_data_file запрещён
      * → даже после chmod +x любая команда падает с exit 126 (avc: denied execute).
-     * Если bootstrap не исполняем — работаем через системный PATH (toybox, ~200
-     * команд) и /system/bin/sh. Результат кэшируем на время жизни процесса.
+     * Если bootstrap не исполняем — остаётся toybox (системный PATH).
      */
-    private fun probeRuntimeUsable(prefix: String): Boolean {
-        runtimeUsable?.let { return it }
+    private fun probeBootstrapUsable(prefix: String): Boolean {
         val sh = File(prefix, "bin/sh")
-        if (!sh.exists()) {
-            runtimeUsable = false
-            return false
-        }
+        if (!sh.exists()) return false
         return try {
             val p = ProcessBuilder(listOf(sh.absolutePath, "-c", "echo ok"))
                 .redirectErrorStream(true)
@@ -380,12 +614,10 @@ class AsoRuntimeModule : Module() {
             val out = p.inputStream.bufferedReader().readText().trim()
             val code = p.waitFor()
             val ok = code == 0 && out == "ok"
-            runtimeUsable = ok
             if (!ok) Log.w(tag, "SELinux блокирует bootstrap (probe exit=$code) — переключаюсь на системный PATH / toybox")
             ok
         } catch (e: Exception) {
             Log.w(tag, "probe bootstrap failed: $e — системный PATH", e)
-            runtimeUsable = false
             false
         }
     }
@@ -393,15 +625,43 @@ class AsoRuntimeModule : Module() {
     private fun startProcess(cmd: String, cwd: String?): Process {
         val prefix = prefixDir().absolutePath
         val home = homeDir().absolutePath
-        val useBootstrap = probeRuntimeUsable(prefix)
+        val mode = detectRuntimeMode()
+
+        if (mode == "proot") {
+            // Полноценный Linux: Alpine rootfs с python3. Home пользователя пробрасываем
+            // внутрь /root — файлы проекта и агентские записи остаются видимыми с обеих сторон.
+            val tmpDir = File(rootfsDir(), "tmp")
+            try { tmpDir.mkdirs() } catch (_: Exception) {}
+            val args = ArrayList<String>()
+            args.add(prootBin().absolutePath)
+            args.add("-0")
+            args.add("-r")
+            args.add(rootfsDir().absolutePath)
+            // Пробрасываем системные каталоги ТОЛЬКО если они существуют на устройстве
+            // (на всех Android они есть; на эмуляторах/хосте может не быть).
+            for (sys in listOf("/system", "/dev", "/proc", "/sys", "/storage")) {
+                if (File(sys).exists()) { args.add("-b"); args.add("$sys:$sys") }
+            }
+            args.add("-b"); args.add("$home:/root")
+            args.add("-w"); args.add("/root")
+            args.add("/bin/sh"); args.add("-c"); args.add(cmd)
+            val pb = ProcessBuilder(args)
+            pb.directory(File(if (cwd != null && cwd.startsWith(home)) cwd else home))
+            pb.environment()["HOME"] = "/root"
+            pb.environment()["PATH"] = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+            pb.environment()["TMPDIR"] = "/tmp"
+            pb.environment()["TMP"] = "/tmp"
+            pb.environment()["SHELL"] = "/bin/sh"
+            // Локаль UTF-8, чтобы Python не падал на ASCII-дефолте
+            pb.environment()["LANG"] = "C.UTF-8"
+            pb.environment()["LC_ALL"] = "C.UTF-8"
+            pb.redirectErrorStream(true)
+            return pb.start()
+        }
+
+        val useBootstrap = mode == "bootstrap"
         val shell = if (useBootstrap) "$prefix/bin/bash" else "/system/bin/sh"
         val shellFallback = "/system/bin/sh"
-
-        // Старые установки (маркер .bootstrap-done уже есть) не получали chmod при
-        // обновлении APK — бинарники лежат без права на выполнение, любая команда
-        // падает с exit 126 (Permission denied). Чиним ДО каждого запуска: быстро
-        // проверяем bash, при отсутствии прав — полный проход chmod 0700.
-        if (useBootstrap) ensureExecutable(prefix)
 
         // Системные пути Android: toybox-команды (ls, mkdir, sed, find, tar, ps…)
         // работают без нашей песочницы. Если bootstrap исполняем — его bin/ идёт
