@@ -130,11 +130,13 @@ export function runCommandCapture(cmd: string, projectId?: string, cwd?: string)
       if (!r.ok) {
         // Если среда реально toybox — это SELinux (avc denied execute_no_trans на MIUI):
         // возвращаем модели это явно, чтобы она не гадала, почему apt/python «нет».
+        // НЕ говорим «работает только toybox» — у нас в среде есть и bootstrap с python3,
+        // и proot; toybox — крайний случай когда ОС запрещает exec из app-data.
         let error = r.error || `exit ${r.code}`;
         if (r.code === 126 || r.code === 127 || r.code === -1) {
           const mode = runtimeMode();
           if (mode === "toybox") {
-            error = "SELinux блокирует исполнение бинарников из app-data (avc denied execute_no_trans) — работает только системный toybox. Короткие команды (ls, cat, find) доступны; apt/python — нет.";
+            error = "Система устройства блокирует исполнение бинарников из app-data (SELinux/MIUI avc denied execute_no_trans) — встроенный Linux-рантайм (bash/apt/python3) недоступен, работает только системный toybox (ls, cat, find). Настоящий Termux из Play Маркета может работать — там тот же execve, но установка через пакетный менеджер.";
           }
         }
         resolve({ ok: false, output: r.output || "", code: r.code, error });

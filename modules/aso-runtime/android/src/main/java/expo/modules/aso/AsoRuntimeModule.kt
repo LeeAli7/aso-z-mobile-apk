@@ -570,10 +570,14 @@ class AsoRuntimeModule : Module() {
             }
         }
 
-        // 1) proot: предпочтительная среда (у python в ней ЕСТЬ — это и просил пользователь)
+        // 1) bootstrap (Termux) — он работает ВЕЗДЕ, где работает Termux (проверено
+        // пользователем на телефонах разных вендоров). Это наш основной Linux:
+        // bash, apt, python3 (собран в bootstrap). Предпочитаем его.
+        // 2) proot — запасной (если bootstrap почему-то не исполнился).
+        // 3) toybox — последний шанс.
         val mode = when {
-            probeProotUsable() -> "proot"
             probeBootstrapUsable(prefixDir().absolutePath) -> "bootstrap"
+            probeProotUsable() -> "proot"
             else -> "toybox"
         }
         runtimeMode = mode
@@ -608,15 +612,18 @@ class AsoRuntimeModule : Module() {
 
     /**
      * Проверяет, может ли система исполнять бинарники bootstrap из app-data.
+     * Пробуем bin/bash (реальный файл), а НЕ bin/sh — sh это симлинк из
+     * SYMLINKS.txt, который на некоторых устройствах не создаётся, из-за чего
+     * probe ложно падал и мы уходили в toybox, хотя Termux-style bootstrap жив.
      * На MIUI (SELinux enforcing) execve файлов с меткой app_data_file запрещён
      * → даже после chmod +x любая команда падает с exit 126 (avc: denied execute).
      * Если bootstrap не исполняем — остаётся toybox (системный PATH).
      */
     private fun probeBootstrapUsable(prefix: String): Boolean {
-        val sh = File(prefix, "bin/sh")
-        if (!sh.exists()) return false
+        val bash = File(prefix, "bin/bash")
+        if (!bash.exists()) return false
         return try {
-            val p = ProcessBuilder(listOf(sh.absolutePath, "-c", "echo ok"))
+            val p = ProcessBuilder(listOf(bash.absolutePath, "-c", "echo ok"))
                 .redirectErrorStream(true)
                 .start()
             val out = p.inputStream.bufferedReader().readText().trim()
@@ -668,6 +675,9 @@ class AsoRuntimeModule : Module() {
         }
 
         val useBootstrap = mode == "bootstrap"
+        // bin/bash ВМЕСТО bin/sh: sh — симлинк из SYMLINKS.txt, на части устройств
+        // не создаётся (пропуск symlink'а) → команды падали 127 даже при живом
+        // Termux-style bootstrap. bash — реальный файл, всегда на месте.
         val shell = if (useBootstrap) "$prefix/bin/bash" else "/system/bin/sh"
         val shellFallback = "/system/bin/sh"
 
@@ -677,6 +687,15 @@ class AsoRuntimeModule : Module() {
         val sysPath = "/system/bin:/system/xbin:/product/bin:/apex/com.android.runtime/bin:" +
             "/apex/com.android.art/bin:/system_ext/bin:/odm/bin:/vendor/bin:/vendor/xbin"
         val path = if (useBootstrap) "$prefix/bin:$prefix/bin/applets:$sysPath" else sysPath
+
+        if (useBootstrap && !File(shell).exists()) {
+            // совсем старая установка без bash — тащим из toybox
+            return ProcessBuilder("/system/bin/sh", "-c", cmd).apply {
+                directory(File(cwd ?: home))
+                environment()["HOME"] = home
+                environment()["PATH"] = sysPath
+            }.start()
+        }
 
         val pb = ProcessBuilder(listOf(shell, "-c", cmd))
         pb.directory(File(cwd ?: home))
