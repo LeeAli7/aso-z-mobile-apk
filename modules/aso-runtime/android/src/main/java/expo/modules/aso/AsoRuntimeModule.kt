@@ -77,10 +77,10 @@ class AsoRuntimeModule : Module() {
     }
 
     private fun rootfsAssetName(): String = when {
-        abi() == "arm64-v8a" -> "rootfs-aarch64.tar.gz"
-        abi() == "armeabi-v7a" || abi().startsWith("arm") -> "rootfs-armv7.tar.gz"
-        abi().contains("x86_64") -> "rootfs-x86_64.tar.gz"
-        else -> "rootfs-aarch64.tar.gz"
+        abi() == "arm64-v8a" -> "rootfs-aarch64.zip"
+        abi() == "armeabi-v7a" || abi().startsWith("arm") -> "rootfs-armv7.zip"
+        abi().contains("x86_64") -> "rootfs-x86_64.zip"
+        else -> "rootfs-aarch64.zip"
     }
 
     // ── Module definition ─────────────────────────────────────────────────────
@@ -222,6 +222,12 @@ class AsoRuntimeModule : Module() {
                 promise.resolve(false)
             }
         }
+
+        // Текущий режим среды (без запуска команд): "proot" | "bootstrap" | "toybox" | "unknown".
+        // Используется UI, чтобы показать, почему команды идут через toybox (SELinux).
+        Function("getRuntimeMode") {
+            runtimeMode ?: "unknown"
+        }
     }
 
     // ── Установка bootstrap ───────────────────────────────────────────────────
@@ -328,111 +334,113 @@ class AsoRuntimeModule : Module() {
     }
 
     /** Распаковать proot-бинарник и Alpine rootfs (python3, pip, git, bash, apk). */
-    private fun installProot() {
-        prootDir().mkdirs()
-        rootfsDir().mkdirs()
+        private fun installProot() {
+            prootDir().mkdirs()
+            rootfsDir().mkdirs()
 
-        // 1) статический proot
-        val pName = prootAssetName()
-        val pAsset = context().assets.open("proot/$pName")
-        val pOut = prootBin()
-        pOut.outputStream().use { out -> pAsset.copyTo(out) }
-        try { Os.chmod(pOut.absolutePath, 0x1ED /*0755*/) } catch (_: Exception) {}
-        Log.i(tag, "proot binary: $pName (${pOut.length()} bytes)")
+            // 1) статический proot
+            val pName = prootAssetName()
+            val pAsset = context().assets.open("proot/$pName")
+            val pOut = prootBin()
+            pOut.outputStream().use { out -> pAsset.copyTo(out) }
+            try { Os.chmod(pOut.absolutePath, 0x1ED /*0755*/) } catch (_: Exception) {}
+            Log.i(tag, "proot binary: $pName (${pOut.length()} bytes)")
 
-        // 2) rootfs (tar.gz)
-        val rName = rootfsAssetName()
-        val rAsset = context().assets.open("rootfs/$rName")
-        extractTarGz(rAsset.buffered(), rootfsDir())
-        Log.i(tag, "rootfs installed: $rName")
-    }
+            // 2) rootfs: zip с одним entry rootfs.tar (tar хранит unix-права).
+            // ВАЖНО: не класть .tar.gz в ассеты — aapt/AGP автоматически распаковывает
+            // gz при упаковке APK (rootfs-aarch64.tar.gz превращается в .tar), и наш
+            // GZIPInputStream-парсер ломается. .zip AGP не трогает (как bootstrap).
+            val rName = rootfsAssetName()
+            val rAsset = context().assets.open("rootfs/$rName")
+            extractRootfsZip(rAsset.buffered(), rootfsDir())
+            Log.i(tag, "rootfs installed: $rName")
+        }
 
-    /**
-     * Распаковка tar.gz с сохранением прав (Alpine rootfs).
-     * Android не имеет встроенного tar — пишем минимальный USTAR/pax-парсер:
-     *  - 'x' (pax extended header) — длинные имена (>100 символов, 123 шт в rootfs)
-     *  - '1' (hardlink) — копия уже распакованного файла (gawk-5.3.1/unzip)
-     *  - '2' (symlink) — символическая ссылка
-     *  - '5' (dir) / '0','\0' (file)
-     * Права: bin-каталоги → 0755 (исполняемые), остальное → 0644.
-     */
-    private fun extractTarGz(input: java.io.InputStream, dest: File) {
-        val gzip = java.util.zip.GZIPInputStream(input)
-        val hdr = ByteArray(512)
-        var longName: String? = null
-        var paxName: String? = null
+        /**
+         * Распаковка rootfs из zip (внутри — один файл rootfs.tar).
+         * Права хранятся в tar-заголовках (ld-musl обязан быть 0755, иначе execve «Permission denied»).
+         * Поддержан минимальный USTAR/pax: 'x' (длинные имена), '1' (hardlink), '2' (symlink),
+         * '5' (dir), '0'/'\0' (file).
+         */
+        private fun extractRootfsZip(input: java.io.InputStream, dest: File) {
+            val zis = java.util.zip.ZipInputStream(input)
+            val entry = zis.nextEntry
+            if (entry == null) throw IllegalStateException("rootfs zip is empty")
+            extractTar(zis, dest)
+        }
 
-        while (true) {
-            if (!readFully(gzip, hdr)) break
-            val type = hdr[156].toInt().toChar()
-            val size = parseOctal(hdr, 124, 12).toInt()
-            val data = ByteArray(size)
-            readFully(gzip, data)
-            // выравнивание до 512
-            val pad = (512 - size % 512) % 512
-            skip(gzip, pad.toLong())
+        private fun extractTar(tarIn: java.io.InputStream, dest: File) {
+            val hdr = ByteArray(512)
+            var longName: String? = null
+            var paxName: String? = null
 
-            when (type) {
-                'x' -> {
-                    // pax extended header: "path=<длинное имя>\n"
-                    val txt = String(data, Charsets.UTF_8)
-                    txt.lineSequence().forEach { line ->
-                        val sp = line.indexOf(' ')
-                        if (sp > 0 && line.indexOf('=', sp) > 0) {
-                            val key = line.substring(sp + 1, line.indexOf('=', sp))
-                            if (key == "path") paxName = line.substring(line.indexOf('=', sp) + 1)
+            while (true) {
+                if (!readFully(tarIn, hdr)) break
+                val type = hdr[156].toInt().toChar()
+                val size = parseOctal(hdr, 124, 12).toInt()
+                val data = ByteArray(size)
+                readFully(tarIn, data)
+                // выравнивание до 512
+                val pad = (512 - size % 512) % 512
+                skip(tarIn, pad.toLong())
+
+                when (type) {
+                    'x' -> {
+                        // pax extended header: "path=<длинное имя>\n"
+                        val txt = String(data, Charsets.UTF_8)
+                        txt.lineSequence().forEach { line ->
+                            val sp = line.indexOf(' ')
+                            if (sp > 0 && line.indexOf('=', sp) > 0) {
+                                val key = line.substring(sp + 1, line.indexOf('=', sp))
+                                if (key == "path") paxName = line.substring(line.indexOf('=', sp) + 1)
+                            }
                         }
                     }
-                }
-                'L' -> {
-                    longName = String(data, Charsets.UTF_8).trimEnd('\u0000')
-                }
-                else -> {
-                    var name = longName ?: paxName ?: String(hdr, 0, 100, Charsets.UTF_8).trimEnd('\u0000', ' ')
-                    longName = null
-                    paxName = null
-                    if (name.isEmpty()) break // нулевой блок = конец архива
-                    val target = File(dest, name)
-                    when (type) {
-                        '5' -> {
-                            target.mkdirs()
-                            try { Os.chmod(target.absolutePath, 0x1ED /*0755*/) } catch (_: Exception) {}
-                        }
-                        '2' -> {
-                            val link = String(hdr, 157, 100, Charsets.UTF_8).trimEnd('\u0000', ' ')
-                            target.parentFile?.mkdirs()
-                            try { if (!target.exists()) Os.symlink(link, target.absolutePath) } catch (_: Exception) {}
-                        }
-                        '1' -> {
-                            // hardlink: копируем целевой файл (в rootfs их 2: gawk-5.3.1, zipinfo)
-                            val link = String(hdr, 157, 100, Charsets.UTF_8).trimEnd('\u0000', ' ')
-                            val src = File(dest, link)
-                            target.parentFile?.mkdirs()
-                            try {
-                                src.copyTo(target, overwrite = true)
-                                chmodTarMode(target, hdr)
-                            } catch (_: Exception) {}
-                        }
-                        else -> {
-                            target.parentFile?.mkdirs()
-                            target.outputStream().use { out ->
-                                // данные уже в data (мы их прочитали); в реальном tar размер
-                                // data = size, поэтому просто пишем
-                                out.write(data)
+                    'L' -> {
+                        longName = String(data, Charsets.UTF_8).trimEnd('\u0000')
+                    }
+                    else -> {
+                        var name = longName ?: paxName ?: String(hdr, 0, 100, Charsets.UTF_8).trimEnd('\u0000', ' ')
+                        longName = null
+                        paxName = null
+                        if (name.isEmpty()) break // нулевой блок = конец архива
+                        val target = File(dest, name)
+                        when (type) {
+                            '5' -> {
+                                target.mkdirs()
+                                try { Os.chmod(target.absolutePath, 0x1ED /*0755*/) } catch (_: Exception) {}
                             }
-                            chmodTarMode(target, hdr)
+                            '2' -> {
+                                val link = String(hdr, 157, 100, Charsets.UTF_8).trimEnd('\u0000', ' ')
+                                target.parentFile?.mkdirs()
+                                try { if (!target.exists()) Os.symlink(link, target.absolutePath) } catch (_: Exception) {}
+                            }
+                            '1' -> {
+                                // hardlink: копируем целевой файл (в rootfs их 2: gawk-5.3.1, zipinfo)
+                                val link = String(hdr, 157, 100, Charsets.UTF_8).trimEnd('\u0000', ' ')
+                                val src = File(dest, link)
+                                target.parentFile?.mkdirs()
+                                try {
+                                    src.copyTo(target, overwrite = true)
+                                    chmodTarMode(target, hdr)
+                                } catch (_: Exception) {}
+                            }
+                            else -> {
+                                target.parentFile?.mkdirs()
+                                target.outputStream().use { out -> out.write(data) }
+                                chmodTarMode(target, hdr)
+                            }
                         }
                     }
                 }
             }
         }
-    }
 
-    /**
-     * Права из tar-заголовка (поле mode, offset 100). ВАЖНО: ld-musl интерпретатор
-     * (/lib/ld-musl-*.so.1) обязан быть 0755, иначе execve падает «Permission denied».
-     * Биты exec берём как в архиве; владелец/группа — не нужны (одно приложение).
-     */
+        /**
+         * Права из tar-заголовка (поле mode, offset 100). ВАЖНО: ld-musl интерпретатор
+         * (/lib/ld-musl-*.so.1) обязан быть 0755, иначе execve падает «Permission denied».
+         * Биты exec берём как в архиве; владелец/группа — не нужны (одно приложение).
+         */
     private fun chmodTarMode(f: File, hdr: ByteArray) {
         val mode = (parseOctal(hdr, 100, 8).toInt() and 0x1FF) // rwx для user/group/other
         val mode7 = mode and 0x1C0 != 0 // хоть один x-бит (0700) — считаем исполняемым

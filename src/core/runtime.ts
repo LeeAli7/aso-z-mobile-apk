@@ -14,6 +14,7 @@ import {
   exec as rtExec,
   execCapture as rtExecCapture,
   kill as rtKill,
+  getRuntimeMode as rtMode,
   onOutput,
   onExit,
 } from "../../modules/aso-runtime/src";
@@ -30,6 +31,16 @@ export type ExitListener = (sessionId: number, code: number) => void;
 
 export function runtimeAvailable(): boolean {
   return Platform.OS === "android" && rtAvailable();
+}
+
+/** Текущий режим рантайма: "proot" | "bootstrap" | "toybox" | null (не известен). */
+export function runtimeMode(): string | null {
+  if (!runtimeAvailable()) return null;
+  try {
+    return rtMode() ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -117,7 +128,16 @@ export function runCommandCapture(cmd: string, projectId?: string, cwd?: string)
     try {
       const r = await rtExecCapture(cmd, cwd);
       if (!r.ok) {
-        resolve({ ok: false, output: r.output || "", code: r.code, error: r.error || `exit ${r.code}` });
+        // Если среда реально toybox — это SELinux (avc denied execute_no_trans на MIUI):
+        // возвращаем модели это явно, чтобы она не гадала, почему apt/python «нет».
+        let error = r.error || `exit ${r.code}`;
+        if (r.code === 126 || r.code === 127 || r.code === -1) {
+          const mode = runtimeMode();
+          if (mode === "toybox") {
+            error = "SELinux блокирует исполнение бинарников из app-data (avc denied execute_no_trans) — работает только системный toybox. Короткие команды (ls, cat, find) доступны; apt/python — нет.";
+          }
+        }
+        resolve({ ok: false, output: r.output || "", code: r.code, error });
         return;
       }
       const text = r.output || "";

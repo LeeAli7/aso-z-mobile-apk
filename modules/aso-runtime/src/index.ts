@@ -31,6 +31,7 @@ export interface AsoRuntimeNative {
   hasStorageAccess?(): Promise<boolean>;
   openStorageSettings?(): Promise<boolean>;
   resetBootstrap?(): Promise<boolean>;
+  getRuntimeMode?(): string;
 }
 
 type AsoRuntimeEvents = {
@@ -96,6 +97,15 @@ export function openStorageSettings(): Promise<boolean> {
 /** Переустановить среду: сброс маркера bootstrap → следующая команда распакует заново. */
 export function resetBootstrap(): Promise<boolean> {
   return native ? native.resetBootstrap?.().catch(() => false) ?? Promise.resolve(false) : Promise.resolve(false);
+}
+
+/** Текущий режим среды: "proot" | "bootstrap" | "toybox" | "detecting" | "unknown". */
+export function getRuntimeMode(): string {
+  try {
+    return native?.getRuntimeMode?.() ?? "unknown";
+  } catch {
+    return "unknown";
+  }
 }
 
 export function onOutput(listener: (e: OutputEvent) => void): EventSubscription {
