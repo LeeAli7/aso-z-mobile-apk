@@ -287,27 +287,36 @@ export async function streamChat(
     }
 
     // ── АВТОПРОДОЛЖЕНИЕ при обрыве (до 2 раз) — как в Hermes ──
-    // Провайдер оборвал ответ на полуслове: finish_reason="length", либо поток
-    // закрылся без [DONE] и без finish_reason, а текст обрывается не на знаке
-    // препинания (известное поведение free-эндпоинтов — Hermes issue #30963/#31998).
-    // Передаём модели ЕЁ оборванный ответ + честный промпт: продолжить с места обрыва.
-    const finished = sawDone || finishReason === "stop" || finishReason === "tool_calls";
-    const lastChar = resText.trim().slice(-1);
-    const cutOff =
-      finishReason === "length" ||
-      (!sawDone && !finishReason && !/[.,!?;:)}»"`\n]/.test(lastChar));
-    if (!finished && cutOff && resText.trim() && tailAttempts < 2 && !ctrl.signal.aborted) {
+    // Провайдер рвёт стрим на полуслове: finish_reason="length", либо поток
+    // закрылся без [DONE]/finish_reason, а текст ИЛИ думалка обрываются не на
+    // знаке препинания (известное поведение free-эндпоинтов — Hermes #30963/#31998).
+    // ВАЖНО: проверяем и ДУМАЛКУ — длинные reasoning часто обрываются при пустом контенте.
+    const finished =
+      finishReason === "stop" ||
+      finishReason === "tool_calls" ||
+      (sawDone && finishReason !== "length");
+    const textTail = (resText || "").trim().slice(-1);
+    const thinkTail = (thinking || "").trim().slice(-1);
+    const endsOk =
+      /[.,!?;:)}»"`\n]/.test(textTail) || /[.,!?;:)}»"`\n]/.test(thinkTail);
+    const cutOff = finishReason === "length" || (!finished && !endsOk);
+    const hasAny = (resText || "").trim().length > 0 || (thinking || "").trim().length > 0;
+    if (cutOff && hasAny && tailAttempts < 2 && !ctrl.signal.aborted) {
       tailAttempts++;
-      const tail = resText.trim().slice(-200);
+      const tailText = (resText || "").trim().slice(-200);
+      const tailThink = (thinking || "").trim().slice(-200);
       const isLength = finishReason === "length";
       const promptText = isLength
         ? "[System: Your previous response was truncated by the output length limit. Continue exactly where you left off. Do not restart or repeat prior text. Finish the answer directly.]"
         : "[System: The previous response was cut off by a network error mid-stream. Continue exactly where you left off. Do not restart or repeat prior text. Finish the answer directly.]";
+      const assistantMsg: Record<string, unknown> = { role: "assistant" };
+      if (resText) assistantMsg.content = resText;
+      if (thinking) assistantMsg.reasoning_content = thinking;
       messages = [
         ...messages,
-        { role: "assistant", content: resText || null },
-        { role: "user", content: `${promptText}\n\n…${tail}` },
-      ] as ChatMessage[];
+        assistantMsg as unknown as ChatMessage,
+        { role: "user", content: `${promptText}\n\nТекст: …${tailText}\nРазмышления: …${tailThink}` },
+      ];
       await new Promise((r) => setTimeout(r, 800));
       continue;
     }
@@ -444,15 +453,22 @@ export async function streamAgentChat(
     if (r.reasoning) callbacks.onThinking?.(r.reasoning);
 
     if (r.calls.length === 0) {
-      // финал: ответ без тулов. Если стрим оборвался (провайдер порвал соединение
-      // на полуслове — Hermes issue #30963) — один дозапрос на продолжение с места обрыва.
-      if (!r.finished && r.text && r.text.trim() && !tailRetried && !ctrl.signal.aborted) {
+      // финал: ответ без тулов. Если стрим оборвался (длинная ДУМАЛКА или текст —
+      // провайдер порвал соединение на полуслове, Hermes #30963) — один дозапрос.
+      const hasPartial =
+        !r.finished && ((r.text && r.text.trim()) || (r.reasoning && r.reasoning.trim()));
+      if (hasPartial && !tailRetried && !ctrl.signal.aborted) {
         tailRetried = true;
-        const tail = r.text.trim().slice(-200);
+        const tailText = (r.text || "").trim().slice(-200);
+        const tailThink = (r.reasoning || "").trim().slice(-200);
         const promptText =
           "[System: The previous response was cut off by a network error mid-stream. Continue exactly where you left off. Do not restart or repeat prior text. Finish the answer directly.]";
-        messages.push({ role: "assistant", content: r.text || null });
-        messages.push({ role: "user", content: `${promptText}\n\n…${tail}` });
+        messages.push({
+          role: "assistant",
+          content: r.text || null,
+          ...(r.reasoning ? { reasoning_content: r.reasoning } : {}),
+        });
+        messages.push({ role: "user", content: `${promptText}\n\nТекст: …${tailText}\nРазмышления: …${tailThink}` });
         continue;
       }
       callbacks.onDone(r.text || lastText, messages);
@@ -635,7 +651,10 @@ async function agentRequest(
   const calls = [...tcAcc.values()]
     .filter((c) => c.name)
     .map((c) => ({ ...c, arguments: c.arguments || "{}" }));
-  const finished = sawDone || finishReason === "stop" || finishReason === "tool_calls";
+  const finished =
+    finishReason === "stop" ||
+    finishReason === "tool_calls" ||
+    (sawDone && finishReason !== "length");
   return { text: full, reasoning, calls, toolsRejected: false, finished };
   }
 }
