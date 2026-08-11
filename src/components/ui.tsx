@@ -1,9 +1,12 @@
 /**
  * Переиспользуемые UI-примитивы в стиле макета.
  */
-import React from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Animated,
+  Easing,
   Modal,
+  PanResponder,
   Pressable,
   StyleSheet,
   Text,
@@ -13,6 +16,7 @@ import {
   ViewStyle,
   ScrollView,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useApp } from "../store/AppStore";
 
 /* ── Typography helpers ── */
@@ -156,7 +160,7 @@ export function TextField({
   );
 }
 
-/* ── Bottom sheet ── */
+/* ── Bottom sheet (плавный: вход/выход анимирован, хендл свайпается вниз) ── */
 
 export function BottomSheet({
   visible,
@@ -170,41 +174,98 @@ export function BottomSheet({
   children: React.ReactNode;
 }) {
   const { theme } = useApp();
+  const insets = useSafeAreaInsets();
+  const DROP = 720;
+  const drop = useRef(new Animated.Value(0)).current;
+  const [leaving, setLeaving] = useState(false);
+  const leavingRef = useRef(false);
+
+  const animateClose = useCallback(() => {
+    if (leavingRef.current) return;
+    leavingRef.current = true;
+    setLeaving(true);
+    Animated.timing(drop, { toValue: DROP, duration: 240, easing: Easing.in(Easing.cubic), useNativeDriver: true })
+      .start(() => {
+        leavingRef.current = false;
+        setLeaving(false);
+        onClose();
+      });
+  }, [drop, onClose]);
+
+  useEffect(() => {
+    if (visible) {
+      leavingRef.current = false;
+      setLeaving(false);
+      drop.stopAnimation();
+      drop.setValue(DROP);
+      requestAnimationFrame(() => {
+        Animated.timing(drop, { toValue: 0, duration: 260, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+      });
+    } else if (!leavingRef.current) {
+      drop.setValue(0);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
+
+  const pan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_evt, g) => Math.abs(g.dy) > 6 && g.dy > 0,
+      onPanResponderGrant: () => drop.stopAnimation(),
+      onPanResponderMove: (_evt, g) => drop.setValue(Math.max(0, g.dy)),
+      onPanResponderRelease: (_evt, g) => {
+        if (g.dy > 90 || (g.vy > 0.6 && g.dy > 24)) animateClose();
+        else Animated.spring(drop, { toValue: 0, useNativeDriver: true, bounciness: 4, speed: 22 }).start();
+      },
+      onPanResponderTerminate: () => {
+        Animated.spring(drop, { toValue: 0, useNativeDriver: true, bounciness: 4, speed: 22 }).start();
+      },
+    }),
+  ).current;
+
+  const backdropOpacity = drop.interpolate({ inputRange: [0, DROP], outputRange: [1, 0], extrapolate: "clamp" });
+
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: theme.scrim }}>
-        <Pressable style={{ flex: 1 }} onPress={onClose} />
-        <View
+    <Modal visible={visible || leaving} transparent animationType="none" onRequestClose={animateClose}>
+      <View style={{ flex: 1, justifyContent: "flex-end" }}>
+        <Animated.View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: theme.scrim, opacity: backdropOpacity }}>
+          <Pressable style={{ flex: 1 }} onPress={animateClose} />
+        </Animated.View>
+        <Animated.View
           style={{
             backgroundColor: theme.surface,
             borderTopLeftRadius: 28,
             borderTopRightRadius: 28,
             paddingHorizontal: 14,
-            paddingBottom: 28,
+            paddingBottom: insets.bottom + 12,
             paddingTop: 8,
             maxHeight: "80%",
+            transform: [{ translateY: drop }],
           }}
         >
-          <View
-            style={{
-              alignSelf: "center",
-              width: 36,
-              height: 4,
-              borderRadius: 99,
-              backgroundColor: theme.surface2,
-              marginBottom: 10,
-            }}
-          />
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-            <Text style={{ color: theme.text, fontSize: 16, fontWeight: "700" }}>{title}</Text>
-            <Pressable onPress={onClose} hitSlop={10}>
-              <Text style={{ color: theme.mute, fontSize: 16 }}>×</Text>
-            </Pressable>
+          <View {...pan.panHandlers}>
+            <View
+              style={{
+                alignSelf: "center",
+                width: 36,
+                height: 4,
+                borderRadius: 99,
+                backgroundColor: theme.surface2,
+                marginTop: 8,
+                marginBottom: 12,
+              }}
+            />
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <Text style={{ color: theme.text, fontSize: 16, fontWeight: "700" }}>{title}</Text>
+              <Pressable onPress={animateClose} hitSlop={10}>
+                <Text style={{ color: theme.mute, fontSize: 16 }}>×</Text>
+              </Pressable>
+            </View>
           </View>
           <ScrollView bounces={false} keyboardShouldPersistTaps="handled">
             {children}
           </ScrollView>
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );

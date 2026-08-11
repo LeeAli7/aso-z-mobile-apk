@@ -382,8 +382,16 @@ export function ChatScreen() {
       }
 
       const prev: ChatMessage[] = [];
-      for (const m of (cur?.messages ?? []).filter((x) => !x.streaming && !x.error).slice(-20)) {
-        prev.push(await buildHistoryMsg(m, []));
+      // Hermes-style: если есть полная tool-история прошлых ходов — используем ЕЁ
+      // (assistant с tool_calls + результаты), а не пересобираем из UI-сообщений,
+      // которые теряют структуру вызовов → агент «забывает» выполненные команды.
+      const hist = cur?.agentHistory ?? [];
+      if (hist.length > 0) {
+        prev.push(...hist);
+      } else {
+        for (const m of (cur?.messages ?? []).filter((x) => !x.streaming && !x.error).slice(-20)) {
+          prev.push(await buildHistoryMsg(m, []));
+        }
       }
       const history: ChatMessage[] = [
         ...prev,
@@ -605,8 +613,22 @@ export function ChatScreen() {
             onThinking,
             onToolCall,
             onToolResult,
-            onDone: (finalText) => {
+            onDone: (finalText, messages) => {
               void finalize(finalText);
+              // ── Сохраняем полную tool-историю хода (как Hermes messages[]):
+              // assistant с tool_calls + tool-результаты. При следующем сообщении
+              // она пойдёт модели целиком — агент ПОМНИТ выполненные команды.
+              // Обрезаем: не тащим системный промпт и гигантские выводы.
+              if (Array.isArray(messages) && messages.length > 0) {
+                const trimmed = messages
+                  .filter((m) => m.role !== "system")
+                  .slice(-30)
+                  .map((m) => {
+                    const c = typeof m.content === "string" ? m.content : "";
+                    return c.length > 6000 ? { ...m, content: c.slice(0, 6000) + "\n…(обрезано)" } : m;
+                  });
+                dispatch({ type: "UPDATE_SESSION", sessionId: sid, patch: { agentHistory: trimmed } });
+              }
               // ── Self-improve (P1.3): после сложного хода (2+ тула) тихо анализируем ──
               if (!getRun(sid).stop && usedTools.size >= 2 && !hadToolError) {
                 void runSelfReview(model, {

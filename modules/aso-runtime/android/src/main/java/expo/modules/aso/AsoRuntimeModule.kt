@@ -233,7 +233,18 @@ class AsoRuntimeModule : Module() {
     // ── Установка bootstrap ───────────────────────────────────────────────────
 
     private fun installBootstrap() {
-        if (bootstrapMarker().exists()) return
+        // v2.5.5+: bootstrap теперь содержит python3 (не входит в старые распаковки).
+        // Если маркер стоит, но python3 у распакованного bootstrap НЕТ — это старый
+        // bootstrap: переустанавливаем (чинит «toybox» у пользователей прошлых версий).
+        if (bootstrapMarker().exists()) {
+            val py = File(prefixDir(), "bin/python3")
+            if (py.exists()) return // свежий bootstrap — ок
+            Log.w(tag, "старый bootstrap без python3 — переустанавливаю")
+            dataRoot().listFiles()?.forEach { f ->
+                if (f.name != ".bootstrap-done" && f.name != "proot") f.deleteRecursively()
+            }
+            bootstrapMarker().delete()
+        }
         Log.i(tag, "installing bootstrap into ${prefixDir().absolutePath}")
 
         dataRoot().mkdirs()
@@ -623,13 +634,25 @@ class AsoRuntimeModule : Module() {
         val bash = File(prefix, "bin/bash")
         if (!bash.exists()) return false
         return try {
-            val p = ProcessBuilder(listOf(bash.absolutePath, "-c", "echo ok"))
-                .redirectErrorStream(true)
-                .start()
+            // ВАЖНО: Termux-бинарники имеют RUNPATH=/data/data/com.termux/files/usr/lib
+            // (захардкожен при сборке). У нас PREFIX другой — поэтому запуск обязан
+            // идти С LD_LIBRARY_PATH=$prefix/lib (иначе linker64 не найдёт .so по
+            // RUNPATH). Раньше probe звал bash БЕЗ окружения → ложный toybox, хотя
+            // боевой startProcess (с env) работал. Теперь probe = боевой запуск.
+            val pb = ProcessBuilder(listOf(bash.absolutePath, "-c", "echo ok"))
+            pb.redirectErrorStream(true)
+            pb.environment()["PREFIX"] = prefix
+            pb.environment()["TERMUX_PREFIX"] = prefix
+            pb.environment()["HOME"] = "$prefix/home"
+            pb.environment()["PATH"] = "$prefix/bin:$prefix/bin/applets:/system/bin:/system/xbin"
+            pb.environment()["LD_LIBRARY_PATH"] = "$prefix/lib"
+            pb.environment()["TMPDIR"] = "$prefix/tmp"
+            pb.environment()["TMP"] = "$prefix/tmp"
+            val p = pb.start()
             val out = p.inputStream.bufferedReader().readText().trim()
             val code = p.waitFor()
             val ok = code == 0 && out == "ok"
-            if (!ok) Log.w(tag, "SELinux блокирует bootstrap (probe exit=$code) — переключаюсь на системный PATH / toybox")
+            if (!ok) Log.w(tag, "bootstrap probe fail (exit=$code out=$out) — toybox")
             ok
         } catch (e: Exception) {
             Log.w(tag, "probe bootstrap failed: $e — системный PATH", e)

@@ -17,7 +17,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { Theme, ThemeName, themes } from "../theme/tokens";
 import { Lang } from "../i18n";
-import { ModelInfo, loadModels } from "../core/gateway";
+import { ModelInfo, loadModels, ChatMessage } from "../core/gateway";
 import { listCustomProviders, providersToModels } from "../core/providers";
 import { loadApiBase } from "../core/env";
 
@@ -54,6 +54,13 @@ export interface Session {
   updatedAt: number;
   /** Привязка к vibe-проекту: агент знает контекст проекта, файлы пишутся в него. */
   projectId?: string | null;
+  /**
+   * Полная tool-история последнего агентского хода (как Hermes messages[]):
+   * assistant с tool_calls + tool-результаты. При следующем сообщении
+   * передаётся модели БЕЗ пересборки из UI (иначе агент «забывает», какие
+   * команды уже выполнял — только основной ответ остаётся в памяти).
+   */
+  agentHistory?: ChatMessage[];
 }
 
 interface State {

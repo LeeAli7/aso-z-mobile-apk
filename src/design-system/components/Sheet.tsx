@@ -5,14 +5,19 @@
  * одинаково надёжно на Android, iOS и web-экспорте, кнопки внизу
  * никогда не обрезаются, контент скроллится.
  *
- * Плюсы Modal-подхода: нет зависимости от жестов/Reanimated,
- * рендерится поверх всего, можно закрыть по backdrop.
- *
- * V3: панель — стекло (глэссморфизм, BlurView поверх scrim),
- * в стиле Kimi: молочное стекло, тонкая рамка, блик сверху.
+ * V4:
+ *  - Плавная анимация входа/выхода (Animated, easeOutCubic 280ms):
+ *    панель выезжает снизу, backdrop проявляется; закрытие — плавный
+ *    уход вниз, а не мгновенный распад Modal.
+ *  - Хендл — НАСТОЯЩАЯ drag-зона: тянешь вниз → панель едет за пальцем,
+ *    за порогом (90px или быстрый флик) закрывается, иначе упруго
+ *    возвращается. Свайп работает только с хендла/заголовка, чтобы не
+ *    конфликтовать со скроллом контента.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Animated,
+  Easing,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
@@ -46,14 +51,15 @@ export function Sheet({
 }) {
   const { theme } = useApp();
   const insets = useSafeAreaInsets();
-  const [offsetY, setOffsetY] = useState(0);
-  const offsetRef = useRef(0);
-  const startYRef = useRef(0);
 
-  // Android: KeyboardAvoidingView внутри Modal не сдвигает панель (события клавиатуры
-  // уходят корневому активити, а не окну Modal). Слушаем Keyboard глобально и
-  // поднимаем панель вручную — иначе инпуты в окнах (rename/edit/новый чат)
-  // прячутся за клавиатуру.
+  // Величина ухода панели вниз: 0 = открыто, DROP = закрыто (примерно на всю высоту).
+  const DROP = 720;
+  const drop = useRef(new Animated.Value(0)).current;
+
+  // Modal живёт, пока идёт анимация закрытия (иначе visible=false рвёт её мгновенно).
+  const [leaving, setLeaving] = useState(false);
+  const leavingRef = useRef(false);
+
   const [kbH, setKbH] = useState(0);
   useEffect(() => {
     if (Platform.OS !== "android") return;
@@ -66,132 +72,174 @@ export function Sheet({
     };
   }, []);
 
-  // числовая высота панели из первого snapPoint (напр. "60%" -> 60), "auto" — по контенту
-  const auto = snapPoints[0] === "auto";
-  const heightPct = useCallback(() => {
-    const raw = snapPoints[0] ?? "60%";
-    const n = parseFloat(raw);
-    return Number.isFinite(n) ? Math.min(95, Math.max(25, n)) : 60;
-  }, [snapPoints]);
+  /** Плавное закрытие: уезжаем вниз, только потом сообщаем родителю. */
+  const animateClose = useCallback(() => {
+    if (leavingRef.current) return;
+    leavingRef.current = true;
+    setLeaving(true);
+    Animated.timing(drop, {
+      toValue: DROP,
+      duration: 260,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start(() => {
+      leavingRef.current = false;
+      setLeaving(false);
+      onClose();
+    });
+  }, [drop, onClose]);
 
-  // свайп вниз для закрытия (простой PanResponder)
+  /** Плавный вход: панель снизу — на место, backdrop проявляется. */
+  useEffect(() => {
+    if (visible) {
+      leavingRef.current = false;
+      setLeaving(false);
+      drop.stopAnimation();
+      drop.setValue(DROP);
+      requestAnimationFrame(() => {
+        Animated.timing(drop, {
+          toValue: 0,
+          duration: 280,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }).start();
+      });
+    } else if (!leavingRef.current) {
+      drop.setValue(0);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
+
+  // ── drag-зона: хендл + заголовок ──
+  // Тянем ВНИЗ → панель следует за пальцем (translateY = dy). Отпустили:
+  //  - далеко (>90px) или быстрый флик вниз → плавно закрыть
+  //  - иначе → упруго вернуть на место
+  const dragStartY = useRef(0);
   const pan = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: (_evt, g) => Math.abs(g.dy) > 10 && g.dy > 0,
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_evt, g) => Math.abs(g.dy) > 6 && g.dy > 0,
+      onPanResponderGrant: () => {
+        dragStartY.current = 0;
+        drop.stopAnimation();
+      },
       onPanResponderMove: (_evt, g) => {
-        offsetRef.current = Math.max(0, g.dy);
-        setOffsetY(offsetRef.current);
+        const y = Math.max(0, g.dy);
+        drop.setValue(y);
       },
       onPanResponderRelease: (_evt, g) => {
-        if (g.dy > 90) onClose();
-        else {
-          offsetRef.current = 0;
-          setOffsetY(0);
+        const fast = g.vy > 0.6;
+        if (g.dy > 90 || (fast && g.dy > 24)) {
+          animateClose();
+        } else {
+          Animated.spring(drop, {
+            toValue: 0,
+            useNativeDriver: true,
+            bounciness: 4,
+            speed: 22,
+          }).start();
         }
+      },
+      onPanResponderTerminate: () => {
+        Animated.spring(drop, { toValue: 0, useNativeDriver: true, bounciness: 4, speed: 22 }).start();
       },
     }),
   ).current;
 
-  useEffect(() => {
-    if (!visible) {
-      offsetRef.current = 0;
-      setOffsetY(0);
-    }
-  }, [visible]);
+  // auto: по контенту (не выше autoMaxPct)
+  const auto = snapPoints[0] === "auto";
+  const raw = snapPoints[0] ?? "60%";
+  const n = parseFloat(raw);
+  const heightPct = Number.isFinite(n) ? Math.min(95, Math.max(25, n)) : 60;
 
   const tint = theme.name === "dark" ? "dark" : "light";
   const glassBorder = theme.name === "dark" ? "rgba(255,255,255,.18)" : "rgba(255,255,255,.6)";
 
+  // backdrop: opacity 0→1 по мере подъёма панели
+  const backdropOpacity = drop.interpolate({
+    inputRange: [0, DROP],
+    outputRange: [1, 0],
+    extrapolate: "clamp",
+  });
+
   return (
     <Modal
-      visible={visible}
+      visible={visible || leaving}
       transparent
-      animationType="slide"
-      onRequestClose={onClose}
+      animationType="none"
+      onRequestClose={animateClose}
       statusBarTranslucent
     >
-      <View style={[styles.root, { backgroundColor: theme.scrim }]}>
-        {/* backdrop — тап закрывает */}
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Закрыть" />
+      <View style={styles.root}>
+        {/* backdrop (анимированный) — тап закрывает */}
+        <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: theme.scrim, opacity: backdropOpacity }]}>
+          <Pressable style={{ flex: 1 }} onPress={animateClose} accessibilityLabel="Закрыть" />
+        </Animated.View>
 
-        {/* KAV: инпуты в панели (rename/edit) не должны прятаться за клавиатуру.
-            Android: sheet в Modal, системный adjustResize не двигает Modal — двигаем сами
-            через kbH (Keyboard listeners выше). iOS: behaviour="padding" сдвигает. */}
-        {/* ВАЖНО: flex:1 — иначе KAV сжимается по контенту, maxHeight в % у панели
-            не работает, окно вырастает выше экрана и его верх обрезается. */}
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : undefined}
           keyboardVerticalOffset={0}
           style={{ flex: 1, justifyContent: "flex-end" }}
         >
-        {/* стеклянная панель (имитация: полупрозрачный фон + рамка + блик) */}
-        <View
-          style={[
-            styles.panel,
-            {
-              height: auto ? undefined : `${heightPct()}%`,
-              maxHeight: auto ? `${autoMaxPct}%` : undefined,
-              // Android: поднимаем панель над клавиатурой вручную
-              marginBottom: Platform.OS === "android" ? kbH : 0,
-              // стекло примитивами (без BlurView — он на Android не обрезается скруглением и выходит за рамки)
-              backgroundColor: theme.name === "dark" ? "rgba(24,24,30,.82)" : "rgba(250,250,252,.88)",
-              borderTopLeftRadius: radii.xl,
-              borderTopRightRadius: radii.xl,
-              borderWidth: 1,
-              borderBottomWidth: 0,
-              borderColor: glassBorder,
-              paddingBottom: insets.bottom + 8,
-              transform: [{ translateY: offsetY }],
-              shadowColor: "#000",
-              shadowOpacity: theme.name === "dark" ? 0.6 : 0.25,
-              shadowRadius: 24,
-              shadowOffset: { width: 0, height: -8 },
-              elevation: 20,
-            },
-          ]}
-          {...pan.panHandlers}
-        >
-          {/* handle — симметрично: равные отступы сверху и до контента */}
-          <View style={{ alignItems: "center", paddingTop: 10, paddingBottom: 10 }}>
-            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.surface2 }} />
-          </View>
+          {/* стеклянная панель: примитивами (без BlurView — он на Android не обрезается скруглением) */}
+          <Animated.View
+            pointerEvents={visible ? "auto" : "none"}
+            style={[
+              styles.panel,
+              {
+                height: auto ? undefined : `${heightPct}%`,
+                maxHeight: auto ? `${autoMaxPct}%` : undefined,
+                marginBottom: Platform.OS === "android" ? kbH : 0,
+                backgroundColor: theme.name === "dark" ? "rgba(24,24,30,.82)" : "rgba(250,250,252,.88)",
+                borderTopLeftRadius: radii.xl,
+                borderTopRightRadius: radii.xl,
+                borderWidth: 1,
+                borderBottomWidth: 0,
+                borderColor: glassBorder,
+                paddingBottom: insets.bottom + 8,
+                transform: [{ translateY: drop }],
+                shadowColor: "#000",
+                shadowOpacity: theme.name === "dark" ? 0.6 : 0.25,
+                shadowRadius: 24,
+                shadowOffset: { width: 0, height: -8 },
+                elevation: 20,
+              },
+            ]}
+          >
+            {/* drag-зона: хендл + заголовок — тянется вниз для закрытия */}
+            <View {...pan.panHandlers}>
+              {/* handle — широкая зона (тач-таргет ≥44), сам хендл — тонкая полоса */}
+              <View style={styles.handleArea}>
+                <View style={[styles.handle, { backgroundColor: theme.surface2 }]} />
+              </View>
 
-          {/* тонкий световой блик по верхней грани (iOS glass); контент — поверх */}
-          <View
-            pointerEvents="none"
-            style={{
-              position: "absolute",
-              top: 0.5, left: 0.5, right: 0.5,
-              height: 1,
-              backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.2)" : "rgba(255,255,255,.95)",
-              opacity: 0.7,
-            }}
-          />
-
-          {/* header — только заголовок; закрытие свайпом вниз или тапом по фону */}
-          {title ? (
-            <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
-              <Text style={{ color: theme.text, fontSize: 20, fontWeight: "700" }}>{title}</Text>
+              {title ? (
+                <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
+                  <Text style={{ color: theme.text, fontSize: 20, fontWeight: "700" }}>{title}</Text>
+                </View>
+              ) : null}
             </View>
-          ) : null}
 
-          {/* контент — в режиме auto окно по контенту, но не выше autoMaxPct% (скролл при переполнении) */}
-          {auto ? (
-            <ScrollView
-              keyboardShouldPersistTaps="handled"
-              contentContainerStyle={{ paddingHorizontal: 14, paddingBottom: 20 }}
-            >
-              {children}
-            </ScrollView>
-          ) : (
+            {/* тонкий световой блик по верхней грани (iOS glass) */}
+            <View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                top: 0.5, left: 0.5, right: 0.5,
+                height: 1,
+                backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.2)" : "rgba(255,255,255,.95)",
+                opacity: 0.7,
+              }}
+            />
+
+            {/* контент — скроллится, свайп закрытия НЕ вмешивается (он на хендле) */}
             <ScrollView
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={{ paddingHorizontal: 14, paddingBottom: 24 }}
             >
               {children}
             </ScrollView>
-          )}
-        </View>
+          </Animated.View>
         </KeyboardAvoidingView>
       </View>
     </Modal>
@@ -206,6 +254,17 @@ const styles = StyleSheet.create({
   panel: {
     width: "100%",
     overflow: "hidden",
+  },
+  handleArea: {
+    alignItems: "center",
+    paddingTop: 10,
+    paddingBottom: 10,
+    // drag-зона широкая, чтобы ловить палец; тач-таргет по высоте — норма
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
   },
 });
 

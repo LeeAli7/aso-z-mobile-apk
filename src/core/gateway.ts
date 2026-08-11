@@ -466,11 +466,21 @@ export async function streamAgentChat(
     // ── АНТИ-ОБРЫВ (все тулы): стрим не завершился штатно ([DONE]/finish_reason stop/tool_calls) ──
     // Провайдер порвал соединение на полуслове. Это касается ЛЮБОГО контента:
     // думалки, текста, И tool_calls (write_file/todo/memory/… — аргументы JSON
-    // обрезаются на полуслове). Ничего не исполняем вслепую, а дозапрашиваем
-    // модель с передачей оборванного хвоста — она повторит/завершит (Hermes-паттерн).
-    // Покрывает и «пустой обрыв» (0 байт контента, нет text/reasoning/calls) —
-    // раньше такой случай молча завершался пустотой.
-    if (!r.finished && !ctrl.signal.aborted && tailRetries < MAX_TAIL_RETRIES) {
+    // обрезаются на полуслове). Дозапрашиваем модель с передачей оборванного хвоста
+    // (Hermes-паттерн). НО: если tool_calls уже ПОЛНЫЕ (валидный JSON) — это не обрыв
+    // вызова, а обрыв после вызова: исполняем их как обычно (иначе агент «забывает»
+    // уже готовые команды и дозапрос приводит к повторам/пустоте).
+    const callsComplete =
+      r.calls.length > 0 &&
+      r.calls.every((c) => {
+        try {
+          const o = JSON.parse(c.arguments);
+          return o && typeof o === "object" && !Array.isArray(o);
+        } catch {
+          return false;
+        }
+      });
+    if (!r.finished && !callsComplete && !ctrl.signal.aborted && tailRetries < MAX_TAIL_RETRIES) {
       tailRetries++;
       const tailText = (r.text || "").trim().slice(-200);
       const tailThink = (r.reasoning || "").trim().slice(-200);
