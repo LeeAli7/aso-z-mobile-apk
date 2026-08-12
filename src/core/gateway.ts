@@ -774,10 +774,15 @@ function parseDsmlCalls(text: string): { calls: AgentToolCall[]; stripped: strin
       return "";
     },
   );
-  // недозакрытый DSML-хвост (обрыв стрима) — вырезаем от ПЕРВОГО <|DSML|,
+  // safety-блок Qwen3 (<|ds_safety|>) — модель так отказывает по безопасности.
+  // Это НЕ tool call: вычищаем целиком (чаще всего это весь ответ).
+  stripped = stripped.replace(/<\|ds_safety\|>[\s\S]*?(?:<\/\|ds_safety\|>|$)/gi, "");
+  // недозакрытый DSML/safety-хвост (обрыв стрима) — вырезаем от ПЕРВОГО маркера,
   // чтобы не светить разметкой (полные блоки уже удалены replace выше)
-  const idx = stripped.indexOf("<|DSML|");
-  if (idx >= 0) stripped = stripped.slice(0, idx);
+  const dsmlIdx = stripped.indexOf("<|DSML|");
+  const safIdx = stripped.indexOf("<|ds_safety|");
+  const cut = dsmlIdx >= 0 && (safIdx < 0 || dsmlIdx < safIdx) ? dsmlIdx : safIdx;
+  if (cut >= 0) stripped = stripped.slice(0, cut);
   return { calls, stripped: stripped.trim() };
 }
 
