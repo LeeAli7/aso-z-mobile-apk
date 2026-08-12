@@ -1,0 +1,117 @@
+#!/data/data/com.termux/files/usr/bin/python3
+"""bincheck — диагностика исполняемых файлов для Android/Termux.
+
+Почему скачанный бинарник может не запускаться:
+  1. не та архитектура (x86-64 вместо arm64/aarch64)  -> Exec format error (126)
+  2. собран под glibc (обычный Linux) — на Android нет glibc -> не стартует
+  3. динамические библиотеки Termux без LD_LIBRARY_PATH
+  4. лежит на noexec-томе (Download, /sdcard)          -> Permission denied
+Пример: bincheck ./tool     (или bincheck /путь/к/бинарю)
+"""
+import os
+import re
+import struct
+import sys
+
+ARCH = {
+    0x03: "x86 (32-bit)",
+    0x3E: "x86-64",
+    0x28: "arm (32-bit)",
+    0xB7: "aarch64/arm64",
+}
+
+
+def main(path: str) -> int:
+    if not os.path.exists(path):
+        print(f"bincheck: {path} не существует")
+        return 2
+    try:
+        with open(path, "rb") as f:
+            data = f.read(4 << 20)  # первые 4 МБ — хватит для строк и заголовков
+    except Exception as e:
+        print(f"bincheck: не могу прочитать {path}: {e}")
+        return 2
+
+    if len(data) < 4 or data[:4] != b"\x7fELF":
+        if data[:2] == b"#!":
+            line = data.split(b"\n", 1)[0].decode("latin1", "replace")
+            print(f"bincheck: это СКРИПТ (не ELF)")
+            print(f"  shebang: {line}")
+            print("  если интерпретатор не найден — команда падает с 127 (No such file or directory)")
+            return 0
+        print(f"bincheck: это НЕ ELF и НЕ скрипт (первые байты: {data[:8].hex()})")
+        print("  проверь, что скачал правильный файл (не HTML-страницу ошибки)")
+        return 0
+
+    is64 = data[4] == 2
+    e_machine = struct.unpack_from("<H", data, 18)[0]
+    arch = ARCH.get(e_machine, f"0x{e_machine:x}")
+    ok_arch = e_machine in (0xB7, 0x28)
+    print(f"ELF {arch} ({'64-bit' if is64 else '32-bit'})")
+    print(f"архитектура: {'OK для Android (arm64/arm)' if ok_arch else 'НЕ ПОДХОДИТ — нужно arm64/aarch64!'}")
+
+    # glibc-маркеры (версии GLIBC_ в .gnu.version / .dynstr)
+    glibc = b"GLIBC_" in data
+    if glibc:
+        print("линковка: glibc (обычный Linux) — на Android НЕ запустится")
+        print("  ищи статическую сборку (static/musl) или Termux-пакет: apt/pkg install <имя>")
+
+    # PT_INTERP: динамический интерпретатор
+    cls = 8 if is64 else 4
+    if cls == 8:
+        e_phoff = struct.unpack_from("<Q", data, 32)[0]
+        e_phentsize = struct.unpack_from("<H", data, 54)[0]
+        e_phnum = struct.unpack_from("<H", data, 56)[0]
+    else:
+        e_phoff = struct.unpack_from("<I", data, 28)[0]
+        e_phentsize = struct.unpack_from("<H", data, 42)[0]
+        e_phnum = struct.unpack_from("<H", data, 44)[0]
+
+    interp = None
+    try:
+        with open(path, "rb") as f:
+            for i in range(min(e_phnum, 128)):
+                f.seek(e_phoff + i * e_phentsize)
+                ph = f.read(e_phentsize)
+                if len(ph) < e_phentsize:
+                    break
+                p_type = struct.unpack_from("<I", ph, 0)[0]
+                if p_type == 3:  # PT_INTERP
+                    if cls == 8:
+                        off, size = struct.unpack_from("<QQ", ph, 8)
+                    else:
+                        off, size = struct.unpack_from("<II", ph, 4)
+                    f.seek(off)
+                    interp = f.read(min(size, 512)).split(b"\x00")[0].decode("latin1", "replace")
+    except Exception as e:
+        print(f"bincheck: предупреждение при чтении заголовков: {e}")
+
+    if interp:
+        print(f"динамический интерпретатор: {interp}")
+        if "/linker64" in interp or "/linker" in interp:
+            print("  это Termux/Android-бинарник — запустится при LD_LIBRARY_PATH=$PREFIX/lib")
+        else:
+            print("  интерпретатор не из Android — почти наверняка glibc-сборка, не запустится")
+    else:
+        print("статическая сборка — запустится на Android (если архитектура OK)")
+
+    # динамические зависимости (строковый скан — достаточно для диагностики)
+    so = sorted(set(re.findall(rb"lib[^\x00\s/]{1,60}\.so", data)))
+    if so:
+        print("нужные .so:", " ".join(s.decode("latin1") for s in so[:12]) or "(пусто)")
+
+    # вердикт
+    if not ok_arch:
+        print("\nВЕРДИКТ: скачай сборку для aarch64 (arm64); x86/x86-64 бинарники на телефоне не идут.")
+    elif glibc:
+        print("\nВЕРДИКТ: glibc-бинарник. Ищи static/musl-сборку или ставь через apt/pkg.")
+    else:
+        print("\nВЕРДИКТ: выглядит запускаемым. Если всё равно 126/127 — проверь путь (noexec-том?) и chmod +x.")
+    return 0
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("bincheck <файл> — диагностика исполняемого файла")
+        sys.exit(2)
+    sys.exit(main(sys.argv[1]))
