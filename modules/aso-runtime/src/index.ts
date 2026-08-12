@@ -30,6 +30,8 @@ export interface AsoRuntimeNative {
   execCapture(cmd: string, cwd?: string): Promise<{ ok: boolean; output: string; code: number; error?: string }>;
   hasStorageAccess?(): Promise<boolean>;
   openStorageSettings?(): Promise<boolean>;
+  openBatterySettings?(): Promise<boolean>;
+  openNotificationSettings?(): Promise<boolean>;
   resetBootstrap?(): Promise<boolean>;
   getRuntimeMode?(): string;
 }
@@ -92,6 +94,18 @@ export function hasStorageAccess(): Promise<boolean> {
 /** Открыть системный экран разрешения «Все файлы» (Android 11+). */
 export function openStorageSettings(): Promise<boolean> {
   return native ? native.openStorageSettings?.().catch(() => false) ?? Promise.resolve(false) : Promise.resolve(false);
+}
+
+/** Открыть список «Оптимизация батареи» (Android 6+, без permission в манифесте). */
+export function openBatterySettings(): Promise<boolean> {
+  return native ? native.openBatterySettings?.().catch(() => false) ?? Promise.resolve(false) : Promise.resolve(false);
+}
+
+/** Открыть системные настройки уведомлений приложения (Android 8+). */
+export function openNotificationSettings(): Promise<boolean> {
+  return native
+    ? native.openNotificationSettings?.().catch(() => false) ?? Promise.resolve(false)
+    : Promise.resolve(false);
 }
 
 /** Переустановить среду: сброс маркера bootstrap → следующая команда распакует заново. */

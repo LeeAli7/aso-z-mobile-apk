@@ -207,6 +207,41 @@ class AsoRuntimeModule : Module() {
             }
         }
 
+        // Открывает список «Оптимизация батареи» (Android 6+).
+        // ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS НЕ требует permission
+        // REQUEST_IGNORE_BATTERY_OPTIMIZATIONS в манифесте (в отличие от
+        // ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS) — просто показывает
+        // системный список приложений, где пользователь выбирает Aso-z.
+        AsyncFunction("openBatterySettings") { promise: expo.modules.kotlin.Promise ->
+            try {
+                val ctx = context()
+                val intent = android.content.Intent(
+                    android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS,
+                )
+                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                ctx.startActivity(intent)
+                promise.resolve(true)
+            } catch (e: Exception) {
+                promise.resolve(false)
+            }
+        }
+
+        // Открывает системные настройки уведомлений приложения (Android 8+).
+        AsyncFunction("openNotificationSettings") { promise: expo.modules.kotlin.Promise ->
+            try {
+                val ctx = context()
+                val intent = android.content.Intent(
+                    android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS,
+                )
+                intent.putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, ctx.packageName)
+                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                ctx.startActivity(intent)
+                promise.resolve(true)
+            } catch (e: Exception) {
+                promise.resolve(false)
+            }
+        }
+
         // Переустановка среды: сброс маркера .bootstrap-done + остановка сервиса.
         // При следующей команде bootstrap распакуется ЗАНОВО (chmod, symlinks, shebang,
         // probe) — чинит среды, оставшиеся от старых APK с битыми файлами.

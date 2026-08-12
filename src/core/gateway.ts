@@ -692,11 +692,21 @@ async function agentRequest(
     finishReason === "tool_calls" ||
     (sawDone && finishReason !== "length");
 
+  // ── DSML (Qwen3): вызовы могут прийти разметкой в content, а не delta.tool_calls ──
+  // Если структурированных вызовов нет — берём из DSML. Разметку из текста
+  // вычищаем ВСЕГДА (даже при наличии структурированных вызовов модель могла
+  // продублировать их в content — пользователю это показывать нельзя).
+  const dsml = parseDsmlCalls(full);
+  if (tcAcc.size === 0 && dsml.calls.length > 0) {
+    dsml.calls.forEach((c) => tcAcc.set(tcAcc.size, c));
+  }
+  const textOut = dsml.stripped || full;
+
   // ── Обрыв mid-tool: провайдер порвал стрим ПОКА модель генерировала tool_calls ──
   // (net drop / length без [DONE]). finished=false — streamAgentChat не будет исполнять
   // вызовы вслепую, а сделает дозапрос (анти-обрыв). Сам calls оставляем (имя тула
   // полезно для промпта «повтори вызов»); аргументы могли обрезаться на полуслове.
-  return { text: full, reasoning, calls, toolsRejected: false, finished };
+  return { text: textOut, reasoning, calls, toolsRejected: false, finished };
   }
 }
 
@@ -707,6 +717,68 @@ function parseToolArgs(raw: string): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+// ── DSML (Qwen3) ────────────────────────────────────────────────────────────
+// Qwen3 (особенно через веб-прокси типа qwenmode) может слать вызовы тулов НЕ в
+// delta.tool_calls, а разметкой <|DSML|…|> прямо в delta.content. Такой текст
+// НЕЛЬЗЯ показывать пользователю — его нужно распарсить в tool_calls и вычистить
+// из текста, иначе чат засоряется сырой разметкой.
+// Реальные форматы (Qwen docs + живой вывод qwenmode):
+//   <|DSML|tool_calls|><|DSML|invoke name="x"><|DSML|parameter name="a" string="true">v</|DSML|parameter></|DSML|invoke></|DSML|tool_calls|>
+//   <|DSML|invoke name="x"><|DSML|args|>{"a":1}</|DSML|args|></|DSML|invoke>
+//   <|DSML|invoke name="x"><|DSML|single_arg|>v</|DSML|single_arg|></|DSML|invoke>
+// Открывающие/закрывающие теги бывают как с хвостовым |, так и без него
+// (qwenmode шлёт <|DSML|parameter name="command" string="true">…</|DSML|parameter>).
+function tryJsonScalar(v: string): unknown {
+  try {
+    return JSON.parse(v);
+  } catch {
+    return v;
+  }
+}
+
+function parseDsmlInvokeBody(name: string, body: string): { name: string; arguments: string } {
+  const args = body.match(/<\|DSML\|args\|?>([\s\S]*?)<\/\|DSML\|args\|?>/i);
+  if (args) return { name, arguments: args[1].trim() };
+  const single = body.match(/<\|DSML\|single_arg\|?>([\s\S]*?)<\/\|DSML\|single_arg\|?>/i);
+  if (single) return { name, arguments: JSON.stringify({ arg: single[1].trim() }) };
+  const obj: Record<string, unknown> = {};
+  const re = /<\|DSML\|parameter\s+name="([^"]+)"(?:\s+string="(true|false)")?>([\s\S]*?)<\/\|DSML\|parameter\|?>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(body)) !== null) {
+    const val = m[3].trim();
+    // string="true" — принудительно строка; иначе пытаемся угадать число/bool/null
+    obj[m[1]] = m[2] === "true" ? val : tryJsonScalar(val);
+  }
+  return { name, arguments: Object.keys(obj).length ? JSON.stringify(obj) : "{}" };
+}
+
+/** Извлекает DSML-tool_calls из текста и вычищает разметку из видимого вывода. */
+function parseDsmlCalls(text: string): { calls: AgentToolCall[]; stripped: string } {
+  const calls: AgentToolCall[] = [];
+  let stripped = text.replace(/<\|DSML\|tool_calls\|?>([\s\S]*?)<\/\|DSML\|tool_calls\|?>/gi, (_m, inner: string) => {
+    const re = /<\|DSML\|invoke\s+name="([^"]+)"([\s\S]*?)<\/\|DSML\|invoke\|?>/gi;
+    let m: RegExpExecArray | null;
+    let i = calls.length;
+    while ((m = re.exec(inner)) !== null) {
+      calls.push({ id: `call_dsml_${i++}`, ...parseDsmlInvokeBody(m[1], m[2]) });
+    }
+    return "";
+  });
+  // одиночный invoke без обёртки tool_calls
+  stripped = stripped.replace(
+    /<\|DSML\|invoke\s+name="([^"]+)"([\s\S]*?)<\/\|DSML\|invoke\|?>/gi,
+    (_m, name: string, body: string) => {
+      calls.push({ id: `call_dsml_${calls.length}`, ...parseDsmlInvokeBody(name, body) });
+      return "";
+    },
+  );
+  // недозакрытый DSML-хвост (обрыв стрима) — вырезаем от ПЕРВОГО <|DSML|,
+  // чтобы не светить разметкой (полные блоки уже удалены replace выше)
+  const idx = stripped.indexOf("<|DSML|");
+  if (idx >= 0) stripped = stripped.slice(0, idx);
+  return { calls, stripped: stripped.trim() };
 }
 
 /** Пытается вытащить ответ из reasoning-only вывода (как _extract_answer_from_thinking). */

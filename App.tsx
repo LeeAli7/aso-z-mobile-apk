@@ -2,8 +2,9 @@
  * Aso-z 2.0 — навигация по Kimi (4 вкладки: Чат / Поиск / Агент / Мои).
  * Всё в стиле Kimi: тёмный #0D0D0D, капсулы, Geist Mono, без эмодзи.
  */
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { Platform, PermissionsAndroid } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { StatusBar } from "expo-status-bar";
 import { useFonts } from "expo-font";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -17,6 +18,7 @@ import { VibeProjectScreen } from "./src/screens/VibeProjectScreen";
 import { SettingsScreen } from "./src/screens/SettingsScreen";
 import { ProvidersScreen } from "./src/screens/ProvidersScreen";
 import { AgentSettingsScreen } from "./src/screens/AgentSettingsScreen";
+import { OnboardingScreen } from "./src/screens/OnboardingScreen";
 import { ToastHost, showToast } from "./src/design-system/components/Toast";
 
 /**
@@ -96,6 +98,38 @@ function ThemedApp() {
   );
 }
 
+/**
+ * Гейт онбординга: при первом запуске показываем 5 слайдов (приветствие +
+ * разрешения: файлы/батарея/уведомления), после «Начать работу» — основное
+ * приложение. Флаг aso_onboarding_done живёт в AsyncStorage.
+ */
+function OnboardingGate() {
+  const [state, setState] = useState<"loading" | "onboarding" | "done">("loading");
+  useEffect(() => {
+    let alive = true;
+    AsyncStorage.getItem("aso_onboarding_done")
+      .then((v) => {
+        if (alive) setState(v === "1" ? "done" : "onboarding");
+      })
+      .catch(() => {
+        if (alive) setState("done"); // не смогли прочитать — не блокируем вход
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  if (state === "loading") return null;
+  if (state === "onboarding") {
+    return (
+      <>
+        <StatusBar style="light" />
+        <OnboardingScreen onDone={() => setState("done")} />
+      </>
+    );
+  }
+  return <ThemedApp />;
+}
+
 export default function App() {
   // Шрифты Kimi (MiSans/Geist Mono/Pixelify) — вытащены из APK Kimi.
   const [fontsLoaded] = useFonts({
@@ -111,7 +145,7 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <AppProvider>
-          <ThemedApp />
+          <OnboardingGate />
         </AppProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
