@@ -44,6 +44,13 @@ jobs:
       - name: Expo prebuild (android)
         run: npx expo prebuild --platform android --no-install
 
+      - name: Force targetSdkVersion 28 (Android W^X exec fix)
+        run: |
+          cd android
+          sed -i 's/\(targetSdkVersion *= *\)[0-9]*/\128/' build.gradle
+          echo "--- targetSdkVersion after patch:"
+          grep -n 'targetSdkVersion' build.gradle app/build.gradle
+
       - name: Ensure release is signed with debug key
         run: |
           cd android/app

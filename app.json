@@ -29,14 +29,6 @@
     "plugins": [
       "./modules/aso-runtime/app.plugin.js",
       [
-        "expo-build-properties",
-        {
-          "android": {
-            "targetSdkVersion": 28
-          }
-        }
-      ],
-      [
         "expo-font",
         {
           "fonts": [
