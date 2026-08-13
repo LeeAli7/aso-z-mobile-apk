@@ -181,7 +181,7 @@ registerTool({
     if (p.startsWith("/data") || p.startsWith("../") || p.includes("..\\")) {
       return "ошибка: разрешены только относительные пути или $HOME";
     }
-    const r = await runCommandCapture(`ls -la "${p}" 2>&1`, ctx.projectId);
+    const r = await runCommandCapture(`ls -la "${p}" 2>&1`, ctx.projectId, ctx.cwd);
     return r.ok ? (r.output?.trim() || "(пусто)").slice(0, 6000) : `ошибка: ${r.error || `exit ${r.code}`}`;
   },
 });
@@ -204,7 +204,7 @@ registerTool({
     if (!runtimeAvailable()) return "рантайм доступен только на Android";
     const p = String(args.path ?? "").trim();
     if (!p) return "ошибка: нужен путь";
-    const r = await runCommandCapture(`cat "${p}" 2>&1`, ctx.projectId);
+    const r = await runCommandCapture(`cat "${p}" 2>&1`, ctx.projectId, ctx.cwd);
     if (!r.ok) return `ошибка чтения: ${r.error || r.output || `exit ${r.code}`}`;
     const out = r.output ?? "";
     return out.length > 8000 ? out.slice(0, 8000) + `\n… (обрезано, всего ${out.length} симв.)` : out;
@@ -240,6 +240,7 @@ registerTool({
     const r = await runCommandCapture(
       `mkdir -p "$(dirname "${p}")" && echo ${b64} | base64 -d > "${p}" && wc -c "${p}"`,
       ctx.projectId,
+      ctx.cwd,
     );
     return r.ok ? `Файл записан: ${p} (${content.length} симв.).` : `ошибка записи: ${r.error || r.output || `exit ${r.code}`}`;
   },

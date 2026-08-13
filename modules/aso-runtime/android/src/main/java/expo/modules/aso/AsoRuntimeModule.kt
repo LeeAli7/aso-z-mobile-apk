@@ -700,6 +700,19 @@ class AsoRuntimeModule : Module() {
         val home = homeDir().absolutePath
         val mode = detectRuntimeMode()
 
+        // Рабочая папка команды. Проекты агента живут в files/vibe/<id> — команды
+        // должны выполняться ВНУТРИ проекта, чтобы относительные пути
+        // (write_file/read_file/list_files, mkdir -p и т.п.) попадали в файлы
+        // проекта, а не в $HOME. Если переданный cwd не существует — HOME.
+        val workDir = when {
+            cwd != null && File(cwd).isDirectory -> cwd
+            cwd != null -> {
+                Log.w(tag, "cwd не существует: $cwd — использую HOME")
+                home
+            }
+            else -> home
+        }
+
         if (mode == "proot") {
             // Полноценный Linux: Alpine rootfs с python3. Home пользователя пробрасываем
             // внутрь /root — файлы проекта и агентские записи остаются видимыми с обеих сторон.
@@ -716,10 +729,23 @@ class AsoRuntimeModule : Module() {
                 if (File(sys).exists()) { args.add("-b"); args.add("$sys:$sys") }
             }
             args.add("-b"); args.add("$home:/root")
-            args.add("-w"); args.add("/root")
+            // Проект агента (files/vibe/<id>) пробрасываем 1:1 — внутри rootfs он
+            // виден по ТОМУ ЖЕ абсолютному пути, и команда с cwd=проект работает.
+            // Если cwd внутри $HOME — отдельный bind не нужен (home уже в /root).
+            val projectCwd = workDir != home && File(workDir).isDirectory
+            if (projectCwd) {
+                args.add("-b"); args.add("$workDir:$workDir")
+            }
+            // Внутренний cwd proot: пути под $HOME отображаем на /root/…,
+            // проекты — как есть (они забинжены 1:1).
+            val prootCwd = when {
+                workDir.startsWith(home) -> "/root" + workDir.substring(home.length)
+                else -> workDir
+            }
+            args.add("-w"); args.add(prootCwd)
             args.add("/bin/sh"); args.add("-c"); args.add(cmd)
             val pb = ProcessBuilder(args)
-            pb.directory(File(if (cwd != null && cwd.startsWith(home)) cwd else home))
+            pb.directory(File(workDir))
             pb.environment()["HOME"] = "/root"
             pb.environment()["PATH"] = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
             pb.environment()["TMPDIR"] = "/tmp"
@@ -749,14 +775,14 @@ class AsoRuntimeModule : Module() {
         if (useBootstrap && !File(shell).exists()) {
             // совсем старая установка без bash — тащим из toybox
             return ProcessBuilder("/system/bin/sh", "-c", cmd).apply {
-                directory(File(cwd ?: home))
+                directory(File(workDir))
                 environment()["HOME"] = home
                 environment()["PATH"] = sysPath
             }.start()
         }
 
         val pb = ProcessBuilder(listOf(shell, "-c", cmd))
-        pb.directory(File(cwd ?: home))
+        pb.directory(File(workDir))
         pb.environment()["PREFIX"] = prefix
         pb.environment()["TERMUX_PREFIX"] = prefix
         pb.environment()["HOME"] = home

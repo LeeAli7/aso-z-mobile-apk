@@ -28,12 +28,18 @@ class AsoRuntimeService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         createChannel()
         val notification = buildNotification()
-        // API 34+ требует типа foreground service для некоторых типов;
-        // dataSync подходит для фоновых команд/установки пакетов.
-        if (Build.VERSION.SDK_INT >= 34) {
-            startForeground(NOTIF_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-        } else {
-            startForeground(NOTIF_ID, notification)
+        // startForeground НИКОГДА не должен ронять процесс: сервис нужен только
+        // чтобы shell-процессы не убивали в фоне. Если система отказывает
+        // (Android 14+: нет permission для типа FGS; фон: ForegroundServiceStart
+        // NotAllowedException) — команды продолжают работать без сервиса.
+        try {
+            if (Build.VERSION.SDK_INT >= 34) {
+                startForeground(NOTIF_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            } else {
+                startForeground(NOTIF_ID, notification)
+            }
+        } catch (e: Exception) {
+            Log.w("AsoRuntimeService", "startForeground не удался — продолжаем без FGS: $e")
         }
         return START_STICKY
     }
@@ -71,11 +77,17 @@ class AsoRuntimeService : Service() {
         const val NOTIF_ID = 42
 
         fun start(ctx: Context) {
-            val i = Intent(ctx, AsoRuntimeService::class.java)
-            if (Build.VERSION.SDK_INT >= 26) {
-                ctx.startForegroundService(i)
-            } else {
-                ctx.startService(i)
+            // Сбой запуска сервиса (фоновый старт, ограничения вендора) не должен
+            // ломать выполнение команд — ловим и продолжаем.
+            try {
+                val i = Intent(ctx, AsoRuntimeService::class.java)
+                if (Build.VERSION.SDK_INT >= 26) {
+                    ctx.startForegroundService(i)
+                } else {
+                    ctx.startService(i)
+                }
+            } catch (e: Exception) {
+                Log.w("AsoRuntimeService", "start сервиса не удался — продолжаем без FGS: $e")
             }
         }
 

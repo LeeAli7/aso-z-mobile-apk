@@ -16,6 +16,10 @@ const { withDangerousMod, withAndroidManifest, withMainActivity, AndroidConfig }
 
 const FOREGROUND_PERMISSIONS = [
   "android.permission.FOREGROUND_SERVICE",
+  // ОБЯЗАТЕЛЬНО для Android 14+ (targetSdk 34+): startForeground с типом
+  // dataSync без этого permission кидает SecurityException на main-треде →
+  // падает весь процесс приложения на КАЖДОЙ команде агента.
+  "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
   "android.permission.POST_NOTIFICATIONS",
   // Доступ «Все файлы» (Android 11+): агент может читать/писать хранилище
   // за пределами песочницы приложения (папки рядом с Aso-z и т.п.).

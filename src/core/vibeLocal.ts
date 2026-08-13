@@ -455,7 +455,7 @@ export async function vibeChat(
           continue;
         }
         callbacks.onTool("выполняю " + cmd);
-        const r = await runCommandCapture(cmd, projectId);
+        const r = await runCommandCapture(cmd, projectId, projectStoragePath(projectId));
         // при ошибке показываем ВЫВОД bash — там конкретная причина (Permission denied / Exec format error)
         const detail = !r.ok && r.output?.trim()
           ? r.output.trim().split("\n").slice(-3).join("\n").slice(-500)

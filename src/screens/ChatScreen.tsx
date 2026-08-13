@@ -44,7 +44,7 @@ import {
   parseFileBlocks,
   writeFile,
 } from "../core/vibeLocal";
-import { openInTermux, openFolderInFileManager } from "../core/termux";
+import { openInTermux, openFolderInFileManager, projectDirPath } from "../core/termux";
 import { parseCmdBlocks, runCommandCapture, runtimeAvailable } from "../core/runtime";
 import { IconButton, IconName } from "../design-system/components/IconButton";
 import { Glass, GlassPressable } from "../design-system/components/Glass";
@@ -564,7 +564,7 @@ export function ChatScreen() {
               cmdReports.push(`$ ${cmd}\nрантайм доступен только на Android`);
               continue;
             }
-            const r = await runCommandCapture(cmd, proj?.id);
+            const r = await runCommandCapture(cmd, proj?.id, proj ? projectDirPath(proj.id) : undefined);
             const detail = !r.ok && r.output?.trim()
               ? r.output.trim().split("\n").slice(-3).join("\n").slice(-500)
               : r.output?.trim() || r.error || "не удалось выполнить";
@@ -642,7 +642,7 @@ export function ChatScreen() {
             onError,
           },
           ctrl.signal,
-          { projectId: proj?.id, onToolProgress: (msg) => { if (!getRun(sid).stop) setToolNote(msg); } },
+          { projectId: proj?.id, cwd: proj ? projectDirPath(proj.id) : undefined, onToolProgress: (msg) => { if (!getRun(sid).stop) setToolNote(msg); } },
         );
       } else {
         await streamChat(model, chatMessages, {
