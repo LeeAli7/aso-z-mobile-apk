@@ -57,15 +57,6 @@ jobs:
           echo "--- app/build.gradle SDK refs after patch:"
           grep -n 'compileSdk\|minSdkVersion\|targetSdkVersion' app/build.gradle
 
-      - name: Disable release lint (targetSdk 28 is not Play-compliant)
-        run: |
-          cd android/app
-          if ! grep -q 'checkReleaseBuilds' build.gradle; then
-            sed -i '$ s/^}/    lint {\n        checkReleaseBuilds = false\n    }\n}/' build.gradle
-          fi
-          echo "--- app/build.gradle tail after patch:"
-          tail -6 build.gradle
-
       - name: Ensure release is signed with debug key
         run: |
           cd android/app
@@ -86,7 +77,7 @@ jobs:
 
       - name: Build release APK
         working-directory: android
-        run: ./gradlew assembleRelease --no-daemon
+        run: ./gradlew assembleRelease --no-daemon -x lintVitalRelease
 
       - name: Verify APK signature
         run: |
@@ -94,6 +85,8 @@ jobs:
           echo "APK: $APK ($(du -h "$APK" | cut -f1))"
           ls "$ANDROID_HOME/build-tools" | tail -1 > /tmp/btver
           "$ANDROID_HOME/build-tools/$(cat /tmp/btver)/apksigner" verify --print-certs "$APK"
+          echo "--- manifest SDK versions:"
+          "$ANDROID_HOME/build-tools/$(cat /tmp/btver)/aapt2" dump badging "$APK" | grep -E "^(package|sdkVersion|targetSdkVersion)"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
