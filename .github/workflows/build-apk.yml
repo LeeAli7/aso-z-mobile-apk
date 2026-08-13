@@ -47,9 +47,15 @@ jobs:
       - name: Force targetSdkVersion 28 (Android W^X exec fix)
         run: |
           cd android
-          sed -i 's/\(targetSdkVersion *= *\)[0-9]*/\128/' build.gradle
-          echo "--- targetSdkVersion after patch:"
-          grep -n 'targetSdkVersion' build.gradle app/build.gradle
+          if grep -q 'targetSdkVersion rootProject.ext.targetSdkVersion' app/build.gradle; then
+            sed -i 's/targetSdkVersion rootProject\.ext\.targetSdkVersion/targetSdkVersion 28/' app/build.gradle
+          else
+            echo "ERROR: expected line not found in app/build.gradle" >&2
+            grep -n 'targetSdkVersion' app/build.gradle
+            exit 1
+          fi
+          echo "--- app/build.gradle SDK refs after patch:"
+          grep -n 'compileSdk\|minSdkVersion\|targetSdkVersion' app/build.gradle
 
       - name: Ensure release is signed with debug key
         run: |
