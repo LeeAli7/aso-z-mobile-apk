@@ -128,16 +128,17 @@ export function runCommandCapture(cmd: string, projectId?: string, cwd?: string)
     try {
       const r = await rtExecCapture(cmd, cwd);
       if (!r.ok) {
-        // Если среда реально toybox — это SELinux (avc denied execute_no_trans на MIUI):
-        // возвращаем модели это явно, чтобы она не гадала, почему apt/python «нет».
-        // НЕ говорим «работает только toybox» — у нас в среде есть и bootstrap с python3,
-        // и proot; toybox — крайний случай когда ОС запрещает exec из app-data.
+        // Реальная диагностика вместо догадки «SELinux». В toybox-режиме команды
+        // идут через системный /system/bin/sh, поэтому любой сбой тула выглядит
+        // как «исполнение недоступно» — но ПРИЧИНА может быть другая (не тот
+        // интерпретатор, битый bootstrap, не хватает .so). Возвращаем модели
+        // факт + команды для проверки, а НЕ готовый вердикт «система блокирует».
         let error = r.error || `exit ${r.code}`;
         if (r.code === 126 || r.code === 127 || r.code === -1) {
-          const mode = runtimeMode();
-          if (mode === "toybox") {
-            error = "Система устройства блокирует исполнение бинарников из app-data (SELinux/MIUI avc denied execute_no_trans) — встроенный Linux-рантайм (bash/apt/python3) недоступен, работает только системный toybox (ls, cat, find). Настоящий Termux из Play Маркета может работать — там тот же execve, но установка через пакетный менеджер.";
-          }
+          error =
+            `${error} (среда: ${runtimeMode()}). ` +
+            `Продиагностируй причину: uname -m; ls $PREFIX/bin | head; echo $PREFIX $LD_LIBRARY_PATH; ` +
+            `bincheck <бинарник> — и сообщи фактическую ошибку, а не «система блокирует».`;
         }
         resolve({ ok: false, output: r.output || "", code: r.code, error });
         return;
