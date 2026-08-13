@@ -21,14 +21,21 @@
       },
       "package": "app.aso.zmobile",
       "predictiveBackGestureEnabled": false,
-      "usesCleartextTraffic": true,
-      "targetSdkVersion": 28
+      "usesCleartextTraffic": true
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
       "./modules/aso-runtime/app.plugin.js",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "targetSdkVersion": 28
+          }
+        }
+      ],
       [
         "expo-font",
         {
