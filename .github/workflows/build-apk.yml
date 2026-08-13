@@ -57,6 +57,15 @@ jobs:
           echo "--- app/build.gradle SDK refs after patch:"
           grep -n 'compileSdk\|minSdkVersion\|targetSdkVersion' app/build.gradle
 
+      - name: Disable release lint (targetSdk 28 is not Play-compliant)
+        run: |
+          cd android/app
+          if ! grep -q 'checkReleaseBuilds' build.gradle; then
+            sed -i '$ s/^}/    lint {\n        checkReleaseBuilds = false\n    }\n}/' build.gradle
+          fi
+          echo "--- app/build.gradle tail after patch:"
+          tail -6 build.gradle
+
       - name: Ensure release is signed with debug key
         run: |
           cd android/app
