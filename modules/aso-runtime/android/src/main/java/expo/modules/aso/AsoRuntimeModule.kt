@@ -362,6 +362,10 @@ class AsoRuntimeModule : Module() {
             fixShebangs()
         }
 
+        // apt в официальной сборке Termux зашит на /data/data/com.termux/files/usr:
+        // чиним конфиг/ключи/CA сразу после распаковки.
+        ensureAptConfig(prefixDir().absolutePath)
+
         // Mark bootstrap as done only after successful unpack.
         if (!bootstrapMarker().createNewFile()) {
             throw IllegalStateException("marker exists after install")
@@ -586,6 +590,90 @@ class AsoRuntimeModule : Module() {
         if (fixed > 0) Log.i(tag, "fix-shebang: переписано $fixed скриптов")
     }
 
+    /**
+     * Чинит apt из официальной сборки Termux: его конфиг жёстко зашит на
+     * /data/data/com.termux/files/usr, а наш PREFIX другой — apt падает с
+     * «W: Unable to read .../apt.conf.d/ (Permission denied)» и
+     * «E: Unable to determine a suitable packaging system type».
+     *
+     * Решение: переменная APT_CONFIG (документированная опция самого apt) указывает
+     * на наш $PREFIX/etc/apt/apt.conf, который задаёт Dir "<наш PREFIX>" — все
+     * относительные пути (apt.conf.d, sources.list, var/lib/apt, var/cache/apt)
+     * резолвятся от нашего префикса. Дополнительно:
+     *  - sources.list с официальным репозиторием Termux (если ни одного источника нет);
+     *    [trusted=yes] — когда в архиве нет GPG-ключей Termux (подпись не проверяется).
+     *  - CA-бандл из системных сертификатов Android (аналог termux-ca-certificates):
+     *    без него TLS-валидация https://packages.termux.dev падает (certificate verify
+     *    failed). Отдаём OpenSSL через SSL_CERT_FILE в startProcess.
+     * Идемпотентна: дёшево, можно звать на каждом старте (чинит и старые установки).
+     */
+    private fun ensureAptConfig(prefix: String) {
+        try {
+            val aptEtc = File(prefix, "etc/apt")
+            aptEtc.mkdirs()
+
+            // 1) APT_CONFIG-таргет — всегда актуальный префикс (перезаписываем).
+            // Полный набор Dir::* путей, чтобы не упираться в зашитые дефолты Termux.
+            val aptConf = File(aptEtc, "apt.conf")
+            val configText = """
+                Dir "$prefix";
+                Dir::State "var/lib/apt";
+                Dir::State::status "var/lib/dpkg/status";
+                Dir::Cache "var/cache/apt";
+                Dir::Cache::archives "var/cache/apt/archives";
+                Dir::Etc "etc/apt";
+                Dir::Etc::main "apt.conf";
+                Dir::Etc::parts "apt.conf.d";
+                Dir::Etc::sourcelist "sources.list";
+                Dir::Etc::sourceparts "sources.list.d";
+                Dir::Etc::trusted "trusted.gpg";
+                Dir::Etc::trustedparts "trusted.gpg.d";
+                Dir::Log "var/log/apt";
+            """.trimIndent() + "\n"
+            if (!aptConf.exists() || aptConf.readText() != configText) aptConf.writeText(configText)
+
+            // 2) sources.list — только если ни одного источника нет.
+            val hasSources = File(aptEtc, "sources.list").exists() ||
+                File(aptEtc, "sources.list.d").let { it.isDirectory && it.listFiles()?.isNotEmpty() == true }
+            if (!hasSources) {
+                val hasKeys =
+                    File(aptEtc, "trusted.gpg.d").listFiles()?.any { it.name.endsWith(".gpg") } == true ||
+                        File(aptEtc, "keys").listFiles()?.any { it.name.endsWith(".gpg") || it.name.endsWith(".key") } == true
+                val trust = if (hasKeys) "" else " [trusted=yes]"
+                File(aptEtc, "sources.list").writeText(
+                    "deb$trust https://packages.termux.dev/apt/termux-main stable main\n"
+                )
+            }
+
+            // 3) CA-бандл (tls/ в Termux-style). Собираем из системного хранилища Android:
+            // /system/etc/security/cacerts/*.0 и /apex/com.android.conscrypt/cacerts/*.0.
+            val tlsDir = File(prefix, "etc/tls")
+            val certPem = File(tlsDir, "cert.pem")
+            if (!certPem.exists()) {
+                val dirs = listOf(
+                    File("/system/etc/security/cacerts"),
+                    File("/apex/com.android.conscrypt/cacerts"),
+                )
+                val sb = StringBuilder()
+                for (d in dirs) {
+                    if (!d.isDirectory) continue
+                    val files = d.listFiles() ?: continue
+                    for (f in files.sortedBy { it.name }) {
+                        if (!f.isFile || !f.name.contains(".")) continue
+                        try { sb.append(f.readText(Charsets.UTF_8)) } catch (_: Exception) {}
+                    }
+                }
+                if (sb.isNotEmpty()) {
+                    tlsDir.mkdirs()
+                    certPem.writeText(sb.toString())
+                    Log.i(tag, "apt fix: CA-бандл собран в $certPem (${sb.length} байт)")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "ensureAptConfig: $e")
+        }
+    }
+
     // ── Процесс и стриминг ───────────────────────────────────────────────────
 
     private var runtimeMode: String? = null // "proot" | "bootstrap" | "toybox"
@@ -698,6 +786,9 @@ class AsoRuntimeModule : Module() {
     private fun startProcess(cmd: String, cwd: String?): Process {
         val prefix = prefixDir().absolutePath
         val home = homeDir().absolutePath
+        // Ленивый фикс apt для уже установленных bootstrap (маркер стоит) —
+        // создаёт $PREFIX/etc/apt/apt.conf, sources.list и CA-бандл при первом старте.
+        ensureAptConfig(prefix)
         val mode = detectRuntimeMode()
 
         // Рабочая папка команды. Проекты агента живут в files/vibe/<id> — команды
@@ -790,6 +881,14 @@ class AsoRuntimeModule : Module() {
         // LD_LIBRARY_PATH указываем только когда bootstrap исполняем: системные
         // toybox-бинарники не зависят от наших lib/, а чужие lib впереди могут поломать их.
         if (useBootstrap) pb.environment()["LD_LIBRARY_PATH"] = "$prefix/lib"
+        // apt (Termux-сборка) зашит на /data/data/com.termux/files/usr — перенаправляем
+        // его конфиг на наш PREFIX через APT_CONFIG (см. ensureAptConfig).
+        if (useBootstrap) pb.environment()["APT_CONFIG"] = "$prefix/etc/apt/apt.conf"
+        // CA-бандл из системных сертификатов Android (если собран) — для https-репозитория.
+        if (useBootstrap) {
+            val certPem = File(prefix, "etc/tls/cert.pem")
+            if (certPem.exists()) pb.environment()["SSL_CERT_FILE"] = certPem.absolutePath
+        }
         // Android-песочница: /tmp как такового нет — даём свой (иначе bash/apt падают).
         val tmpDir = File(prefixDir(), "tmp")
         try { tmpDir.mkdirs() } catch (_: Exception) {}
