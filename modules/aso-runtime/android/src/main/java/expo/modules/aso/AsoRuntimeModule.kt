@@ -404,6 +404,8 @@ class AsoRuntimeModule : Module() {
             val rAsset = context().assets.open("rootfs/$rName")
             extractRootfsZip(rAsset.buffered(), rootfsDir())
             Log.i(tag, "rootfs installed: $rName")
+            // resolv.conf/hosts в офлайн-rootfs отсутствуют — дописываем сразу.
+            ensureProotNet()
         }
 
         /**
@@ -704,14 +706,16 @@ class AsoRuntimeModule : Module() {
             }
         }
 
-        // 1) bootstrap (Termux) — он работает ВЕЗДЕ, где работает Termux (проверено
-        // пользователем на телефонах разных вендоров). Это наш основной Linux:
-        // bash, apt, python3 (собран в bootstrap). Предпочитаем его.
-        // 2) proot — запасной (если bootstrap почему-то не исполнился).
+        // 1) proot (Alpine rootfs) — теперь ОСНОВНАЯ среда: полноценный Linux
+        //    (bash, coreutils, python3, pip, git, curl…) с нативным apk.
+        //    apt в Termux-bootstrap зашит на /data/data/com.termux/files/usr и
+        //    неработоспособен под нашим PREFIX (Permission denied) — поэтому
+        //    bootstrap больше не основной, а лишь запасной вариант.
+        // 2) bootstrap (Termux-style bash/apt) — fallback там, где proot не работает.
         // 3) toybox — последний шанс.
         val mode = when {
-            probeBootstrapUsable(prefixDir().absolutePath) -> "bootstrap"
             probeProotUsable() -> "proot"
+            probeBootstrapUsable(prefixDir().absolutePath) -> "bootstrap"
             else -> "toybox"
         }
         runtimeMode = mode
@@ -725,6 +729,7 @@ class AsoRuntimeModule : Module() {
         if (!pbin.exists()) return false
         val sh = File(rootfsDir(), "bin/sh")
         if (!sh.exists()) return false
+        ensureProotNet()
         return try {
             val args = ArrayList<String>()
             args.add(pbin.absolutePath); args.add("-0"); args.add("-r"); args.add(rootfsDir().absolutePath)
@@ -741,6 +746,41 @@ class AsoRuntimeModule : Module() {
         } catch (e: Exception) {
             Log.w(tag, "proot probe exception: $e")
             false
+        }
+    }
+
+    /**
+     * Обеспечивает сеть внутри Alpine-rootfs: собранный офлайн rootfs НЕ содержит
+     * /etc/resolv.conf и /etc/hosts — без них apk/pip/git падают с DNS-ошибками.
+     * Берём системный resolv.conf Android (если есть), иначе публичные DNS.
+     * rootfs в app-data доступен на запись — пишем файлы напрямую (не bind).
+     * Идемпотентна: зовём при каждой инициализации proot.
+     */
+    private fun ensureProotNet() {
+        try {
+            val etc = File(rootfsDir(), "etc")
+            etc.mkdirs()
+            val resolv = File(etc, "resolv.conf")
+            val content = try {
+                val sys = File("/system/etc/resolv.conf")
+                if (sys.exists()) {
+                    val t = sys.readText(Charsets.UTF_8).trim()
+                    if (t.isNotEmpty()) t + "\n" else ""
+                } else ""
+            } catch (_: Exception) { "" }
+            val effective = if (content.isNotEmpty()) content
+            else "nameserver 8.8.8.8\nnameserver 1.1.1.1\n"
+            val existing = if (resolv.exists()) try { resolv.readText() } catch (_: Exception) { "" } else ""
+            if (existing != effective) {
+                resolv.writeText(effective)
+                Log.i(tag, "proot net: resolv.conf записан (${if (content.isNotEmpty()) "системный" else "fallback DNS"})")
+            }
+            val hosts = File(etc, "hosts")
+            if (!hosts.exists()) {
+                hosts.writeText("127.0.0.1 localhost\n::1 localhost\n")
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "ensureProotNet: $e")
         }
     }
 
