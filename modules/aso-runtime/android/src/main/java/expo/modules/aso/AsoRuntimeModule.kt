@@ -58,6 +58,19 @@ class AsoRuntimeModule : Module() {
 
     private fun bootstrapMarker(): File = File(dataRoot(), ".bootstrap-done")
 
+    /** Версия встроенной среды. Меняется при любом изменении формата bootstrap/rootfs —
+     *  если у пользователя маркер с другой версией, среда переустанавливается целиком
+     *  (чинит «поставил новый APK поверх старого, а старые битые файлы остались»). */
+    private fun envVersion(): String = "2.5.12"
+
+    private fun writeEnvDiag(text: String) {
+        try {
+            val f = File(dataRoot(), "env-diag.txt")
+            f.parentFile?.mkdirs()
+            f.writeText(text)
+        } catch (_: Exception) {}
+    }
+
     private fun abi(): String =
         (Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a")
 
@@ -273,10 +286,13 @@ class AsoRuntimeModule : Module() {
         // bootstrap: переустанавливаем (чинит «toybox» у пользователей прошлых версий).
         if (bootstrapMarker().exists()) {
             val py = File(prefixDir(), "bin/python3")
-            if (py.exists()) return // свежий bootstrap — ок
-            Log.w(tag, "старый bootstrap без python3 — переустанавливаю")
+            val ver = try { bootstrapMarker().readText().trim() } catch (_: Exception) { "" }
+            if (py.exists() && ver == envVersion()) return // свежий bootstrap текущей версии — ок
+            Log.w(tag, "старый bootstrap (маркер версии '$ver', нужно '${envVersion()}') — переустанавливаю среду")
+            // Удаляем ВСЁ (включая proot/rootfs — они могли быть распакованы битой
+            // версией extractTar до v2.5.11): чистое переустановка с фиксами.
             dataRoot().listFiles()?.forEach { f ->
-                if (f.name != ".bootstrap-done" && f.name != "proot") f.deleteRecursively()
+                if (f.name != ".bootstrap-done") f.deleteRecursively()
             }
             bootstrapMarker().delete()
         }
@@ -370,6 +386,7 @@ class AsoRuntimeModule : Module() {
         if (!bootstrapMarker().createNewFile()) {
             throw IllegalStateException("marker exists after install")
         }
+        bootstrapMarker().writeText(envVersion())
 
         // ── proot: бинарник + rootfs (полноценная Linux-среда, python3) ──
         // rootfs и proot НЕ критичны для установки (если собьются при распаковке —
@@ -704,8 +721,14 @@ class AsoRuntimeModule : Module() {
      *   3. toybox (/system/bin/sh) — последний шанс.
      * Результат кэшируем на время жизни процесса.
      */
+    private val modeDiag = StringBuilder()
+
+    /** Выбирает рабочую среду агента + пишет env-diag.txt с причиной выбора. */
     private fun detectRuntimeMode(): String {
         runtimeMode?.let { return it }
+
+        modeDiag.setLength(0)
+        fun diag(l: String) { modeDiag.append(l).append('\n') }
 
         // ВАЖНО: чиним права bootstrap ДО любого probe. Старые установки (маркер стоит,
         // файлы лежат) после обновления APK теряют +x — probe падал с 126, и мы навсегда
@@ -713,30 +736,80 @@ class AsoRuntimeModule : Module() {
         // (замкнутый круг: probe=false → чинить некому). Теперь chmod всегда первым.
         if (prefixDir().resolve("bin/bash").exists()) ensureExecutable(prefixDir().absolutePath)
 
+        diag("env-версия: ${envVersion()}, abi: ${abi()}")
+        diag("проot бинарник: ${prootBin().exists()} (${prootBin().length()} байт), rootfs/bin/sh: ${File(rootfsDir(), "bin/sh").exists()}")
+
         // proot мог не установиться при апдейте (маркер .bootstrap-done уже был с прошлой
         // версии — installBootstrap не перезапускается). Доустанавливаем, если бинарник
         // или rootfs отсутствуют; при сбое — тихо уходим на bootstrap/toybox.
         if (!prootBin().exists() || !File(rootfsDir(), "bin/sh").exists()) {
             try { installProot() } catch (e: Exception) {
                 Log.e(tag, "lazy proot install failed — bootstrap/toybox", e)
+                diag("lazy installProot упал: ${e.message}")
             }
         }
+        diag("proot после lazy-install: ${prootBin().exists()}, rootfs/bin/sh: ${File(rootfsDir(), "bin/sh").exists()}")
 
         // 1) proot (Alpine rootfs) — теперь ОСНОВНАЯ среда: полноценный Linux
         //    (bash, coreutils, python3, pip, git, curl…) с нативным apk.
         //    apt в Termux-bootstrap зашит на /data/data/com.termux/files/usr и
         //    неработоспособен под нашим PREFIX (Permission denied) — поэтому
         //    bootstrap больше не основной, а лишь запасной вариант.
-        // 2) bootstrap (Termux-style bash/apt) — fallback там, где proot не работает.
-        // 3) toybox — последний шанс.
+        // 2) bootstrap-proot-map — Termux-bootstrap через проot-обёртку, которая
+        //    подменяет /data/data/com.termux/files/usr на наш PREFIX: apt видит
+        //    «родной» путь и работает (как в настоящем Termux). Нужен только
+        //    проot-бинарник (rootfs не обязателен).
+        // 3) bootstrap (Termux-style bash/apt) — fallback там, где проot не работает.
+        // 4) toybox — последний шанс.
         val mode = when {
             probeProotUsable() -> "proot"
+            probeBootstrapProotMap() -> "bootstrap-proot-map"
             probeBootstrapUsable(prefixDir().absolutePath) -> "bootstrap"
             else -> "toybox"
         }
         runtimeMode = mode
         Log.i(tag, "runtime mode: $mode")
+        writeEnvDiag(modeDiag.toString() + "ИТОГ: $mode\n")
         return mode
+    }
+
+    /**
+     * Termux-bootstrap через проot с маппингом путей:
+     *   proot -0 -b <наш PREFIX>:/data/data/com.termux/files/usr ...
+     * Termux-бинарники (apt, dpkg, bash) собраны с жёстким путём
+     * /data/data/com.termux/files/usr — под нашим PREFIX они падают
+     * («Unable to determine a suitable packaging system type» / Permission denied).
+     * Подмена пути делает их «родным» Termux: apt читает наш etc/apt, dpkg — наш
+     * var/lib/dpkg — и менеджер пакетов работает без пересборки.
+     * Требуется только рабочий проot-бинарник (rootfs не нужен).
+     */
+    private fun probeBootstrapProotMap(): Boolean {
+        val pbin = prootBin()
+        if (!pbin.exists()) return false
+        val bash = File(prefixDir(), "bin/bash")
+        if (!bash.exists()) return false
+        return try {
+            val termuxPrefix = "/data/data/com.termux/files/usr"
+            val args = ArrayList<String>()
+            args.add(pbin.absolutePath); args.add("-0")
+            args.add("-b"); args.add("${prefixDir().absolutePath}:$termuxPrefix")
+            args.add("-b"); args.add("${homeDir().absolutePath}:${termuxPrefix}/home")
+            for (sys in listOf("/system", "/dev", "/proc", "/sys", "/storage")) {
+                if (File(sys).exists()) { args.add("-b"); args.add("$sys:$sys") }
+            }
+            args.add("-w"); args.add(termuxPrefix)
+            args.add("$termuxPrefix/bin/bash"); args.add("-c"); args.add("echo ok")
+            val p = ProcessBuilder(args).redirectErrorStream(true).start()
+            val out = p.inputStream.bufferedReader().readText().trim()
+            val code = p.waitFor()
+            val ok = code == 0 && out == "ok"
+            if (!ok) Log.w(tag, "bootstrap-proot-map probe fail (exit=$code out=$out)")
+            else Log.i(tag, "bootstrap-proot-map probe OK — apt будет работать через проot-маппер")
+            ok
+        } catch (e: Exception) {
+            Log.w(tag, "bootstrap-proot-map probe exception: $e")
+            false
+        }
     }
 
     /** proot-среда: статический proot + Alpine rootfs с python3. Полный тест — запуск sh. */
@@ -899,6 +972,41 @@ class AsoRuntimeModule : Module() {
             pb.environment()["TMP"] = "/tmp"
             pb.environment()["SHELL"] = "/bin/sh"
             // Локаль UTF-8, чтобы Python не падал на ASCII-дефолте
+            pb.environment()["LANG"] = "C.UTF-8"
+            pb.environment()["LC_ALL"] = "C.UTF-8"
+            pb.redirectErrorStream(true)
+            return pb.start()
+        }
+
+        if (mode == "bootstrap-proot-map") {
+            // Termux-bootstrap через проot: подменяем /data/data/com.termux/files/usr
+            // на наш PREFIX — apt/dpkg видят «родной» путь и работают (probe подтвердил).
+            val termuxPrefix = "/data/data/com.termux/files/usr"
+            val args = ArrayList<String>()
+            args.add(prootBin().absolutePath); args.add("-0")
+            args.add("-b"); args.add("${prefixDir().absolutePath}:$termuxPrefix")
+            args.add("-b"); args.add("${homeDir().absolutePath}:${termuxPrefix}/home")
+            for (sys in listOf("/system", "/dev", "/proc", "/sys", "/storage")) {
+                if (File(sys).exists()) { args.add("-b"); args.add("$sys:$sys") }
+            }
+            // Рабочий каталог: внутри маппера $HOME отображается на /root
+            val mapCwd = when {
+                workDir.startsWith(home) -> "/root" + workDir.substring(home.length)
+                else -> workDir
+            }
+            args.add("-w"); args.add(mapCwd)
+            args.add("$termuxPrefix/bin/bash"); args.add("-c"); args.add(cmd)
+            val pb = ProcessBuilder(args)
+            pb.directory(File(workDir))
+            // Внутри маппера PREFIX — «родной» Termux-путь (апт зашит на него),
+            // LD_LIBRARY_PATH — наш lib, доступный по этому пути через -b биндинг.
+            pb.environment()["PREFIX"] = termuxPrefix
+            pb.environment()["TERMUX_PREFIX"] = termuxPrefix
+            pb.environment()["HOME"] = "/root"
+            pb.environment()["PATH"] = "$termuxPrefix/bin:$termuxPrefix/bin/applets:/system/bin:/system/xbin:/product/bin"
+            pb.environment()["LD_LIBRARY_PATH"] = "$termuxPrefix/lib"
+            pb.environment()["TMPDIR"] = "${prefixDir().absolutePath}/tmp"
+            pb.environment()["TMP"] = "${prefixDir().absolutePath}/tmp"
             pb.environment()["LANG"] = "C.UTF-8"
             pb.environment()["LC_ALL"] = "C.UTF-8"
             pb.redirectErrorStream(true)
