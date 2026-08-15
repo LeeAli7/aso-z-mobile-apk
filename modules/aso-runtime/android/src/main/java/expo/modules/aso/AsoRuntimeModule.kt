@@ -425,6 +425,7 @@ class AsoRuntimeModule : Module() {
             val hdr = ByteArray(512)
             var longName: String? = null
             var paxName: String? = null
+            var paxLink: String? = null
 
             while (true) {
                 if (!readFully(tarIn, hdr)) break
@@ -438,13 +439,15 @@ class AsoRuntimeModule : Module() {
 
                 when (type) {
                     'x' -> {
-                        // pax extended header: "path=<длинное имя>\n"
+                        // pax extended header: "path=<длинное имя>\n" и "linkpath=<цель симлинка>\n"
                         val txt = String(data, Charsets.UTF_8)
                         txt.lineSequence().forEach { line ->
                             val sp = line.indexOf(' ')
                             if (sp > 0 && line.indexOf('=', sp) > 0) {
                                 val key = line.substring(sp + 1, line.indexOf('=', sp))
-                                if (key == "path") paxName = line.substring(line.indexOf('=', sp) + 1)
+                                val value = line.substring(line.indexOf('=', sp) + 1)
+                                if (key == "path") paxName = value
+                                else if (key == "linkpath") paxLink = value
                             }
                         }
                     }
@@ -452,9 +455,18 @@ class AsoRuntimeModule : Module() {
                         longName = String(data, Charsets.UTF_8).trimEnd('\u0000')
                     }
                     else -> {
-                        var name = longName ?: paxName ?: String(hdr, 0, 100, Charsets.UTF_8).trimEnd('\u0000', ' ')
+                        var name = longName ?: paxName
+                            ?: String(hdr, 0, 100, Charsets.UTF_8).trimEnd('\u0000', ' ')
+                        val usedPax = longName != null || paxName != null
                         longName = null
                         paxName = null
+                        // ustar prefix-поле (offset 345, len 155): длинные пути >100 символов
+                        // записываются как prefix + "/" + name. Склеиваем ТОЛЬКО когда имя взято
+                        // из 100-байтного поля (pax/GNU-longname уже дают полный путь).
+                        val prefix = String(hdr, 345, 155, Charsets.UTF_8).trimEnd('\u0000', ' ')
+                        if (!usedPax && prefix.isNotEmpty() && !name.startsWith(prefix)) {
+                            name = "$prefix/$name"
+                        }
                         if (name.isEmpty()) break // нулевой блок = конец архива
                         val target = File(dest, name)
                         when (type) {
@@ -463,7 +475,11 @@ class AsoRuntimeModule : Module() {
                                 try { Os.chmod(target.absolutePath, 0x1ED /*0755*/) } catch (_: Exception) {}
                             }
                             '2' -> {
-                                val link = String(hdr, 157, 100, Charsets.UTF_8).trimEnd('\u0000', ' ')
+                                // pax linkpath перекрывает 100-байтное поле (не-ASCII/длинные,
+                                // напр. ca-cert: NetLock_Arany_=Class_Gold=_Főtanúsítvány.pem)
+                                val link = paxLink
+                                    ?: String(hdr, 157, 100, Charsets.UTF_8).trimEnd('\u0000', ' ')
+                                paxLink = null
                                 target.parentFile?.mkdirs()
                                 try { if (!target.exists()) Os.symlink(link, target.absolutePath) } catch (_: Exception) {}
                             }

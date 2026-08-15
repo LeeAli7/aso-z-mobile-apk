@@ -218,7 +218,7 @@ export async function openInTermux(projectId: string): Promise<{ ok: boolean; me
   }
   return {
     ok: true,
-    message: "Встроенный терминал готов. Опиши задачу в чате — агент выполнит команды (apt, python, bash).",
+    message: "Встроенный терминал готов. Опиши задачу в чате — агент выполнит команды (apk/apt, python, bash).",
   };
 }
 
