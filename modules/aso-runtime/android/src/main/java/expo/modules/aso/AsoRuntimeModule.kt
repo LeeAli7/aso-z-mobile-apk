@@ -801,11 +801,14 @@ class AsoRuntimeModule : Module() {
         // v2.5.14: подсказка агенту — в bootstrap-proot-map путь /data/data/com.termux
         // ВНУТРИ маппера существует (забинжен на наш каталог) — это НОРМАЛЬНО,
         // apt/dpkg именно так и видят свой конфиг. «Чинить» пути не нужно.
-        val hint = when (mode) {
-            "bootstrap-proot-map" -> " (Termux-путь /data/data/com.termux/files/usr внутри маппера указывает на наш каталог — это работает, НЕ перенастраивай PREFIX/конфиги на /data/user/0/...)",
-            "bootstrap" -> " (Termux-style через LD_PRELOAD-маппер путей)",
-            "proot" -> " (Alpine rootfs, пакеты ставь apk add)",
-            else -> ""
+        val hint: String = if (mode == "bootstrap-proot-map") {
+            " (Termux-путь /data/data/com.termux/files/usr внутри маппера указывает на наш каталог — это работает)"
+        } else if (mode == "bootstrap") {
+            " (Termux-style через LD_PRELOAD-маппер путей)"
+        } else if (mode == "proot") {
+            " (Alpine rootfs, пакеты ставь apk add)"
+        } else {
+            ""
         }
         writeEnvDiag(modeDiag.toString() + "ИТОГ: $mode$hint\n")
         return mode
