@@ -61,7 +61,7 @@ class AsoRuntimeModule : Module() {
     /** Версия встроенной среды. Меняется при любом изменении формата bootstrap/rootfs —
      *  если у пользователя маркер с другой версией, среда переустанавливается целиком
      *  (чинит «поставил новый APK поверх старого, а старые битые файлы остались»). */
-    private fun envVersion(): String = "2.5.13"
+    private fun envVersion(): String = "2.5.14"
 
     private fun writeEnvDiag(text: String) {
         try {
@@ -657,9 +657,11 @@ class AsoRuntimeModule : Module() {
      * «E: Unable to determine a suitable packaging system type».
      *
      * Решение: переменная APT_CONFIG (документированная опция самого apt) указывает
-     * на наш $PREFIX/etc/apt/apt.conf, который задаёт Dir "<наш PREFIX>" — все
-     * относительные пути (apt.conf.d, sources.list, var/lib/apt, var/cache/apt)
-     * резолвятся от нашего префикса. Дополнительно:
+     * на наш $PREFIX/etc/apt/apt.conf, который задаёт Dir — а ВНУТРЕННИЙ путь
+     * /data/data/com.termux/files/usr (он существует через проot-биндинг в режиме
+     * bootstrap-proot-map, а в режиме bootstrap/pathmap его подменяет LD_PRELOAD-маппер).
+     * НЕ использовать реальный путь /data/user/0/... — внутри проot он не существует.
+     * Дополнительно:
      *  - sources.list с официальным репозиторием Termux (если ни одного источника нет);
      *    [trusted=yes] — когда в архиве нет GPG-ключей Termux (подпись не проверяется).
      *  - CA-бандл из системных сертификатов Android (аналог termux-ca-certificates):
@@ -672,11 +674,14 @@ class AsoRuntimeModule : Module() {
             val aptEtc = File(prefix, "etc/apt")
             aptEtc.mkdirs()
 
+            // Внутренний путь Termux (существует через проot-биндинг / LD_PRELOAD-маппер).
+            val termuxPrefix = "/data/data/com.termux/files/usr"
+
             // 1) APT_CONFIG-таргет — всегда актуальный префикс (перезаписываем).
             // Полный набор Dir::* путей, чтобы не упираться в зашитые дефолты Termux.
             val aptConf = File(aptEtc, "apt.conf")
             val configText = """
-                Dir "$prefix";
+                Dir "$termuxPrefix";
                 Dir::State "var/lib/apt";
                 Dir::State::status "var/lib/dpkg/status";
                 Dir::Cache "var/cache/apt";
@@ -775,24 +780,34 @@ class AsoRuntimeModule : Module() {
         }
         diag("proot после lazy-install: ${prootBin().exists()}, rootfs/bin/sh: ${File(rootfsDir(), "bin/sh").exists()}")
 
-        // 1) Termux-bootstrap + LD_PRELOAD-маппер путей (Termux-style, БЕЗ проot):
-        //    прямой exec (targetSdk=28 разрешает) + pathmap перенаправляет зашитый
-        //    /data/data/com.termux/files/usr на наш PREFIX — apt/dpkg работают
-        //    «как в настоящем Termux». Это основной режим.
-        // 2) proot (Alpine rootfs: python3, pip, bash, git, apk) — полноценный Linux.
-        // 3) bootstrap-proot-map — Termux-bootstrap через проot-биндинг пути.
-        // 4) bootstrap (Termux-style bash/apt) — fallback там, где pathmap нет.
+        // Приоритет режимов (v2.5.14):
+        // 1) bootstrap-proot-map — Termux-bootstrap через проot-биндинг пути
+        //    /data/data/com.termux/files/usr → наш PREFIX. ДОКАЗАННО работает
+        //    на устройствах (v2.5.10-12): apt/dpkg видят «родной» путь.
+        // 2) bootstrap (pathmap) — прямой exec + LD_PRELOAD-маппер (там, где
+        //    проot недоступен, но маппер загружается).
+        // 3) proot (Alpine rootfs: python3, pip, bash, git, apk).
+        // 4) bootstrap (Termux-style bash/apt) — fallback без мапперов.
         // 5) toybox — последний шанс.
         val mode = when {
+            probeBootstrapProotMap() -> "bootstrap-proot-map"
             probeBootstrapPathmap() -> "bootstrap"
             probeProotUsable() -> "proot"
-            probeBootstrapProotMap() -> "bootstrap-proot-map"
             probeBootstrapUsable(prefixDir().absolutePath) -> "bootstrap"
             else -> "toybox"
         }
         runtimeMode = mode
         Log.i(tag, "runtime mode: $mode")
-        writeEnvDiag(modeDiag.toString() + "ИТОГ: $mode\n")
+        // v2.5.14: подсказка агенту — в bootstrap-proot-map путь /data/data/com.termux
+        // ВНУТРИ маппера существует (забинжен на наш каталог) — это НОРМАЛЬНО,
+        // apt/dpkg именно так и видят свой конфиг. «Чинить» пути не нужно.
+        val hint = when (mode) {
+            "bootstrap-proot-map" -> " (Termux-путь /data/data/com.termux/files/usr внутри маппера указывает на наш каталог — это работает, НЕ перенастраивай PREFIX/конфиги на /data/user/0/...)",
+            "bootstrap" -> " (Termux-style через LD_PRELOAD-маппер путей)",
+            "proot" -> " (Alpine rootfs, пакеты ставь apk add)",
+            else -> ""
+        }
+        writeEnvDiag(modeDiag.toString() + "ИТОГ: $mode$hint\n")
         return mode
     }
 
@@ -853,6 +868,9 @@ class AsoRuntimeModule : Module() {
             args.add(pbin.absolutePath); args.add("-0")
             args.add("-b"); args.add("${prefixDir().absolutePath}:$termuxPrefix")
             args.add("-b"); args.add("${homeDir().absolutePath}:${termuxPrefix}/home")
+            // self-bind реального пути — как в боевом запуске (см. startProcess)
+            args.add("-b"); args.add("${prefixDir().absolutePath}:${prefixDir().absolutePath}")
+            args.add("-b"); args.add("${homeDir().absolutePath}:${homeDir().absolutePath}")
             for (sys in listOf("/system", "/dev", "/proc", "/sys", "/storage")) {
                 if (File(sys).exists()) { args.add("-b"); args.add("$sys:$sys") }
             }
@@ -971,12 +989,47 @@ class AsoRuntimeModule : Module() {
         }
     }
 
+    /**
+     * Убирает мусор, копящийся при работе: tmp-каталоги (bootstrap, rootfs),
+     * apt-кэш .deb (перекачивается заново), старые env-diag. Вызывается на
+     * каждом старте команды — дёшево (список + удаление пустого/мусора),
+     * зато телефон не забивается десятками МБ мусора (жалоба агента на память).
+     */
+    private var lastCleanup = 0L
+    private fun cleanupRuntimeGarbage() {
+        val now = System.currentTimeMillis()
+        if (now - lastCleanup < 60_000) return // не чаще раза в минуту
+        lastCleanup = now
+        val roots = listOf(
+            File(prefixDir(), "tmp"),
+            File(prefixDir(), "var/cache/apt/archives/partial"),
+            File(rootfsDir(), "tmp"),
+        )
+        for (root in roots) {
+            try {
+                root.listFiles()?.forEach { f ->
+                    try { if (f.isFile) f.delete() else f.deleteRecursively() } catch (_: Exception) {}
+                }
+            } catch (_: Exception) {}
+        }
+        // apt-кэш .deb: перекачивается заново при install — хранить незачем.
+        try {
+            val archives = File(prefixDir(), "var/cache/apt/archives")
+            archives.listFiles()?.forEach { f ->
+                try { if (f.name.endsWith(".deb") || f.name.endsWith(".diff_Index") || f.name.startsWith(".")) f.delete() } catch (_: Exception) {}
+            }
+        } catch (_: Exception) {}
+    }
+
     private fun startProcess(cmd: String, cwd: String?): Process {
         val prefix = prefixDir().absolutePath
         val home = homeDir().absolutePath
         // Ленивый фикс apt для уже установленных bootstrap (маркер стоит) —
         // создаёт $PREFIX/etc/apt/apt.conf, sources.list и CA-бандл при первом старте.
         ensureAptConfig(prefix)
+        // Периодическая уборка мусора: tmp-каталоги и apt-кэш распухают на малом
+        // диске телефона (агент жаловался на память). Дёшево, только каталоги мусора.
+        cleanupRuntimeGarbage()
         val mode = detectRuntimeMode()
 
         // Рабочая папка команды. Проекты агента живут в files/vibe/<id> — команды
@@ -1040,17 +1093,34 @@ class AsoRuntimeModule : Module() {
         if (mode == "bootstrap-proot-map") {
             // Termux-bootstrap через проot: подменяем /data/data/com.termux/files/usr
             // на наш PREFIX — apt/dpkg видят «родной» путь и работают (probe подтвердил).
+            // ВАЖНО (v2.5.14): ВНУТРИ маппера существуют ТОЛЬКО забинженные пути —
+            // реальный путь /data/user/0/app.aso.zmobile/... там НЕ существует.
+            // Поэтому HOME/TMPDIR/APT_CONFIG указываем на ВНУТРЕННИЙ путь
+            // $termuxPrefix/... (через -b он виден как наш каталог).
             val termuxPrefix = "/data/data/com.termux/files/usr"
             val args = ArrayList<String>()
             args.add(prootBin().absolutePath); args.add("-0")
             args.add("-b"); args.add("${prefixDir().absolutePath}:$termuxPrefix")
             args.add("-b"); args.add("${homeDir().absolutePath}:${termuxPrefix}/home")
+            // SELF-BIND реального пути (v2.5.14): внутри маппера должны существовать
+            // И зашитый Termux-путь (через -b выше), И наш реальный путь — скрипты
+            // с переписанным fixShebangs shebang'ом (реальный путь) и конфиги с
+            // реальными путями открываются ядром НАПРЯМУЮ (без LD_PRELOAD), поэтому
+            // реальный путь обязан существовать внутри маппера.
+            args.add("-b"); args.add("${prefixDir().absolutePath}:${prefixDir().absolutePath}")
+            args.add("-b"); args.add("${homeDir().absolutePath}:${homeDir().absolutePath}")
             for (sys in listOf("/system", "/dev", "/proc", "/sys", "/storage")) {
                 if (File(sys).exists()) { args.add("-b"); args.add("$sys:$sys") }
             }
-            // Рабочий каталог: внутри маппера $HOME отображается на /root
+            // Проект агента (files/vibe/<id>) пробрасываем 1:1 — внутри rootfs он
+            // виден по ТОМУ ЖЕ абсолютному пути, и команда с cwd=проект работает.
+            val projectCwd = workDir != home && File(workDir).isDirectory
+            if (projectCwd) {
+                args.add("-b"); args.add("$workDir:$workDir")
+            }
+            // Рабочий каталог: внутри маппера $HOME отображается на $termuxPrefix/home
             val mapCwd = when {
-                workDir.startsWith(home) -> "/root" + workDir.substring(home.length)
+                workDir.startsWith(home) -> "$termuxPrefix/home" + workDir.substring(home.length)
                 else -> workDir
             }
             args.add("-w"); args.add(mapCwd)
@@ -1061,11 +1131,18 @@ class AsoRuntimeModule : Module() {
             // LD_LIBRARY_PATH — наш lib, доступный по этому пути через -b биндинг.
             pb.environment()["PREFIX"] = termuxPrefix
             pb.environment()["TERMUX_PREFIX"] = termuxPrefix
-            pb.environment()["HOME"] = "/root"
+            pb.environment()["HOME"] = "$termuxPrefix/home"
             pb.environment()["PATH"] = "$termuxPrefix/bin:$termuxPrefix/bin/applets:/system/bin:/system/xbin:/product/bin"
             pb.environment()["LD_LIBRARY_PATH"] = "$termuxPrefix/lib"
-            pb.environment()["TMPDIR"] = "${prefixDir().absolutePath}/tmp"
-            pb.environment()["TMP"] = "${prefixDir().absolutePath}/tmp"
+            // apt: конфиг читается из ВНУТРЕННЕГО пути (Dir в нём тоже внутренний —
+            // см. ensureAptConfig); TLS-сертификаты — тоже через внутренний путь.
+            pb.environment()["APT_CONFIG"] = "$termuxPrefix/etc/apt/apt.conf"
+            val certPem = File(prefixDir().absolutePath, "etc/tls/cert.pem")
+            if (certPem.exists()) pb.environment()["SSL_CERT_FILE"] = "$termuxPrefix/etc/tls/cert.pem"
+            val tmpDir = File(prefixDir(), "tmp")
+            try { tmpDir.mkdirs() } catch (_: Exception) {}
+            pb.environment()["TMPDIR"] = "$termuxPrefix/tmp"
+            pb.environment()["TMP"] = "$termuxPrefix/tmp"
             pb.environment()["LANG"] = "C.UTF-8"
             pb.environment()["LC_ALL"] = "C.UTF-8"
             pb.redirectErrorStream(true)
