@@ -61,7 +61,7 @@ class AsoRuntimeModule : Module() {
     /** Версия встроенной среды. Меняется при любом изменении формата bootstrap/rootfs —
      *  если у пользователя маркер с другой версией, среда переустанавливается целиком
      *  (чинит «поставил новый APK поверх старого, а старые битые файлы остались»). */
-    private fun envVersion(): String = "2.5.12"
+    private fun envVersion(): String = "2.5.13"
 
     private fun writeEnvDiag(text: String) {
         try {
@@ -70,6 +70,9 @@ class AsoRuntimeModule : Module() {
             f.writeText(text)
         } catch (_: Exception) {}
     }
+
+    /** Путь к LD_PRELOAD-мапперу путей (Termux-style, см. cpp/pathmap.c). */
+    private fun pathmapSo(): File = File(prefixDir(), "lib/libaso-pathmap.so")
 
     private fun abi(): String =
         (Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a")
@@ -381,6 +384,28 @@ class AsoRuntimeModule : Module() {
         // apt в официальной сборке Termux зашит на /data/data/com.termux/files/usr:
         // чиним конфиг/ключи/CA сразу после распаковки.
         ensureAptConfig(prefixDir().absolutePath)
+
+        // LD_PRELOAD-маппер путей (Termux-style): перенаправляет зашитый путь
+        // /data/data/com.termux/files/usr на наш PREFIX — apt/dpkg работают
+        // «как в настоящем Termux», без проot. .so лежит в ассетах pathmap/.
+        try {
+            val pmAssetName = when {
+                abi() == "arm64-v8a" -> "pathmap/libaso-pathmap-aarch64.so"
+                abi().startsWith("arm") -> "pathmap/libaso-pathmap-arm.so"
+                abi().contains("x86_64") -> null // хост/эмулятор — не нужен
+                else -> "pathmap/libaso-pathmap-aarch64.so"
+            }
+            if (pmAssetName != null) {
+                val dest = pathmapSo()
+                dest.parentFile?.mkdirs()
+                context().assets.open(pmAssetName).use { input ->
+                    dest.outputStream().use { out -> input.copyTo(out) }
+                }
+                Log.i(tag, "pathmap .so установлен: ${dest.absolutePath} (${dest.length()} байт)")
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "pathmap .so не установлен: $e — apt будет ограничен")
+        }
 
         // Mark bootstrap as done only after successful unpack.
         if (!bootstrapMarker().createNewFile()) {
@@ -750,18 +775,16 @@ class AsoRuntimeModule : Module() {
         }
         diag("proot после lazy-install: ${prootBin().exists()}, rootfs/bin/sh: ${File(rootfsDir(), "bin/sh").exists()}")
 
-        // 1) proot (Alpine rootfs) — теперь ОСНОВНАЯ среда: полноценный Linux
-        //    (bash, coreutils, python3, pip, git, curl…) с нативным apk.
-        //    apt в Termux-bootstrap зашит на /data/data/com.termux/files/usr и
-        //    неработоспособен под нашим PREFIX (Permission denied) — поэтому
-        //    bootstrap больше не основной, а лишь запасной вариант.
-        // 2) bootstrap-proot-map — Termux-bootstrap через проot-обёртку, которая
-        //    подменяет /data/data/com.termux/files/usr на наш PREFIX: apt видит
-        //    «родной» путь и работает (как в настоящем Termux). Нужен только
-        //    проot-бинарник (rootfs не обязателен).
-        // 3) bootstrap (Termux-style bash/apt) — fallback там, где проot не работает.
-        // 4) toybox — последний шанс.
+        // 1) Termux-bootstrap + LD_PRELOAD-маппер путей (Termux-style, БЕЗ проot):
+        //    прямой exec (targetSdk=28 разрешает) + pathmap перенаправляет зашитый
+        //    /data/data/com.termux/files/usr на наш PREFIX — apt/dpkg работают
+        //    «как в настоящем Termux». Это основной режим.
+        // 2) proot (Alpine rootfs: python3, pip, bash, git, apk) — полноценный Linux.
+        // 3) bootstrap-proot-map — Termux-bootstrap через проot-биндинг пути.
+        // 4) bootstrap (Termux-style bash/apt) — fallback там, где pathmap нет.
+        // 5) toybox — последний шанс.
         val mode = when {
+            probeBootstrapPathmap() -> "bootstrap"
             probeProotUsable() -> "proot"
             probeBootstrapProotMap() -> "bootstrap-proot-map"
             probeBootstrapUsable(prefixDir().absolutePath) -> "bootstrap"
@@ -771,6 +794,42 @@ class AsoRuntimeModule : Module() {
         Log.i(tag, "runtime mode: $mode")
         writeEnvDiag(modeDiag.toString() + "ИТОГ: $mode\n")
         return mode
+    }
+
+    /**
+     * Termux-style режим: прямой exec (без проot) + LD_PRELOAD-маппер путей.
+     * pathmap перенаправляет системные вызовы с зашитого /data/data/com.termux/files/usr
+     * на наш PREFIX — точно как работает настоящий Termux. Проверка: bash запускается
+     * с LD_PRELOAD и видит «родной» путь /data/data/com.termux/files/usr/bin/bash
+     * (реально — наш prefix/bin/bash).
+     */
+    private fun probeBootstrapPathmap(): Boolean {
+        val pm = pathmapSo()
+        if (!pm.exists()) return false
+        val bash = File(prefixDir(), "bin/bash")
+        if (!bash.exists()) return false
+        return try {
+            val pb = ProcessBuilder(bash.absolutePath, "-c",
+                "test -x /data/data/com.termux/files/usr/bin/bash && echo ok")
+            pb.redirectErrorStream(true)
+            pb.environment()["LD_PRELOAD"] = pm.absolutePath
+            pb.environment()["ASO_PREFIX"] = prefixDir().absolutePath
+            pb.environment()["PREFIX"] = prefixDir().absolutePath
+            pb.environment()["TERMUX_PREFIX"] = prefixDir().absolutePath
+            pb.environment()["HOME"] = homeDir().absolutePath
+            pb.environment()["LD_LIBRARY_PATH"] = "${prefixDir().absolutePath}/lib"
+            pb.environment()["TMPDIR"] = "${prefixDir().absolutePath}/tmp"
+            val p = pb.start()
+            val out = p.inputStream.bufferedReader().readText().trim()
+            val code = p.waitFor()
+            val ok = code == 0 && out == "ok"
+            if (!ok) Log.w(tag, "pathmap probe fail (exit=$code out=$out)")
+            else Log.i(tag, "pathmap probe OK — Termux-style: прямой exec + LD_PRELOAD")
+            ok
+        } catch (e: Exception) {
+            Log.w(tag, "pathmap probe exception: $e")
+            false
+        }
     }
 
     /**
@@ -1045,6 +1104,14 @@ class AsoRuntimeModule : Module() {
         // LD_LIBRARY_PATH указываем только когда bootstrap исполняем: системные
         // toybox-бинарники не зависят от наших lib/, а чужие lib впереди могут поломать их.
         if (useBootstrap) pb.environment()["LD_LIBRARY_PATH"] = "$prefix/lib"
+        // Termux-style: LD_PRELOAD-маппер перенаправляет зашитый путь
+        // /data/data/com.termux/files/usr на наш PREFIX — apt/dpkg работают
+        // «как в настоящем Termux» (основной режим bootstrap).
+        val pm = pathmapSo()
+        if (useBootstrap && pm.exists()) {
+            pb.environment()["LD_PRELOAD"] = pm.absolutePath
+            pb.environment()["ASO_PREFIX"] = prefix
+        }
         // apt (Termux-сборка) зашит на /data/data/com.termux/files/usr — перенаправляем
         // его конфиг на наш PREFIX через APT_CONFIG (см. ensureAptConfig).
         if (useBootstrap) pb.environment()["APT_CONFIG"] = "$prefix/etc/apt/apt.conf"

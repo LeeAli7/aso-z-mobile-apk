@@ -34,6 +34,7 @@ module.exports = function asoRuntimePlugin(config) {
       const srcBootstrap = path.join(cfg.modRequest.projectRoot, "assets", "bootstrap");
       const srcRootfs = path.join(cfg.modRequest.projectRoot, "assets", "rootfs");
       const srcProot = path.join(cfg.modRequest.projectRoot, "assets", "proot");
+      const srcPathmap = path.join(cfg.modRequest.projectRoot, "assets", "pathmap");
       const destDir = path.join(
         cfg.modRequest.platformProjectRoot,
         "app",
@@ -46,7 +47,7 @@ module.exports = function asoRuntimePlugin(config) {
         const dest = path.join(destDir, sub);
         fs.mkdirSync(dest, { recursive: true });
         for (const file of fs.readdirSync(srcDir)) {
-          if (!file.endsWith(".zip") && !sub.startsWith("rootfs") && !sub.startsWith("proot")) continue;
+          if (!file.endsWith(".zip") && !sub.startsWith("rootfs") && !sub.startsWith("proot") && !sub.startsWith("pathmap") && !file.endsWith(".so")) continue;
           const src = path.join(srcDir, file);
           const d = path.join(dest, file);
           if (!fs.existsSync(d) || fs.statSync(src).size !== fs.statSync(d).size) {
@@ -57,6 +58,7 @@ module.exports = function asoRuntimePlugin(config) {
       copyDir(srcBootstrap, "bootstrap");
       copyDir(srcRootfs, "rootfs");
       copyDir(srcProot, "proot");
+      copyDir(srcPathmap, "pathmap");
       return cfg;
     },
   ]);
