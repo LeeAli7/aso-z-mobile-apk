@@ -61,7 +61,7 @@ class AsoRuntimeModule : Module() {
     /** Версия встроенной среды. Меняется при любом изменении формата bootstrap/rootfs —
      *  если у пользователя маркер с другой версией, среда переустанавливается целиком
      *  (чинит «поставил новый APK поверх старого, а старые битые файлы остались»). */
-    private fun envVersion(): String = "2.5.14"
+    private fun envVersion(): String = "2.5.15"
 
     private fun writeEnvDiag(text: String) {
         try {
@@ -354,21 +354,18 @@ class AsoRuntimeModule : Module() {
             }
 
             // симлинки: target как есть (относительный), link — относительно $PREFIX.
-            // ВАЖНО: в SYMLINKS.txt часть целей АБСОЛЮТНЫЕ (/data/data/com.termux/files/usr/... —
-            // для Termux PREFIX всегда такой). У нас другой PREFIX — заменяем префикс,
-            // иначе симлинк битый и команда падает (126/127).
-            val termuxPrefix = "/data/data/com.termux/files/usr"
-            val myPrefix = prefixDir().absolutePath
+            // ВАЖНО (v2.5.15): НЕ заменяем абсолютные цели /data/data/com.termux/...
+            // на наш реальный путь. Рабочий режим apt — bootstrap-proot-map: внутри
+            // маппера существует ТОЛЬКО терминальный путь (через -b биндинг prefix → termux).
+            // Симлинки с реальными целями /data/user/0/... внутри маппера НЕ существуют
+            // и ломают bin/sh, bin/python и пр. Оставляем цели как в архиве.
             for ((target, link) in symlinkLines) {
                 try {
                     val linkFile = File(prefixDir(), link)
                     linkFile.parentFile?.mkdirs()
                     if (!linkFile.exists()) {
-                        val fixedTarget =
-                            if (target.startsWith(termuxPrefix)) myPrefix + target.substring(termuxPrefix.length)
-                            else target
                         // android.system.Os.symlink — доступен с API 21 (minSdk 24)
-                        Os.symlink(fixedTarget, linkFile.absolutePath)
+                        Os.symlink(target, linkFile.absolutePath)
                     }
                 } catch (e: Exception) {
                     // на некоторых устройствах symlink запрещён — пропускаем
@@ -376,38 +373,23 @@ class AsoRuntimeModule : Module() {
                 }
             }
 
-            // fix-shebang: скрипты bootstrap собраны с PREFIX=/data/data/com.termux/files/usr —
-            // интерпретатор по этому пути у нас НЕ существует -> «command invoked cannot execute» (126).
-            fixShebangs()
+            // ВАЖНО (v2.5.15): shebang'и НЕ переписываем на реальный путь. Рабочий механизм
+            // apt — bootstrap-proot-map: внутри проot-маппера терминальный путь
+            // /data/data/com.termux/files/usr/bin/sh СУЩЕСТВУЕТ (через -b биндинг),
+            // а реальный /data/user/0/... — НЕТ. fixShebangs (реальные пути) ломал
+            // скрипты внутри маппера. Оставляем shebang как в архиве — терминальный.
+
+            // LD_PRELOAD-маппер путей (pathmap) БОЛЬШЕ НЕ устанавливается основным:
+            // он транслирует на /data/data/com.termux/..., к которому у приложения
+            // нет доступа → apt падал Permission denied. .so из ассетов не копируем.
         }
 
         // apt в официальной сборке Termux зашит на /data/data/com.termux/files/usr:
-        // чиним конфиг/ключи/CA сразу после распаковки.
+        // чиним конфиг/ключи/CA сразу после распаковки. Директива Dir —
+        // ВНУТРЕННИЙ терминальный путь (в маппере существует через -b биндинг).
         ensureAptConfig(prefixDir().absolutePath)
 
-        // LD_PRELOAD-маппер путей (Termux-style): перенаправляет зашитый путь
-        // /data/data/com.termux/files/usr на наш PREFIX — apt/dpkg работают
-        // «как в настоящем Termux», без проot. .so лежит в ассетах pathmap/.
-        try {
-            val pmAssetName = when {
-                abi() == "arm64-v8a" -> "pathmap/libaso-pathmap-aarch64.so"
-                abi().startsWith("arm") -> "pathmap/libaso-pathmap-arm.so"
-                abi().contains("x86_64") -> null // хост/эмулятор — не нужен
-                else -> "pathmap/libaso-pathmap-aarch64.so"
-            }
-            if (pmAssetName != null) {
-                val dest = pathmapSo()
-                dest.parentFile?.mkdirs()
-                context().assets.open(pmAssetName).use { input ->
-                    dest.outputStream().use { out -> input.copyTo(out) }
-                }
-                Log.i(tag, "pathmap .so установлен: ${dest.absolutePath} (${dest.length()} байт)")
-            }
-        } catch (e: Exception) {
-            Log.w(tag, "pathmap .so не установлен: $e — apt будет ограничен")
-        }
-
-        // Mark bootstrap as done only after successful unpack.
+            // Mark bootstrap as done only after successful unpack.
         if (!bootstrapMarker().createNewFile()) {
             throw IllegalStateException("marker exists after install")
         }
@@ -519,11 +501,35 @@ class AsoRuntimeModule : Module() {
                             '2' -> {
                                 // pax linkpath перекрывает 100-байтное поле (не-ASCII/длинные,
                                 // напр. ca-cert: NetLock_Arany_=Class_Gold=_Főtanúsítvány.pem)
-                                val link = paxLink
+                                var link = paxLink
                                     ?: String(hdr, 157, 100, Charsets.UTF_8).trimEnd('\u0000', ' ')
                                 paxLink = null
+                                // ВАЖНО (v2.5.15): absolute-цели (/bin/busybox) ломают rootfs —
+                                // проot резолвит их на ХОСТЕ (там файла нет → shell мёртв),
+                                // а Java File.exists() тоже следует симлинку на хост (ложное false,
+                                // из-за которого probe считал rootfs/bin/sh отсутствующим).
+                                // Все absolute-ссылки переписываем в относительные от каталога
+                                // симлинка:  bin/sh -> /bin/busybox  →  bin/sh -> busybox
                                 target.parentFile?.mkdirs()
-                                try { if (!target.exists()) Os.symlink(link, target.absolutePath) } catch (_: Exception) {}
+                                if (link.startsWith("/")) {
+                                    val dirParts = name.split("/").dropLast(1).filter { it.isNotBlank() }
+                                    val tParts = link.removePrefix("/").split("/").filter { it.isNotBlank() }
+                                    var common = 0
+                                    while (common < dirParts.size && common < tParts.size &&
+                                        dirParts[common] == tParts[common]
+                                    ) common++
+                                    val rel = ArrayList<String>()
+                                    repeat(dirParts.size - common) { rel.add("..") }
+                                    rel.addAll(tParts.drop(common))
+                                    val relLink = rel.joinToString("/")
+                                    try {
+                                        if (!target.exists()) Os.symlink(relLink, target.absolutePath)
+                                    } catch (_: Exception) {}
+                                } else {
+                                    try {
+                                        if (!target.exists()) Os.symlink(link, target.absolutePath)
+                                    } catch (_: Exception) {}
+                                }
                             }
                             '1' -> {
                                 // hardlink: копируем целевой файл (в rootfs их 2: gawk-5.3.1, zipinfo)
@@ -780,35 +786,35 @@ class AsoRuntimeModule : Module() {
         }
         diag("proot после lazy-install: ${prootBin().exists()}, rootfs/bin/sh: ${File(rootfsDir(), "bin/sh").exists()}")
 
-        // Приоритет режимов (v2.5.14):
-        // 1) bootstrap-proot-map — Termux-bootstrap через проot-биндинг пути
-        //    /data/data/com.termux/files/usr → наш PREFIX. ДОКАЗАННО работает
-        //    на устройствах (v2.5.10-12): apt/dpkg видят «родной» путь.
-        // 2) bootstrap (pathmap) — прямой exec + LD_PRELOAD-маппер (там, где
-        //    проot недоступен, но маппер загружается).
-        // 3) proot (Alpine rootfs: python3, pip, bash, git, apk).
-        // 4) bootstrap (Termux-style bash/apt) — fallback без мапперов.
-        // 5) toybox — последний шанс.
+        // Приоритет режимов (v2.5.15):
+        // 1) proot (Alpine rootfs: python3, pip, bash, apk) — полноценный Linux,
+        //    ДОКАЗАННО работал в v2.5.10-12 (агент ставил пакеты apk add).
+        //    Пути внутри rootfs свои — ничего не зашито, никаких /data/data/com.termux.
+        // 2) bootstrap-proot-map — Termux-apt через проot-биндинг пути
+        //    /data/data/com.termux/files/usr → наш PREFIX (запасной apt-вариант).
+        // 3) bootstrap (Termux-style bash/apt) — прямой exec без мапперов.
+        // 4) toybox — последний шанс.
+        // LD_PRELOAD-pathmap УБРАН (v2.5.15): транслирует на /data/data/com.termux,
+        // к которому у приложения нет доступа → apt падал с Permission denied.
         val mode = when {
-            probeBootstrapProotMap() -> "bootstrap-proot-map"
-            probeBootstrapPathmap() -> "bootstrap"
             probeProotUsable() -> "proot"
+            probeBootstrapProotMap() -> "bootstrap-proot-map"
             probeBootstrapUsable(prefixDir().absolutePath) -> "bootstrap"
             else -> "toybox"
         }
         runtimeMode = mode
         Log.i(tag, "runtime mode: $mode")
-        // v2.5.14: подсказка агенту — в bootstrap-proot-map путь /data/data/com.termux
-        // ВНУТРИ маппера существует (забинжен на наш каталог) — это НОРМАЛЬНО,
-        // apt/dpkg именно так и видят свой конфиг. «Чинить» пути не нужно.
-        val hint: String = if (mode == "bootstrap-proot-map") {
-            " (Termux-путь /data/data/com.termux/files/usr внутри маппера указывает на наш каталог — это работает)"
+        // v2.5.15: подсказка агенту — проot/Alpine основной (apk), пути свои.
+        // bootstrap-proot-map: Termux-путь /data/data/com.termux существует через -b.
+        // LD_PRELOAD-pathmap УБРАН из каскада — он ломал apt (Permission denied).
+        val hint: String = if (mode == "proot") {
+            " (Alpine rootfs — полноценный Linux, пакеты ставь apk add / apk update, python3 уже есть)"
+        } else if (mode == "bootstrap-proot-map") {
+            " (Termux через проot-маппер: /data/data/com.termux/files/usr внутри указывает на наш каталог — apt работает, НЕ перенастраивай пути)"
         } else if (mode == "bootstrap") {
-            " (Termux-style через LD_PRELOAD-маппер путей)"
-        } else if (mode == "proot") {
-            " (Alpine rootfs, пакеты ставь apk add)"
+            " (Termux-style без мапперов — apt может быть ограничен)"
         } else {
-            ""
+            " (toybox — системные команды, пакетный менеджер недоступен)"
         }
         writeEnvDiag(modeDiag.toString() + "ИТОГ: $mode$hint\n")
         return mode
@@ -871,9 +877,9 @@ class AsoRuntimeModule : Module() {
             args.add(pbin.absolutePath); args.add("-0")
             args.add("-b"); args.add("${prefixDir().absolutePath}:$termuxPrefix")
             args.add("-b"); args.add("${homeDir().absolutePath}:${termuxPrefix}/home")
-            // self-bind реального пути — как в боевом запуске (см. startProcess)
-            args.add("-b"); args.add("${prefixDir().absolutePath}:${prefixDir().absolutePath}")
-            args.add("-b"); args.add("${homeDir().absolutePath}:${homeDir().absolutePath}")
+            // ВАЖНО (v2.5.15): НЕ добавлять self-bind prefix:prefix — proot может
+            // падать на монтировании пути на самого себя («bind: cannot bind onto
+            // itself»), из-за чего probe ложно проваливался и режим не выбирался.
             for (sys in listOf("/system", "/dev", "/proc", "/sys", "/storage")) {
                 if (File(sys).exists()) { args.add("-b"); args.add("$sys:$sys") }
             }
@@ -1096,22 +1102,16 @@ class AsoRuntimeModule : Module() {
         if (mode == "bootstrap-proot-map") {
             // Termux-bootstrap через проot: подменяем /data/data/com.termux/files/usr
             // на наш PREFIX — apt/dpkg видят «родной» путь и работают (probe подтвердил).
-            // ВАЖНО (v2.5.14): ВНУТРИ маппера существуют ТОЛЬКО забинженные пути —
+            // ВАЖНО (v2.5.15): ВНУТРИ маппера существуют ТОЛЬКО забинженные пути —
             // реальный путь /data/user/0/app.aso.zmobile/... там НЕ существует.
             // Поэтому HOME/TMPDIR/APT_CONFIG указываем на ВНУТРЕННИЙ путь
             // $termuxPrefix/... (через -b он виден как наш каталог).
+            // НЕ используем self-bind prefix:prefix — proot падает на bind onto itself.
             val termuxPrefix = "/data/data/com.termux/files/usr"
             val args = ArrayList<String>()
             args.add(prootBin().absolutePath); args.add("-0")
             args.add("-b"); args.add("${prefixDir().absolutePath}:$termuxPrefix")
             args.add("-b"); args.add("${homeDir().absolutePath}:${termuxPrefix}/home")
-            // SELF-BIND реального пути (v2.5.14): внутри маппера должны существовать
-            // И зашитый Termux-путь (через -b выше), И наш реальный путь — скрипты
-            // с переписанным fixShebangs shebang'ом (реальный путь) и конфиги с
-            // реальными путями открываются ядром НАПРЯМУЮ (без LD_PRELOAD), поэтому
-            // реальный путь обязан существовать внутри маппера.
-            args.add("-b"); args.add("${prefixDir().absolutePath}:${prefixDir().absolutePath}")
-            args.add("-b"); args.add("${homeDir().absolutePath}:${homeDir().absolutePath}")
             for (sys in listOf("/system", "/dev", "/proc", "/sys", "/storage")) {
                 if (File(sys).exists()) { args.add("-b"); args.add("$sys:$sys") }
             }
@@ -1184,14 +1184,11 @@ class AsoRuntimeModule : Module() {
         // LD_LIBRARY_PATH указываем только когда bootstrap исполняем: системные
         // toybox-бинарники не зависят от наших lib/, а чужие lib впереди могут поломать их.
         if (useBootstrap) pb.environment()["LD_LIBRARY_PATH"] = "$prefix/lib"
-        // Termux-style: LD_PRELOAD-маппер перенаправляет зашитый путь
-        // /data/data/com.termux/files/usr на наш PREFIX — apt/dpkg работают
-        // «как в настоящем Termux» (основной режим bootstrap).
-        val pm = pathmapSo()
-        if (useBootstrap && pm.exists()) {
-            pb.environment()["LD_PRELOAD"] = pm.absolutePath
-            pb.environment()["ASO_PREFIX"] = prefix
-        }
+        // ВАЖНО (v2.5.15): НЕ ставим LD_PRELOAD-маппер (pathmap). Он транслирует
+        // пути на /data/data/com.termux/files/usr, к которому у приложения НЕТ
+        // доступа (SELinux) → apt падал с Permission denied. Рабочие механизмы —
+        // проot/Alpine rootfs и bootstrap-proot-map (см. ветки выше), здесь —
+        // только прямой bootstrap без мапперов.
         // apt (Termux-сборка) зашит на /data/data/com.termux/files/usr — перенаправляем
         // его конфиг на наш PREFIX через APT_CONFIG (см. ensureAptConfig).
         if (useBootstrap) pb.environment()["APT_CONFIG"] = "$prefix/etc/apt/apt.conf"
