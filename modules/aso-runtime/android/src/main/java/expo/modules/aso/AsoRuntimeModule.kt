@@ -61,7 +61,7 @@ class AsoRuntimeModule : Module() {
     /** Версия встроенной среды. Меняется при любом изменении формата bootstrap/rootfs —
      *  если у пользователя маркер с другой версией, среда переустанавливается целиком
      *  (чинит «поставил новый APK поверх старого, а старые битые файлы остались»). */
-    private fun envVersion(): String = "2.5.15"
+    private fun envVersion(): String = "2.5.16"
 
     private fun writeEnvDiag(text: String) {
         try {
@@ -107,7 +107,17 @@ class AsoRuntimeModule : Module() {
         Events("onOutput", "onExit")
 
         AsyncFunction("isInstalled") { promise: expo.modules.kotlin.Promise ->
-            promise.resolve(bootstrapMarker().exists())
+            // ВАЖНО (v2.5.16): установлено = маркер ЕСТЬ И версия СОВПАДАЕТ.
+            // Раньше проверялось только exists() — при апдейте APK (envVersion
+            // сменился) installBootstrap() не вызывался, среда оставалась старой
+            // с битыми симлинками, и все фиксы не применялись к распакованным
+            // файлам. Теперь ensureRuntime() увидит старую версию → вызовет
+            // installBootstrap() → тот переустановит среду целиком.
+            val marker = bootstrapMarker()
+            val verOk = marker.exists() && try {
+                marker.readText().trim() == envVersion()
+            } catch (_: Exception) { false }
+            promise.resolve(verOk)
         }
 
         AsyncFunction("install") { promise: expo.modules.kotlin.Promise ->
