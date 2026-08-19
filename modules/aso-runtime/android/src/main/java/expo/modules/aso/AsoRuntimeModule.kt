@@ -61,7 +61,7 @@ class AsoRuntimeModule : Module() {
     /** Версия встроенной среды. Меняется при любом изменении формата bootstrap/rootfs —
      *  если у пользователя маркер с другой версией, среда переустанавливается целиком
      *  (чинит «поставил новый APK поверх старого, а старые битые файлы остались»). */
-    private fun envVersion(): String = "2.5.16"
+    private fun envVersion(): String = "2.5.17"
 
     private fun writeEnvDiag(text: String) {
         try {
@@ -76,6 +76,19 @@ class AsoRuntimeModule : Module() {
 
     private fun abi(): String =
         (Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a")
+
+    /**
+     * Каталог для временных файлов проot (v2.5.17). Android в песочнице приложения
+     * НЕ имеет /tmp — а без него проot падает: «can't create temporary directory /
+     * can't create glue rootfs» (PROOT_TMP_DIR). Возвращаем реальный каталог
+     * приложения (создаётся при необходимости); проot пишет туда свои временные
+     * файлы для glue-rootfs и биндингов.
+     */
+    private fun prootTmpDir(): String {
+        val d = File(dataRoot(), "proot-tmp")
+        try { d.mkdirs() } catch (_: Exception) {}
+        return d.absolutePath
+    }
 
     private fun bootstrapAssetName(): String = when {
         abi() == "arm64-v8a" -> "bootstrap-aarch64.zip"
@@ -895,9 +908,13 @@ class AsoRuntimeModule : Module() {
             }
             args.add("-w"); args.add(termuxPrefix)
             args.add("$termuxPrefix/bin/bash"); args.add("-c"); args.add("echo ok")
-            val p = ProcessBuilder(args).redirectErrorStream(true).start()
-            val out = p.inputStream.bufferedReader().readText().trim()
-            val code = p.waitFor()
+            val p = ProcessBuilder(args).redirectErrorStream(true)
+            // ВАЖНО (v2.5.17): Android не имеет /tmp в песочнице — проot без
+            // PROOT_TMP_DIR падает «can't create glue rootfs» даже без -r.
+            p.environment()["PROOT_TMP_DIR"] = prootTmpDir()
+            val proc = p.start()
+            val out = proc.inputStream.bufferedReader().readText().trim()
+            val code = proc.waitFor()
             val ok = code == 0 && out == "ok"
             if (!ok) Log.w(tag, "bootstrap-proot-map probe fail (exit=$code out=$out)")
             else Log.i(tag, "bootstrap-proot-map probe OK — apt будет работать через проot-маппер")
@@ -922,9 +939,14 @@ class AsoRuntimeModule : Module() {
                 if (File(sys).exists()) { args.add("-b"); args.add("$sys:$sys") }
             }
             args.add("-w"); args.add("/root"); args.add("/bin/sh"); args.add("-c"); args.add("echo ok")
-            val p = ProcessBuilder(args).redirectErrorStream(true).start()
-            val out = p.inputStream.bufferedReader().readText().trim()
-            val code = p.waitFor()
+            val p = ProcessBuilder(args).redirectErrorStream(true)
+            // ВАЖНО (v2.5.17): Android не имеет /tmp в песочнице — проot без этого
+            // падает «can't create temporary directory» / «can't create glue rootfs».
+            // PROOT_TMP_DIR указывает на реальный каталог приложения.
+            p.environment()["PROOT_TMP_DIR"] = prootTmpDir()
+            val proc = p.start()
+            val out = proc.inputStream.bufferedReader().readText().trim()
+            val code = proc.waitFor()
             val ok = code == 0 && out == "ok"
             if (!ok) Log.w(tag, "proot probe fail (exit=$code out=$out) — переключение на bootstrap/toybox")
             ok
@@ -1102,6 +1124,10 @@ class AsoRuntimeModule : Module() {
             pb.environment()["TMPDIR"] = "/tmp"
             pb.environment()["TMP"] = "/tmp"
             pb.environment()["SHELL"] = "/bin/sh"
+            // ВАЖНО (v2.5.17): Android не имеет /tmp — проot без PROOT_TMP_DIR
+            // падает «can't create glue rootfs». Каталог проot — реальный путь
+            // приложения, он НЕ внутри rootfs.
+            pb.environment()["PROOT_TMP_DIR"] = prootTmpDir()
             // Локаль UTF-8, чтобы Python не падал на ASCII-дефолте
             pb.environment()["LANG"] = "C.UTF-8"
             pb.environment()["LC_ALL"] = "C.UTF-8"
@@ -1147,6 +1173,10 @@ class AsoRuntimeModule : Module() {
             pb.environment()["HOME"] = "$termuxPrefix/home"
             pb.environment()["PATH"] = "$termuxPrefix/bin:$termuxPrefix/bin/applets:/system/bin:/system/xbin:/product/bin"
             pb.environment()["LD_LIBRARY_PATH"] = "$termuxPrefix/lib"
+            // ВАЖНО (v2.5.17): Android не имеет /tmp — проot без PROOT_TMP_DIR
+            // падает «can't create glue rootfs». Каталог проot — реальный путь
+            // приложения (НЕ виртуальный $termuxPrefix — проot пишет его на хосте).
+            pb.environment()["PROOT_TMP_DIR"] = prootTmpDir()
             // apt: конфиг читается из ВНУТРЕННЕГО пути (Dir в нём тоже внутренний —
             // см. ensureAptConfig); TLS-сертификаты — тоже через внутренний путь.
             pb.environment()["APT_CONFIG"] = "$termuxPrefix/etc/apt/apt.conf"
