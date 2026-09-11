@@ -331,7 +331,7 @@ export function StorageSheet({
                     <View style={{ flex: 1 }}>
                       <Text numberOfLines={1} style={{ color: theme.text, fontSize: 13.5, fontWeight: "500" }}>{p.name}</Text>
                       {p.desc ? <Text numberOfLines={1} style={{ color: theme.mute, fontSize: 10.5, marginTop: 1 }}>{p.desc}</Text> : null}
-                      <Text style={{ color: theme.mute, fontSize: 9.5, marginTop: 2, fontFamily: "monospace" }}>
+                      <Text style={{ color: theme.mute, fontSize: 9.5, marginTop: 2, fontFamily: fonts.mono }}>
                         {fileCounts[p.id] ?? 0} файлов
                       </Text>
                     </View>
@@ -593,7 +593,7 @@ function ProjectFiles({
                 }}
               >
                 <MaterialIcons name={isDir ? "folder" : "insert-drive-file"} size={17} color={isDir ? theme.warn : theme.accentHi} />
-                <Text numberOfLines={1} style={{ flex: 1, color: theme.text, fontSize: 12.5, fontFamily: "monospace" }}>{name}</Text>
+                <Text numberOfLines={1} style={{ flex: 1, color: theme.text, fontSize: 12.5, fontFamily: fonts.mono }}>{name}</Text>
                 {!isDir && <MaterialIcons name="visibility" size={14} color={theme.mute} />}
               </Pressable>
             );

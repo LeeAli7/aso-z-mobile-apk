@@ -18,6 +18,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useApp } from "../store/AppStore";
+import { fonts } from "../theme/tokens";
+import { radii } from "../design-system/tokens";
 
 /* ── Typography helpers ── */
 
@@ -105,14 +107,14 @@ export function PrimaryButton({
           alignItems: "center",
           justifyContent: "center",
           paddingVertical: 13,
-          borderRadius: 18,
+          borderRadius: radii.md,
           backgroundColor: theme.accent,
           opacity: pressed ? 0.85 : disabled ? 0.4 : 1,
         },
         style,
       ]}
     >
-      <Text style={{ color: theme.name === "dark" ? "#1c1202" : "#fdf9f2", fontSize: 14.5, fontWeight: "600" }}>
+      <Text style={{ color: theme.onAccent, fontSize: 14.5, fontWeight: "600" }}>
         {title}
       </Text>
     </Pressable>
@@ -147,7 +149,7 @@ export function TextField({
           backgroundColor: theme.surface,
           borderColor: theme.border,
           borderWidth: 1,
-          borderRadius: 18,
+          borderRadius: radii.md,
           paddingHorizontal: 13,
           paddingVertical: 10,
           fontSize: 14,
@@ -317,7 +319,7 @@ export function CapBadge({ label, active }: { label: string; active: boolean }) 
         backgroundColor: active ? theme.accentDim : "transparent",
       }}
     >
-      <Text style={{ color: active ? theme.accent : theme.mute, fontSize: 9, fontFamily: "monospace" }}>
+      <Text style={{ color: active ? theme.accent : theme.mute, fontSize: 9, fontFamily: fonts.mono }}>
         {label}
       </Text>
     </View>

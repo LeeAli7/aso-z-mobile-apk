@@ -7,6 +7,7 @@ import { Alert, FlatList, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useApp } from "../store/AppStore";
+import { fonts } from "../theme/tokens";
 import { PrimaryButton, TextField } from "../components/ui";
 import { IconButton } from "../design-system/components/IconButton";
 import { EmptyState } from "../design-system/components/EmptyState";
@@ -140,7 +141,7 @@ export function VibeScreen({ navigation }: { navigation: any }) {
                 {item.desc ? (
                   <Text numberOfLines={1} style={{ color: theme.dim, fontSize: 11, marginTop: 1 }}>{item.desc}</Text>
                 ) : null}
-                <Text style={{ color: theme.mute, fontSize: 10, marginTop: 2, fontFamily: "monospace" }}>
+                <Text style={{ color: theme.mute, fontSize: 10, marginTop: 2, fontFamily: fonts.mono }}>
                   {(item as any).fileCount ?? 0} файлов · {new Date(item.createdAt).toLocaleDateString()}
                 </Text>
               </View>

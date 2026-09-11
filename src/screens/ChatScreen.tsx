@@ -958,7 +958,7 @@ export function ChatScreen() {
             <GlassPressable
               onPress={() => setModelsOpen(true)}
               radius={99}
-              style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 16, height: 42, maxWidth: 130 }}
+              style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 16, height: 42, maxWidth: 140 }}
               accessibilityLabel={t("model_select")}
             >
               <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.accentHi }} />
@@ -974,12 +974,12 @@ export function ChatScreen() {
               radius={99}
               style={{
                 flexDirection: "row", alignItems: "center", gap: 6,
-                paddingHorizontal: 16, height: 42, maxWidth: 152,
+                paddingHorizontal: 16, height: 42, maxWidth: 140,
               }}
               accessibilityLabel="Конфиг"
             >
               <MaterialIcons name="folder" size={16} color={theme.accentHi} />
-              <Text numberOfLines={1} style={{ color: "#FFFFFF", fontSize: 12.5, fontWeight: "600", fontFamily: fonts.sansDemi, flexShrink: 1 }}>
+              <Text numberOfLines={1} style={{ color: theme.text, fontSize: 12.5, fontWeight: "600", fontFamily: fonts.sansDemi, flexShrink: 1 }}>
                 {activeProject ? activeProject.name : "Конфиг"}
               </Text>
               {activeProject ? (
@@ -1015,7 +1015,7 @@ export function ChatScreen() {
               // думалка → команда (никакой перегруппировки: всё должно быть на своих местах)
               return (
                 <View style={{ width: "94%", alignSelf: "flex-start", marginBottom: 10 }}>
-                  <Glass radius={20} style={{ overflow: "hidden", width: "100%", paddingTop: 8, paddingBottom: 8, paddingLeft: 12, paddingRight: 12 }}>
+                  <Glass radius={20} blur={false} style={{ overflow: "hidden", width: "100%", paddingTop: 8, paddingBottom: 8, paddingLeft: 12, paddingRight: 12 }}>
                     {g.msgs.map((m, i) => {
                       const last = i === g.msgs.length - 1;
                       return (
@@ -1041,13 +1041,13 @@ export function ChatScreen() {
                           ) : null}
                           {/* итог агента — В ТОМ ЖЕ блоке (раздумья/команды + ответ не разваливаются) */}
                           {m.content ? (
-                            <View style={{ paddingHorizontal: 12, paddingTop: 6 }}>
+                            <View style={{ paddingTop: 6 }}>
                               {renderMarkdown(m.content, theme)}
                             </View>
                           ) : null}
                           {/* действия для итога: копировать / поделиться */}
                           {last && m.content && !m.streaming && (
-                            <View style={{ flexDirection: "row", justifyContent: "flex-start", paddingHorizontal: 12, paddingTop: 4, gap: 2 }}>
+                            <View style={{ flexDirection: "row", justifyContent: "flex-start", paddingTop: 4, gap: 2 }}>
                               <Pressable onPress={() => copyMsg(m)} hitSlop={10} accessibilityLabel="Копировать" style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center" }}>
                                 <MaterialIcons name="content-copy" size={17} color={theme.dim} />
                               </Pressable>
@@ -1173,10 +1173,10 @@ export function ChatScreen() {
               <Pressable
                 onPress={send}
                 hitSlop={8}
-                style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}
+                style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.accent, alignItems: "center", justifyContent: "center" }}
                 accessibilityLabel="Отправить"
               >
-                <MaterialIcons name="arrow-upward" size={22} color={theme.accent} />
+                <MaterialIcons name="arrow-upward" size={22} color="#fff" />
               </Pressable>
             ) : (
               <Pressable
@@ -1202,11 +1202,12 @@ export function ChatScreen() {
             style={{ backgroundColor: theme.surface2, borderColor: theme.border, borderWidth: 1, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8, fontSize: 13, color: theme.text, minHeight: 44 }}
           />
         </View>
+        <View style={{ gap: 8 }}>
         {sessionList.map((s) => (
           <Pressable
             key={s.id}
             onPress={() => { setActive(s.id); setSessionsOpen(false); }}
-            style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderRadius: 16, borderWidth: 1, borderColor: s.id === active?.id ? theme.accent : theme.border, backgroundColor: s.id === active?.id ? theme.accentDim : theme.surface, marginTop: 8 }}
+            style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderRadius: 16, borderWidth: 1, borderColor: s.id === active?.id ? theme.accent : theme.border, backgroundColor: s.id === active?.id ? theme.accentDim : theme.surface }}
           >
             <View style={{ flex: 1 }}>
               <Text numberOfLines={1} style={{ color: theme.text, fontSize: 13 }}>{s.name}</Text>
@@ -1224,24 +1225,26 @@ export function ChatScreen() {
             </View>
           </Pressable>
         ))}
+        </View>
       </Sheet>
 
       {/* ── Models sheet ── */}
       <Sheet visible={modelsOpen} onClose={() => setModelsOpen(false)} title={t("model_select")} snapPoints={["60%"]}>
+        <View style={{ gap: 8 }}>
         {allModels.map((m) => {
           const on = model?.modelName === m.modelName;
           return (
             <Pressable
               key={m.modelName}
               onPress={() => switchModel(m)}
-              style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderRadius: 16, borderWidth: 1, borderColor: on ? theme.accent : theme.border, backgroundColor: on ? theme.accentDim : theme.surface, marginTop: 8 }}
+              style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderRadius: 16, borderWidth: 1, borderColor: on ? theme.accent : theme.border, backgroundColor: on ? theme.accentDim : theme.surface }}
             >
               <View style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: on ? theme.accent : theme.border, alignItems: "center", justifyContent: "center" }}>
                 {on && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.accent }} />}
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={{ color: theme.text, fontSize: 14, fontWeight: "600" }}>{m.displayName}</Text>
-                <Text style={{ color: theme.mute, fontSize: 10, marginTop: 1, fontFamily: "monospace" }}>{m.tier.toUpperCase()}</Text>
+                <Text style={{ color: theme.mute, fontSize: 10, marginTop: 1, fontFamily: fonts.mono }}>{m.tier.toUpperCase()}</Text>
               </View>
               {m.caps.length > 0 && (
                 <View style={{ flexDirection: "row", gap: 4 }}>
@@ -1254,6 +1257,7 @@ export function ChatScreen() {
             </Pressable>
           );
         })}
+        </View>
       </Sheet>
 
       {/* ── Конфиг (проекты + файлы + инструкции — как хранилище Hermes) ── */}
@@ -1283,13 +1287,13 @@ export function ChatScreen() {
         {detailTarget && (
           <>
             {detailTarget.tool ? (
-              <Text selectable style={{ color: theme.text, fontSize: 12.5, fontFamily: "monospace", borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface2, borderRadius: 16, padding: 12, lineHeight: 19 }}>
+              <Text selectable style={{ color: theme.text, fontSize: 12.5, fontFamily: fonts.mono, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface2, borderRadius: 16, padding: 12, lineHeight: 19 }}>
                 {detailTarget.tool.trim()}
                 {detailTarget.toolOutput ? `\n\n${detailTarget.toolOutput.trim()}` : ""}
               </Text>
             ) : null}
             {detailTarget.thinking ? (
-              <Text selectable style={{ color: theme.dim, fontFamily: "monospace", fontSize: 12.5, lineHeight: 19 }}>
+              <Text selectable style={{ color: theme.dim, fontFamily: fonts.mono, fontSize: 12.5, lineHeight: 19 }}>
                 {detailTarget.thinking.trim()}
               </Text>
             ) : null}
@@ -1518,7 +1522,7 @@ function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions,
 function EmptyChat({ theme, topInset }: { theme: any; topInset?: number }) {
   return (
     <View style={{ flex: 1, paddingTop: (topInset ?? 0) + 66, paddingHorizontal: 22 }}>
-      <Text style={{ color: theme.text, fontSize: 24, fontWeight: "700", letterSpacing: -0.5, fontFamily: fonts.mono, lineHeight: 31 }}>
+      <Text style={{ color: theme.text, fontSize: 24, fontWeight: "700", letterSpacing: -0.5, fontFamily: fonts.sansDemi, lineHeight: 31 }}>
         Привет!{"\n"}Чем займёмся сегодня?
       </Text>
       <Text style={{ color: theme.dim, fontSize: 13.5, marginTop: 12, lineHeight: 21 }}>

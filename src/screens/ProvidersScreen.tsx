@@ -11,6 +11,7 @@ import { FlatList, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useApp } from "../store/AppStore";
+import { fonts } from "../theme/tokens";
 import { IconButton } from "../design-system/components/IconButton";
 import { Button } from "../design-system/components/Button";
 import { Input } from "../design-system/components/Input";
@@ -106,7 +107,7 @@ export function ProvidersScreen({ navigation }: { navigation: any }) {
                 <MaterialIcons name={open ? "expand-more" : "chevron-right"} size={18} color={theme.accentHi} />
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: theme.text, fontSize: 13.5, fontWeight: "600" }}>{item.name}</Text>
-                  <Text numberOfLines={1} style={{ color: theme.mute, fontSize: 10, fontFamily: "monospace" }}>{item.baseUrl}</Text>
+                  <Text numberOfLines={1} style={{ color: theme.mute, fontSize: 10, fontFamily: fonts.mono }}>{item.baseUrl}</Text>
                 </View>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                   <Pressable hitSlop={10} onPress={() => { setEditProvider(item); setProviderForm(true); }} accessibilityLabel="Редактировать провайдера">
@@ -131,7 +132,7 @@ export function ProvidersScreen({ navigation }: { navigation: any }) {
                       <MaterialIcons name="smart-toy" size={15} color={theme.accentHi} />
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: theme.text, fontSize: 12.5, fontWeight: "600" }}>{m.name}</Text>
-                        <Text numberOfLines={1} style={{ color: theme.mute, fontSize: 9.5, fontFamily: "monospace" }}>
+                        <Text numberOfLines={1} style={{ color: theme.mute, fontSize: 9.5, fontFamily: fonts.mono }}>
                           temp {m.temperature ?? 0.7}{m.systemPrompt ? " · prompt" : ""}
                         </Text>
                       </View>
@@ -337,7 +338,7 @@ function SystemProvider({ state, theme }: { state: any; theme: any }) {
         <MaterialIcons name="cloud-done" size={17} color={theme.accentHi} />
         <View style={{ flex: 1 }}>
           <Text style={{ color: theme.text, fontSize: 13.5, fontWeight: "600" }}>AsoAI</Text>
-          <Text style={{ color: theme.mute, fontSize: 10, fontFamily: "monospace" }}>системные модели · {state.models.length}</Text>
+          <Text style={{ color: theme.mute, fontSize: 10, fontFamily: fonts.mono }}>системные модели · {state.models.length}</Text>
         </View>
       </Pressable>
       {open && (
@@ -347,7 +348,7 @@ function SystemProvider({ state, theme }: { state: any; theme: any }) {
               <MaterialIcons name="smart-toy" size={15} color={theme.accentHi} />
               <View style={{ flex: 1 }}>
                 <Text style={{ color: theme.text, fontSize: 12.5, fontWeight: "600" }}>{m.displayName}</Text>
-                <Text numberOfLines={1} style={{ color: theme.mute, fontSize: 9.5, fontFamily: "monospace" }}>
+                <Text numberOfLines={1} style={{ color: theme.mute, fontSize: 9.5, fontFamily: fonts.mono }}>
                   {m.tier.toUpperCase()}{m.caps?.includes("V") ? " · vision" : ""}
                 </Text>
               </View>

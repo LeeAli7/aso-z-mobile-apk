@@ -9,7 +9,7 @@ import { MaterialIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 import { useApp } from "../store/AppStore";
-import { ThemeName } from "../theme/tokens";
+import { ThemeName, fonts } from "../theme/tokens";
 import { Lang } from "../i18n";
 import { TextField, PrimaryButton, GroupLabel } from "../components/ui";
 import { requestSync, pollSync, fetchProfile } from "../core/sync";
@@ -203,7 +203,7 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
             <Text style={{ color: theme.text, fontSize: 15, fontWeight: "600" }}>
               {state.profile?.username || "Не синхронизировано"}
             </Text>
-            <Text style={{ color: theme.mute, fontSize: 11, fontFamily: "monospace", marginTop: 2 }}>
+            <Text style={{ color: theme.mute, fontSize: 11, fontFamily: fonts.mono, marginTop: 2 }}>
               {state.profile?.telegramId ? `tg_id ${state.profile.telegramId}` : "—"}
             </Text>
           </View>
@@ -217,7 +217,7 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
           <View style={{ marginTop: 12, padding: 14, borderRadius: 15, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }}>
             <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
               <Text style={{ color: theme.dim, fontSize: 12 }}>{t("daily_limit")}</Text>
-              <Text style={{ color: theme.text, fontSize: 12, fontFamily: "monospace" }}>
+              <Text style={{ color: theme.text, fontSize: 12, fontFamily: fonts.mono }}>
                 {state.profile.quotaUsed.toLocaleString()} / {state.profile.quotaLimit.toLocaleString()} wt
               </Text>
             </View>
@@ -309,7 +309,7 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
         <View style={{ marginTop: 4, borderRadius: 15, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface, padding: 14 }}>
           <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
             <Text style={{ color: theme.text, fontSize: 13.5 }}>Версия</Text>
-            <Text style={{ color: theme.dim, fontSize: 13, fontFamily: "monospace" }}>1.5.0</Text>
+            <Text style={{ color: theme.dim, fontSize: 13, fontFamily: fonts.mono }}>1.5.0</Text>
           </View>
           <View style={{ height: 8 }} />
           <Text style={{ color: theme.dim, fontSize: 12.5, lineHeight: 18 }}>
@@ -333,7 +333,7 @@ function Row({ label, onPress, value, theme }: { label: string; onPress: () => v
       style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12, backgroundColor: theme.surface, opacity: pressed ? 0.85 : 1 })}
     >
       <Text style={{ color: theme.text, fontSize: 13.5, flex: 1 }}>{label}</Text>
-      <Text style={{ color: theme.accentHi, fontSize: 12, fontFamily: "monospace" }}>{value}</Text>
+      <Text style={{ color: theme.accentHi, fontSize: 12, fontFamily: fonts.mono }}>{value}</Text>
       <MaterialIcons name="chevron-right" size={18} color={theme.mute} />
     </Pressable>
   );

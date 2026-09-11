@@ -74,8 +74,8 @@ export const themes: Record<"light" | "dark", Theme> = {
   light: {
     name: "light",
     bg: "#ffffff",
-    surface: "#ffffff",
-    surface2: "#f5f5f5",
+    surface: "#f5f5f5",
+    surface2: "#e8e8ec",
     border: "rgba(0,0,0,.13)",
     text: "rgba(0,0,0,.9)",
     dim: "rgba(0,0,0,.6)",

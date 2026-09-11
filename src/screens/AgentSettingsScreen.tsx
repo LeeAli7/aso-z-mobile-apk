@@ -12,6 +12,7 @@ import { Alert, Pressable, ScrollView, Switch, Text, TextInput, View } from "rea
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useApp } from "../store/AppStore";
+import { fonts } from "../theme/tokens";
 import { globalStore } from "../store/globalStore";
 import { showToast } from "../design-system/components/Toast";
 import { Button } from "../design-system/components/Button";
@@ -202,7 +203,7 @@ export function AgentSettingsScreen({ navigation }: { navigation: any }) {
               <Pressable key={s.name} onPress={() => handleOpenSkill(s.name)} android_ripple={{ color: c.ripple }}
                 style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", paddingVertical: 9, opacity: pressed ? 0.8 : 1 })}>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: c.text, fontSize: 13.5, fontWeight: "600", fontFamily: "monospace" }}>{s.name}</Text>
+                  <Text style={{ color: c.text, fontSize: 13.5, fontWeight: "600", fontFamily: fonts.mono }}>{s.name}</Text>
                   <Text style={{ color: c.dim, fontSize: 11.5, marginTop: 1 }} numberOfLines={1}>{s.description}</Text>
                 </View>
                 <Pressable onPress={() => handleDeleteSkill(s.name)} hitSlop={8} style={{ padding: 4 }}>
@@ -215,10 +216,10 @@ export function AgentSettingsScreen({ navigation }: { navigation: any }) {
           {skillBody !== null ? (
             <View>
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                <Text style={{ color: c.accentHi, fontSize: 11, fontFamily: "monospace" }}>SKILL.md</Text>
+                <Text style={{ color: c.accentHi, fontSize: 11, fontFamily: fonts.mono }}>SKILL.md</Text>
                 <Pressable onPress={() => setSkillBody(null)}><Text style={{ color: c.dim, fontSize: 11 }}>скрыть</Text></Pressable>
               </View>
-              <Text style={{ color: c.text, fontSize: 11.5, fontFamily: "monospace", lineHeight: 16 }} numberOfLines={12}>
+              <Text style={{ color: c.text, fontSize: 11.5, fontFamily: fonts.mono, lineHeight: 16 }} numberOfLines={12}>
                 {skillBody.slice(0, 2500)}
               </Text>
             </View>
@@ -231,7 +232,7 @@ export function AgentSettingsScreen({ navigation }: { navigation: any }) {
             placeholder="имя (латиница/дефисы)"
             placeholderTextColor={c.mute}
             autoCapitalize="none"
-            style={[inputStyle(c), { fontFamily: "monospace" }]}
+            style={[inputStyle(c), { fontFamily: fonts.mono }]}
           />
           <View style={{ height: 6 }} />
           <TextInput
@@ -318,7 +319,7 @@ export function AgentSettingsScreen({ navigation }: { navigation: any }) {
                 />
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: c.text, fontSize: 13, fontWeight: "600" }}>{j.name}</Text>
-                  <Text style={{ color: c.dim, fontSize: 11, fontFamily: "monospace" }}>{j.schedule} · {j.prompt.slice(0, 50)}{j.prompt.length > 50 ? "…" : ""}</Text>
+                  <Text style={{ color: c.dim, fontSize: 11, fontFamily: fonts.mono }}>{j.schedule} · {j.prompt.slice(0, 50)}{j.prompt.length > 50 ? "…" : ""}</Text>
                   {j.lastResult ? <Text style={{ color: c.dim, fontSize: 10.5, marginTop: 2 }} numberOfLines={1}>↳ {j.lastResult}</Text> : null}
                 </View>
                 <Pressable onPress={() => handleRemoveJob(j.id)} hitSlop={8} style={{ padding: 2 }}>
@@ -328,7 +329,7 @@ export function AgentSettingsScreen({ navigation }: { navigation: any }) {
             ))
           )}
           {upcomingText !== "Автозадач нет" && upcomingText ? (
-            <Text style={{ color: c.accentHi, fontSize: 11, fontFamily: "monospace", marginTop: 4 }}>{upcomingText}</Text>
+            <Text style={{ color: c.accentHi, fontSize: 11, fontFamily: fonts.mono, marginTop: 4 }}>{upcomingText}</Text>
           ) : null}
           <View style={{ height: 1, backgroundColor: c.border, marginVertical: 8 }} />
           <Text style={{ color: c.dim, fontSize: 12, marginBottom: 8 }}>
@@ -348,7 +349,7 @@ export function AgentSettingsScreen({ navigation }: { navigation: any }) {
             placeholder="Расписание: 30m / every 2h / 0 9 * * *"
             placeholderTextColor={c.mute}
             autoCapitalize="none"
-            style={[inputStyle(c), { fontFamily: "monospace" }]}
+            style={[inputStyle(c), { fontFamily: fonts.mono }]}
           />
           <View style={{ height: 6 }} />
           <TextInput

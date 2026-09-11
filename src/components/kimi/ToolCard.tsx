@@ -9,6 +9,7 @@
 import React, { useEffect, useRef } from "react";
 import { Animated, Easing, Pressable, StyleSheet, Text, View } from "react-native";
 import { MaterialIcons, MaterialIcons as MI } from "@expo/vector-icons";
+import { fonts } from "../../theme/tokens";
 
 export type ToolState = "loading" | "done" | "error";
 
@@ -110,7 +111,7 @@ export function ToolCard({ tool, state, theme, output, onOpen, bare }: Props) {
         )}
       </View>
       {label ? (
-        <Text numberOfLines={1} style={{ color: theme.text, fontSize: 11.5, fontFamily: "monospace", flexShrink: 1 }}>
+        <Text numberOfLines={1} style={{ color: theme.text, fontSize: 11.5, fontFamily: fonts.mono, flexShrink: 1 }}>
           {label}
         </Text>
       ) : null}

@@ -45,7 +45,7 @@ export function ThinkingBlock({ text, status, onSkip, onOpen, theme, bare }: Pro
   const isThinking = status === "thinking";
 
   return (
-    <View style={[styles.wrap, bare ? styles.wrapBare : null, { borderColor: !bare && isThinking ? theme.border : "rgba(255,255,255,0)" }]}>
+    <View style={[styles.wrap, bare ? styles.wrapBare : null, { borderColor: !bare && isThinking ? theme.border : "transparent" }]}>
       <Pressable
         onPress={() => text && !isThinking && onOpen?.()}
         disabled={isThinking || !text}
