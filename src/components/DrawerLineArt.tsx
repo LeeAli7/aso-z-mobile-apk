@@ -1,11 +1,12 @@
 /**
  * DrawerLineArt — боковое меню строго по макету «Вариант B — плоский».
  *
- * Правила из промпта:
- *  - кастомные inline SVG (react-native-svg), stroke 1.5-1.75, round, currentColor
+ * Иконки — AppIcon (единый движок, геометрия LineArt 1:1, strokeWidth 1.5
+ * для пиксель-в-пиксель с макетом): pen/cube/group/folder/gear/search/delete.
+ * Своих SVG-дубликатов в файле нет.
+ *
  *  - шапка: синий текст «Новый чат» + синее перо слева (без синей плашки)
- *  - ровно 5 пунктов: Модель / Провайдеры / Агент / Проекты / Настройки
- *    («Хранилище» удалено — открывается через Проекты/StorageSheet чата)
+ *  - пункты: Модель (куб) / Агенты (группа) / Проекты / Настройки
  *  - поиск: плоская строка с лупой, без рамок (border none, transparent)
  *  - сессии: плоский текстовый список, без карточек/рамок/дат,
  *    иконки правки только у активной строки
@@ -25,7 +26,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Svg, { Path, Circle, Line } from "react-native-svg";
+import { AppIcon } from "../design-system/components/AppIcon";
 import { ModelInfo } from "../core/gateway";
 import { Session } from "../store/AppStore";
 import { fonts } from "../theme/tokens";
@@ -33,111 +34,8 @@ import { fonts } from "../theme/tokens";
 const WIDTH = 300;
 const HIDE = -WIDTH - 20;
 
-/* ── LineArt: тонкий контур, единый стиль ── */
-
-const SW = 1.6;
-
-function LineIcon({ d, color, size = 20 }: { d: React.ReactNode; color: string; size?: number }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-      stroke={color} strokeWidth={SW} strokeLinecap="round" strokeLinejoin="round">
-      {d}
-    </Svg>
-  );
-}
-
-/** Новый чат — синее перо/редактирование. */
-export function PenIcon({ color, size }: { color: string; size?: number }) {
-  return (
-    <LineIcon color={color} size={size} d={
-      <>
-        <Path d="M12 20h9" />
-        <Path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
-      </>
-    } />
-  );
-}
-
-/** Модель — минималистичный 3D-куб (изометрия). */
-export function CubeIcon({ color, size }: { color: string; size?: number }) {
-  return (
-    <LineIcon color={color} size={size} d={
-      <>
-        <Path d="M12 3l7.5 4.3v9.4L12 21l-7.5-4.3V7.3Z" />
-        <Path d="M12 12l7.5-4.3M12 12L4.5 7.7M12 12v9" />
-      </>
-    } />
-  );
-}
-
-/** Провайдеры — горизонтальные слайдеры настройки. */
-export function SlidersIcon({ color, size }: { color: string; size?: number }) {
-  return (
-    <LineIcon color={color} size={size} d={
-      <>
-        <Line x1="4" y1="7" x2="20" y2="7" />
-        <Circle cx="15" cy="7" r="2.2" fill="#00000000" />
-        <Line x1="4" y1="12" x2="20" y2="12" />
-        <Circle cx="9" cy="12" r="2.2" fill="#00000000" />
-        <Line x1="4" y1="17" x2="20" y2="17" />
-        <Circle cx="16" cy="17" r="2.2" fill="#00000000" />
-      </>
-    } />
-  );
-}
-
-/** Агенты — человечек, за ним ниже ещё двое (группа). */
-export function AgentsIcon({ color, size }: { color: string; size?: number }) {
-  return (
-    <LineIcon color={color} size={size} d={
-      <>
-        <Circle cx="9" cy="8.5" r="3" />
-        <Path d="M3.5 19c.6-3 2.8-4.5 5.5-4.5S13.9 16 14.5 19" />
-        <Circle cx="16.5" cy="9.5" r="2.3" />
-        <Path d="M15.5 14.7c2.3.2 4 1.6 4.5 4" />
-        <Circle cx="16" cy="15" r="0.1" />
-        <Path d="M13 20.2c1.8-.6 3.9-.4 5.3.8" />
-      </>
-    } />
-  );
-}
-
-/** Проекты — лаконичный контур папки. */
-export function FolderIcon({ color, size }: { color: string; size?: number }) {
-  return (
-    <LineIcon color={color} size={size} d={
-      <Path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
-    } />
-  );
-}
-
-/** Настройки — тонкая шестерёнка в едином стиле. */
-export function SettingsIcon({ color, size }: { color: string; size?: number }) {
-  return (
-    <LineIcon color={color} size={size} d={
-      <>
-        <Circle cx="12" cy="12" r="3" />
-        <Path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.06-.4.1-.8.1-1.2Z" />
-      </>
-    } />
-  );
-}
-
-/** Поиск — тонкая векторная лупа. */
-export function SearchIcon({ color, size }: { color: string; size?: number }) {
-  return (
-    <LineIcon color={color} size={size} d={
-      <>
-        <Circle cx="11" cy="11" r="6.5" />
-        <Line x1="16" y1="16" x2="20.5" y2="20.5" />
-      </>
-    } />
-  );
-}
-
-export function EditPenIcon({ color, size }: { color: string; size?: number }) {
-  return <PenIcon color={color} size={size} />;
-}
+/* Иконки — AppIcon (strokeWidth 1.5 = пиксель-в-пиксель с макетом B). */
+const SW = 1.5;
 
 /* ── Панель ── */
 
@@ -298,14 +196,14 @@ export function DrawerLineArt({
               accessibilityRole="button"
               accessibilityLabel={t("newSession")}
             >
-              <PenIcon color={accent} size={19} />
+              <AppIcon name="pen" color={accent} size={19} strokeWidth={SW} />
               <Text style={{ color: accent, fontSize: 14, fontWeight: "600" }}>{t("newSession")}</Text>
             </Pressable>
 
             {/* ровно 5 пунктов */}
             <View style={{ marginTop: 4 }}>
               {row(
-                <CubeIcon color={modelsExpanded ? accent : iconColor} size={20} />,
+                <AppIcon name="cube" color={modelsExpanded ? accent : iconColor} size={20} strokeWidth={SW} />,
                 modelName, t("model_select"),
                 () => setModelsExpanded((v) => !v), modelsExpanded,
               )}
@@ -340,16 +238,16 @@ export function DrawerLineArt({
                   })}
                 </View>
               )}
-              {row(<AgentsIcon color={iconColor} size={20} />, "Агенты", undefined, () => onNavigate("AgentSettings"))}
-              {row(<FolderIcon color={iconColor} size={20} />, t("vibe_title"), undefined, () => onNavigate("Vibe"))}
-              {row(<SettingsIcon color={iconColor} size={20} />, t("settings_title"), undefined, () => onNavigate("Settings"))}
+              {row(<AppIcon name="group" color={iconColor} size={20} strokeWidth={SW} />, "Агенты", undefined, () => onNavigate("AgentSettings"))}
+              {row(<AppIcon name="folder" color={iconColor} size={20} strokeWidth={SW} />, t("vibe_title"), undefined, () => onNavigate("Vibe"))}
+              {row(<AppIcon name="gear" color={iconColor} size={20} strokeWidth={SW} />, t("settings_title"), undefined, () => onNavigate("Settings"))}
             </View>
 
             <View style={{ height: 1, backgroundColor: theme.border, opacity: 0.7, marginVertical: 10, marginHorizontal: 12 }} />
 
             {/* поиск: плоская строка без рамок */}
             <View style={{ flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 12, paddingVertical: 8, minHeight: 44 }}>
-              <SearchIcon color={theme.mute} size={20} />
+              <AppIcon name="search" color={theme.mute} size={20} strokeWidth={SW} />
               <TextInput
                 value={search}
                 onChangeText={onSearchChange}
@@ -382,12 +280,10 @@ export function DrawerLineArt({
                     {on && (
                       <View style={{ flexDirection: "row", alignItems: "center" }}>
                         <Pressable onPress={() => onRename(s.id)} hitSlop={10} style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }} accessibilityLabel="Переименовать">
-                          <EditPenIcon color={theme.dim} size={16} />
+                          <AppIcon name="pen" color={theme.dim} size={16} strokeWidth={SW} />
                         </Pressable>
                         <Pressable onPress={() => onDelete(s.id)} hitSlop={10} style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }} accessibilityLabel="Удалить">
-                          <Svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={theme.dim} strokeWidth={SW} strokeLinecap="round" strokeLinejoin="round">
-                            <Path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6.5 7l1 13h9l1-13" />
-                          </Svg>
+                          <AppIcon name="delete" color={theme.dim} size={16} strokeWidth={SW} />
                         </Pressable>
                       </View>
                     )}
