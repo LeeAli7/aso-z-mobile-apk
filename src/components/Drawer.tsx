@@ -122,9 +122,9 @@ export function Drawer({
       style={({ pressed }) => ({
         flexDirection: "row",
         alignItems: "center",
-        gap: 12,
+        gap: 18,
         paddingHorizontal: 12,
-        paddingVertical: 11,
+        paddingVertical: 13,
         borderRadius: 14,
         borderWidth: 1,
         borderColor: active ? theme.accent : "transparent",
@@ -179,18 +179,19 @@ export function Drawer({
               style={({ pressed }) => ({
                 flexDirection: "row",
                 alignItems: "center",
-                justifyContent: "center",
+                alignSelf: "flex-start",
                 gap: 8,
-                paddingVertical: 12,
-                borderRadius: 14,
+                paddingHorizontal: 18,
+                paddingVertical: 8,
+                borderRadius: 12,
                 backgroundColor: theme.accent,
                 opacity: pressed ? 0.8 : 1,
               })}
               accessibilityRole="button"
               accessibilityLabel={t("newSession")}
             >
-              <MaterialIcons name="add" size={17} color="#fff" />
-              <Text style={{ color: "#fff", fontSize: 13.5, fontWeight: "600" }}>{t("newSession")}</Text>
+              <MaterialIcons name="add" size={16} color="#fff" />
+              <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>{t("newSession")}</Text>
             </Pressable>
 
             <View style={{ marginTop: 6 }}>
@@ -237,15 +238,18 @@ export function Drawer({
               {row("storage", "Хранилище", undefined, onOpenStorage)}
             </View>
 
-            <View style={{ height: 1, backgroundColor: theme.border, opacity: 0.7, marginVertical: 10 }} />
+            <View style={{ height: 1, backgroundColor: theme.border, opacity: 0.7, marginVertical: 10, marginHorizontal: 8 }} />
 
-            <TextInput
-              value={search}
-              onChangeText={onSearchChange}
-              placeholder="Поиск сессий…"
-              placeholderTextColor={theme.mute}
-              style={{ backgroundColor: theme.surface2, borderColor: theme.border, borderWidth: 1, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 8, fontSize: 13, color: theme.text, minHeight: 44 }}
-            />
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 18, backgroundColor: theme.surface2, borderColor: theme.border, borderWidth: 1, borderRadius: 14, paddingHorizontal: 12, minHeight: 44 }}>
+              <MaterialIcons name="search" size={19} color={theme.mute} />
+              <TextInput
+                value={search}
+                onChangeText={onSearchChange}
+                placeholder="Поиск сессий…"
+                placeholderTextColor={theme.mute}
+                style={{ flex: 1, fontSize: 13, color: theme.text, paddingVertical: 8 }}
+              />
+            </View>
             <View style={{ gap: 6, marginTop: 8 }}>
               {sessions.map((s) => (
                 <Pressable
@@ -255,10 +259,11 @@ export function Drawer({
                     flexDirection: "row",
                     alignItems: "center",
                     gap: 8,
-                    padding: 10,
-                    borderRadius: 14,
+                    paddingHorizontal: 12,
+                    paddingVertical: 10,
+                    borderRadius: 12,
                     borderWidth: 1,
-                    borderColor: s.id === activeId ? theme.accent : theme.border,
+                    borderColor: s.id === activeId ? theme.accent : "transparent",
                     backgroundColor: s.id === activeId ? theme.accentDim : "transparent",
                   }}
                 >
