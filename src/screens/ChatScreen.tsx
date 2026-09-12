@@ -30,7 +30,7 @@ import { buildAttachmentParts } from "../core/attachments";
 import { getToolDefs } from "../core/tools";
 import { dueJobs, markJobRun } from "../core/cron";
 import { runSelfReview } from "../core/selfImprove";
-import { Drawer } from "../components/Drawer";
+import { DrawerLineArt } from "../components/DrawerLineArt";
 import { renderMarkdown } from "../components/Markdown";
 import { ThinkingBlock } from "../components/kimi/ThinkingBlock";
 import { ToolCard } from "../components/kimi/ToolCard";
@@ -1156,9 +1156,9 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         </View>
       </KeyboardAvoidingView>
 
-      {/* ── Боковая панель B: Новый чат + плоский список + поиск + сессии.
-          Шиты сессий/моделей удалены — всё здесь. */}
-      <Drawer
+      {/* ── Боковое меню LineArt (макет B — плоский): перо + 5 пунктов +
+          плоский поиск и сессии. Без Хранилища (оно в Vibe/StorageSheet). */}
+      <DrawerLineArt
         visible={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         theme={theme}
@@ -1169,8 +1169,6 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         onSelectModel={switchModel}
         onNewChat={handleNewSession}
         onNavigate={openDrawerRoute}
-        onOpenStorage={openStorageSheet}
-        activeProjectName={activeProject?.name ?? null}
         sessions={sessionList}
         activeId={active?.id ?? null}
         onSelectSession={openDrawerSession}
