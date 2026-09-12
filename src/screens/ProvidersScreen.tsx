@@ -9,8 +9,9 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { FlatList, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { MaterialIcons } from "@expo/vector-icons";
+import { AppIcon } from "../design-system/components/AppIcon";
 import { useApp } from "../store/AppStore";
+import { fonts } from "../theme/tokens";
 import { IconButton } from "../design-system/components/IconButton";
 import { Button } from "../design-system/components/Button";
 import { Input } from "../design-system/components/Input";
@@ -73,7 +74,7 @@ export function ProvidersScreen({ navigation }: { navigation: any }) {
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingBottom: 8, paddingTop: insets.top + 4, borderBottomWidth: 1, borderBottomColor: theme.border }}>
-        <IconButton name="arrow-back" onPress={() => navigation.goBack()} accessibilityLabel="Назад" />
+        <IconButton name="arrow-left" onPress={() => navigation.goBack()} accessibilityLabel="Назад" />
         <Text style={{ color: theme.text, fontSize: 16, fontWeight: "700" }}>Провайдеры и модели</Text>
       </View>
 
@@ -103,17 +104,17 @@ export function ProvidersScreen({ navigation }: { navigation: any }) {
                 onPress={() => toggleExpand(item.id)}
                 style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 12, borderRadius: 10, borderWidth: 1, borderColor: open ? theme.accent : theme.border, backgroundColor: theme.surface }}
               >
-                <MaterialIcons name={open ? "expand-more" : "chevron-right"} size={18} color={theme.accentHi} />
+                <AppIcon name={open ? "chevron-down" : "chevron-right"} size={18} color={theme.accentHi} />
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: theme.text, fontSize: 13.5, fontWeight: "600" }}>{item.name}</Text>
-                  <Text numberOfLines={1} style={{ color: theme.mute, fontSize: 10, fontFamily: "monospace" }}>{item.baseUrl}</Text>
+                  <Text numberOfLines={1} style={{ color: theme.mute, fontSize: 10, fontFamily: fonts.mono }}>{item.baseUrl}</Text>
                 </View>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                   <Pressable hitSlop={10} onPress={() => { setEditProvider(item); setProviderForm(true); }} accessibilityLabel="Редактировать провайдера">
-                    <MaterialIcons name="edit" size={17} color={theme.accentHi} />
+                    <AppIcon name="edit" size={17} color={theme.accentHi} />
                   </Pressable>
                   <Pressable hitSlop={10} onPress={() => removeProvider(item)} accessibilityLabel="Удалить провайдера">
-                    <MaterialIcons name="delete-outline" size={18} color={theme.danger} />
+                    <AppIcon name="delete" size={18} color={theme.danger} />
                   </Pressable>
                 </View>
               </Pressable>
@@ -128,18 +129,18 @@ export function ProvidersScreen({ navigation }: { navigation: any }) {
                   )}
                   {item.models.map((m) => (
                     <View key={m.id} style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 9, borderRadius: 9, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface2, marginTop: 5 }}>
-                      <MaterialIcons name="smart-toy" size={15} color={theme.accentHi} />
+                      <AppIcon name="model" size={15} color={theme.accentHi} />
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: theme.text, fontSize: 12.5, fontWeight: "600" }}>{m.name}</Text>
-                        <Text numberOfLines={1} style={{ color: theme.mute, fontSize: 9.5, fontFamily: "monospace" }}>
+                        <Text numberOfLines={1} style={{ color: theme.mute, fontSize: 9.5, fontFamily: fonts.mono }}>
                           temp {m.temperature ?? 0.7}{m.systemPrompt ? " · prompt" : ""}
                         </Text>
                       </View>
                       <Pressable hitSlop={10} onPress={() => setModelForm({ provider: item, model: m })} accessibilityLabel="Редактировать модель">
-                        <MaterialIcons name="edit" size={16} color={theme.accentHi} />
+                        <AppIcon name="edit" size={16} color={theme.accentHi} />
                       </Pressable>
                       <Pressable hitSlop={10} onPress={() => removeModel(item, m)} accessibilityLabel="Удалить модель">
-                        <MaterialIcons name="delete-outline" size={17} color={theme.danger} />
+                        <AppIcon name="delete" size={17} color={theme.danger} />
                       </Pressable>
                     </View>
                   ))}
@@ -305,9 +306,12 @@ function ModelForm({ provider, initial, onClose, onSaved }: { provider: CustomPr
         <Input label="System prompt (необязательно)" placeholder="Ты — ассистент…" value={systemPrompt} onChangeText={setSystemPrompt} multiline style={{ minHeight: 70 }} />
 
         {testRes && (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <AppIcon name={testRes.ok ? "check-circle" : "close"} size={14} color={testRes.ok ? theme.ok : theme.danger} />
           <Text style={{ color: testRes.ok ? theme.ok : theme.danger, fontSize: 12 }}>
-            {testRes.ok ? "✓ " : "✕ "}{testRes.message}
+            {testRes.message}
           </Text>
+          </View>
         )}
 
         <View style={{ flexDirection: "row", gap: 8 }}>
@@ -333,21 +337,21 @@ function SystemProvider({ state, theme }: { state: any; theme: any }) {
         onPress={() => setOpen((v) => !v)}
         style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 12, borderRadius: 10, borderWidth: 1, borderColor: open ? theme.accent : theme.border, backgroundColor: theme.surface }}
       >
-        <MaterialIcons name={open ? "expand-more" : "chevron-right"} size={18} color={theme.accentHi} />
-        <MaterialIcons name="cloud-done" size={17} color={theme.accentHi} />
+        <AppIcon name={open ? "chevron-down" : "chevron-right"} size={18} color={theme.accentHi} />
+        <AppIcon name="link" size={17} color={theme.accentHi} />
         <View style={{ flex: 1 }}>
           <Text style={{ color: theme.text, fontSize: 13.5, fontWeight: "600" }}>AsoAI</Text>
-          <Text style={{ color: theme.mute, fontSize: 10, fontFamily: "monospace" }}>системные модели · {state.models.length}</Text>
+          <Text style={{ color: theme.mute, fontSize: 10, fontFamily: fonts.mono }}>системные модели · {state.models.length}</Text>
         </View>
       </Pressable>
       {open && (
         <View style={{ marginTop: 4, paddingLeft: 12 }}>
           {state.models.map((m: any) => (
             <View key={m.modelName} style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 9, borderRadius: 9, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface2, marginTop: 5 }}>
-              <MaterialIcons name="smart-toy" size={15} color={theme.accentHi} />
+              <AppIcon name="model" size={15} color={theme.accentHi} />
               <View style={{ flex: 1 }}>
                 <Text style={{ color: theme.text, fontSize: 12.5, fontWeight: "600" }}>{m.displayName}</Text>
-                <Text numberOfLines={1} style={{ color: theme.mute, fontSize: 9.5, fontFamily: "monospace" }}>
+                <Text numberOfLines={1} style={{ color: theme.mute, fontSize: 9.5, fontFamily: fonts.mono }}>
                   {m.tier.toUpperCase()}{m.caps?.includes("V") ? " · vision" : ""}
                 </Text>
               </View>

@@ -4,7 +4,7 @@
 import React from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { MaterialIcons } from "@expo/vector-icons";
+import { AppIcon, materialToApp } from "../design-system/components/AppIcon";
 import { useApp } from "../store/AppStore";
 import { fonts } from "../theme/tokens";
 
@@ -86,9 +86,9 @@ export function ProfileScreen({ navigation }: { navigation: any }) {
                 opacity: pressed ? 0.8 : 1,
               })}
             >
-              <MaterialIcons name={r.icon} size={19} color={r.danger ? theme.danger : theme.accentHi} />
+              <AppIcon name={materialToApp(r.icon)} size={19} color={r.danger ? theme.danger : theme.accentHi} />
               <Text style={{ color: r.danger ? theme.danger : theme.text, fontSize: 13.5, flex: 1 }}>{r.label}</Text>
-              <MaterialIcons name="chevron-right" size={18} color={theme.mute} />
+              <AppIcon name="chevron-right" size={18} color={theme.mute} />
             </Pressable>
           ))}
         </View>

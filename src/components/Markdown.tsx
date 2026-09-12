@@ -8,7 +8,7 @@
  */
 import React, { useMemo, useState } from "react";
 import { Linking, Pressable, Text, View, ViewStyle } from "react-native";
-import { MaterialIcons } from "@expo/vector-icons";
+import { AppIcon } from "../design-system/components/AppIcon";
 import { useApp } from "../store/AppStore";
 import { fonts } from "../theme/tokens";
 import { showToast } from "../design-system/components/Toast";
@@ -142,7 +142,7 @@ function CodeBlock({ code, lang, theme }: { code: string; lang: string; theme: a
             accessibilityLabel={wrapped ? "Перенос выключен" : "Перенос включен"}
             style={{ width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center" }}
           >
-            <MaterialIcons name="wrap-text" size={13} color={wrapped ? theme.dim : theme.mute} />
+            <AppIcon name="wrap" size={13} color={wrapped ? theme.dim : theme.mute} />
           </Pressable>
           <Pressable
             hitSlop={8}
@@ -150,7 +150,7 @@ function CodeBlock({ code, lang, theme }: { code: string; lang: string; theme: a
             style={{ width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center" }}
             accessibilityLabel="Копировать код"
           >
-            <MaterialIcons name="content-copy" size={13} color={theme.mute} />
+            <AppIcon name="copy" size={13} color={theme.mute} />
           </Pressable>
         </View>
       </View>

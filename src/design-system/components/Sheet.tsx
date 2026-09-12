@@ -210,12 +210,12 @@ export function Sheet({
             <View {...pan.panHandlers}>
               {/* handle — широкая зона (тач-таргет ≥44), сам хендл — тонкая полоса */}
               <View style={styles.handleArea}>
-                <View style={[styles.handle, { backgroundColor: theme.surface2 }]} />
+                <View style={[styles.handle, { backgroundColor: theme.dim }]} />
               </View>
 
               {title ? (
                 <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
-                  <Text style={{ color: theme.text, fontSize: 20, fontWeight: "700" }}>{title}</Text>
+                  <Text style={{ color: theme.text, fontSize: 16, fontWeight: "700" }}>{title}</Text>
                 </View>
               ) : null}
             </View>

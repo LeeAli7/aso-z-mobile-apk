@@ -5,14 +5,14 @@
 import React from "react";
 import { Text, View } from "react-native";
 import Toast, { BaseToastProps } from "react-native-toast-message";
-import { MaterialIcons } from "@expo/vector-icons";
+import { AppIcon, AppIconName } from "./AppIcon";
 import { useApp } from "../../store/AppStore";
 
 type Kind = "ok" | "err" | "info";
 
 function ToastBody({ kind, text }: { kind: Kind; text: string }) {
   const { theme } = useApp();
-  const icon = kind === "ok" ? "check-circle" : kind === "err" ? "error-outline" : "info-outline";
+  const icon = kind === "ok" ? "check-circle" : kind === "err" ? "close" : "info";
   const color = kind === "ok" ? theme.ok : kind === "err" ? theme.danger : theme.accentHi;
   return (
     <View
@@ -34,7 +34,7 @@ function ToastBody({ kind, text }: { kind: Kind; text: string }) {
         elevation: 8,
       }}
     >
-      <MaterialIcons name={icon as any} size={20} color={color} />
+      <AppIcon name={icon as AppIconName} size={20} color={color} />
       <Text style={{ color: theme.text, fontSize: 13.5, flexShrink: 1 }}>{text}</Text>
     </View>
   );

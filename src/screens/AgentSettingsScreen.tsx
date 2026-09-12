@@ -10,8 +10,9 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Alert, Pressable, ScrollView, Switch, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { MaterialIcons } from "@expo/vector-icons";
+import { AppIcon, AppIconName, materialToApp } from "../design-system/components/AppIcon";
 import { useApp } from "../store/AppStore";
+import { fonts } from "../theme/tokens";
 import { globalStore } from "../store/globalStore";
 import { showToast } from "../design-system/components/Toast";
 import { Button } from "../design-system/components/Button";
@@ -174,7 +175,7 @@ export function AgentSettingsScreen({ navigation }: { navigation: any }) {
     <View style={{ flex: 1, backgroundColor: c.bg }}>
       <View style={{ paddingTop: insets.top + 6, paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: c.border, flexDirection: "row", alignItems: "center" }}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={{ marginRight: 10 }}>
-          <MaterialIcons name="arrow-back" size={22} color={c.text} />
+          <AppIcon name="arrow-left" size={22} color={c.text} />
         </Pressable>
         <View>
           <Text style={{ color: c.dim, fontSize: 11 }}>AGENT</Text>
@@ -184,7 +185,7 @@ export function AgentSettingsScreen({ navigation }: { navigation: any }) {
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 32 }} keyboardShouldPersistTaps="handled">
         {/* ── Память ── */}
-        <SectionTitle theme={c} icon="memory" text="Память" />
+        <SectionTitle theme={c} icon="bulb" text="Память" />
         <View style={[card, { padding: 14, marginTop: 4 }]}>
           <Text style={{ color: c.dim, fontSize: 12, lineHeight: 18, marginBottom: 10 }}>{memoryText.slice(0, 1200)}</Text>
           <View style={{ flexDirection: "row", gap: 8, marginTop: 2 }}>
@@ -193,7 +194,7 @@ export function AgentSettingsScreen({ navigation }: { navigation: any }) {
         </View>
 
         {/* ── Навыки ── */}
-        <SectionTitle theme={c} icon="book" text="Навыки (SKILL.md)" />
+        <SectionTitle theme={c} icon="file" text="Навыки (SKILL.md)" />
         <View style={[card, { padding: 14, marginTop: 4 }]}>
           {skills.length === 0 ? (
             <Text style={{ color: c.dim, fontSize: 12.5, marginBottom: 8 }}>Навыков пока нет. Агент создаёт их сам после сложных задач.</Text>
@@ -202,11 +203,11 @@ export function AgentSettingsScreen({ navigation }: { navigation: any }) {
               <Pressable key={s.name} onPress={() => handleOpenSkill(s.name)} android_ripple={{ color: c.ripple }}
                 style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", paddingVertical: 9, opacity: pressed ? 0.8 : 1 })}>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: c.text, fontSize: 13.5, fontWeight: "600", fontFamily: "monospace" }}>{s.name}</Text>
+                  <Text style={{ color: c.text, fontSize: 13.5, fontWeight: "600", fontFamily: fonts.mono }}>{s.name}</Text>
                   <Text style={{ color: c.dim, fontSize: 11.5, marginTop: 1 }} numberOfLines={1}>{s.description}</Text>
                 </View>
                 <Pressable onPress={() => handleDeleteSkill(s.name)} hitSlop={8} style={{ padding: 4 }}>
-                  <MaterialIcons name="delete-outline" size={18} color={c.danger} />
+                  <AppIcon name="delete" size={18} color={c.danger} />
                 </Pressable>
               </Pressable>
             ))
@@ -215,10 +216,10 @@ export function AgentSettingsScreen({ navigation }: { navigation: any }) {
           {skillBody !== null ? (
             <View>
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                <Text style={{ color: c.accentHi, fontSize: 11, fontFamily: "monospace" }}>SKILL.md</Text>
+                <Text style={{ color: c.accentHi, fontSize: 11, fontFamily: fonts.mono }}>SKILL.md</Text>
                 <Pressable onPress={() => setSkillBody(null)}><Text style={{ color: c.dim, fontSize: 11 }}>скрыть</Text></Pressable>
               </View>
-              <Text style={{ color: c.text, fontSize: 11.5, fontFamily: "monospace", lineHeight: 16 }} numberOfLines={12}>
+              <Text style={{ color: c.text, fontSize: 11.5, fontFamily: fonts.mono, lineHeight: 16 }} numberOfLines={12}>
                 {skillBody.slice(0, 2500)}
               </Text>
             </View>
@@ -231,7 +232,7 @@ export function AgentSettingsScreen({ navigation }: { navigation: any }) {
             placeholder="имя (латиница/дефисы)"
             placeholderTextColor={c.mute}
             autoCapitalize="none"
-            style={[inputStyle(c), { fontFamily: "monospace" }]}
+            style={[inputStyle(c), { fontFamily: fonts.mono }]}
           />
           <View style={{ height: 6 }} />
           <TextInput
@@ -261,7 +262,7 @@ export function AgentSettingsScreen({ navigation }: { navigation: any }) {
         </View>
 
         {/* ── Задачи ── */}
-        <SectionTitle theme={c} icon="checklist" text="Задачи (todo)" />
+        <SectionTitle theme={c} icon="check" text="Задачи (todo)" />
         <View style={[card, { padding: 14, marginTop: 4 }]}>
           {todos.length === 0 ? (
             <Text style={{ color: c.dim, fontSize: 12.5, marginBottom: 8 }}>Задач нет.</Text>
@@ -269,15 +270,15 @@ export function AgentSettingsScreen({ navigation }: { navigation: any }) {
             todos.map((t) => (
               <Pressable key={t.id} onPress={() => handleTodoStatus(t.id, t.status === "completed" ? "pending" : "completed")}
                 style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", paddingVertical: 8, gap: 8, opacity: pressed ? 0.8 : 1 })}>
-                <MaterialIcons
-                  name={t.status === "completed" ? "check-circle" : t.status === "in_progress" ? "autorenew" : "radio-button-unchecked"}
+                <AppIcon
+                  name={t.status === "completed" ? "check-circle" : t.status === "in_progress" ? "refresh" : "circle"}
                   size={18} color={t.status === "completed" ? c.ok : c.dim}
                 />
                 <Text style={{ color: c.text, fontSize: 13, flex: 1, textDecorationLine: t.status === "completed" ? "line-through" : "none", opacity: t.status === "completed" ? 0.55 : 1 }}>
                   {t.content}
                 </Text>
                 <Pressable onPress={() => handleRemoveTodo(t.id)} hitSlop={8} style={{ padding: 2 }}>
-                  <MaterialIcons name="close" size={16} color={c.danger} />
+                  <AppIcon name="close" size={16} color={c.danger} />
                 </Pressable>
               </Pressable>
             ))
@@ -302,7 +303,7 @@ export function AgentSettingsScreen({ navigation }: { navigation: any }) {
         </View>
 
         {/* ── Автозадачи ── */}
-        <SectionTitle theme={c} icon="schedule" text="Автозадачи (cron)" />
+        <SectionTitle theme={c} icon="clock" text="Автозадачи (cron)" />
         <View style={[card, { padding: 14, marginTop: 4 }]}>
           {jobs.length === 0 ? (
             <Text style={{ color: c.dim, fontSize: 12.5, marginBottom: 8 }}>Автозадач нет. Создай: «каждый день в 9:00 напомни…»</Text>
@@ -318,17 +319,17 @@ export function AgentSettingsScreen({ navigation }: { navigation: any }) {
                 />
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: c.text, fontSize: 13, fontWeight: "600" }}>{j.name}</Text>
-                  <Text style={{ color: c.dim, fontSize: 11, fontFamily: "monospace" }}>{j.schedule} · {j.prompt.slice(0, 50)}{j.prompt.length > 50 ? "…" : ""}</Text>
+                  <Text style={{ color: c.dim, fontSize: 11, fontFamily: fonts.mono }}>{j.schedule} · {j.prompt.slice(0, 50)}{j.prompt.length > 50 ? "…" : ""}</Text>
                   {j.lastResult ? <Text style={{ color: c.dim, fontSize: 10.5, marginTop: 2 }} numberOfLines={1}>↳ {j.lastResult}</Text> : null}
                 </View>
                 <Pressable onPress={() => handleRemoveJob(j.id)} hitSlop={8} style={{ padding: 2 }}>
-                  <MaterialIcons name="delete-outline" size={18} color={c.danger} />
+                  <AppIcon name="delete" size={18} color={c.danger} />
                 </Pressable>
               </View>
             ))
           )}
           {upcomingText !== "Автозадач нет" && upcomingText ? (
-            <Text style={{ color: c.accentHi, fontSize: 11, fontFamily: "monospace", marginTop: 4 }}>{upcomingText}</Text>
+            <Text style={{ color: c.accentHi, fontSize: 11, fontFamily: fonts.mono, marginTop: 4 }}>{upcomingText}</Text>
           ) : null}
           <View style={{ height: 1, backgroundColor: c.border, marginVertical: 8 }} />
           <Text style={{ color: c.dim, fontSize: 12, marginBottom: 8 }}>
@@ -348,7 +349,7 @@ export function AgentSettingsScreen({ navigation }: { navigation: any }) {
             placeholder="Расписание: 30m / every 2h / 0 9 * * *"
             placeholderTextColor={c.mute}
             autoCapitalize="none"
-            style={[inputStyle(c), { fontFamily: "monospace" }]}
+            style={[inputStyle(c), { fontFamily: fonts.mono }]}
           />
           <View style={{ height: 6 }} />
           <TextInput
@@ -372,10 +373,10 @@ export function AgentSettingsScreen({ navigation }: { navigation: any }) {
   );
 }
 
-function SectionTitle({ theme, icon, text }: { theme: any; icon: string; text: string }) {
+function SectionTitle({ theme, icon, text }: { theme: any; icon: AppIconName; text: string }) {
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 16, marginBottom: 2 }}>
-      <MaterialIcons name={icon as any} size={15} color={theme.accentHi} />
+      <AppIcon name={materialToApp(icon)} size={15} color={theme.accentHi} />
       <Text style={{ color: theme.text, fontSize: 13, fontWeight: "600" }}>{text}</Text>
     </View>
   );

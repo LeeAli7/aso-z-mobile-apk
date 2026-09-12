@@ -23,18 +23,21 @@ import {
   type ViewStyle,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { MaterialIcons } from "@expo/vector-icons";
+import { AppIcon, AppIconName } from "../design-system/components/AppIcon";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Glass } from "../design-system/components/Glass";
+import { useApp } from "../store/AppStore";
 import { openStorageSettings, openBatterySettings, openNotificationSettings } from "../../modules/aso-runtime/src";
 
 const EASE = Easing.bezier(0.22, 0.61, 0.36, 1);
 const { width: SCREEN_W } = Dimensions.get("window");
 
-// Стили объявлены ДО SLIDES: JSX в SLIDES ссылается на s.b — иначе TDZ-ошибка.
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#0d0d0d", overflow: "hidden" },
+// Стили — makeStyles(theme): цвета из темы, раскладка статична.
+// Слайды — getSlides(s): JSX слайдов ссылается на s.b.
+function makeStyles(theme: any) {
+  return StyleSheet.create({
+  root: { flex: 1, backgroundColor: theme.bg, overflow: "hidden" },
   bg: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 } as ViewStyle,
   glow: { position: "absolute", borderRadius: 999 },
   glowTop: {
@@ -42,7 +45,7 @@ const s = StyleSheet.create({
     right: -110,
     width: 600,
     height: 380,
-    backgroundColor: "rgba(26,136,255,.10)",
+    backgroundColor: theme.accentDim,
     transform: [{ scaleX: 1.2 }],
   },
   glowBottom: {
@@ -50,7 +53,7 @@ const s = StyleSheet.create({
     left: -120,
     width: 520,
     height: 340,
-    backgroundColor: "rgba(77,166,255,.06)",
+    backgroundColor: theme.accentDim,
   },
   dots: {
     position: "absolute",
@@ -70,9 +73,9 @@ const s = StyleSheet.create({
     width: 7,
     height: 7,
     borderRadius: 99,
-    backgroundColor: "rgba(255,255,255,.14)",
+    backgroundColor: theme.border,
   },
-  dotOn: { width: 22, backgroundColor: "#1a88ff" },
+  dotOn: { width: 22, backgroundColor: theme.accent },
   stage: { flex: 1, position: "relative" },
   slide: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, paddingHorizontal: 26, paddingBottom: 12 } as ViewStyle,
   slideBody: { flex: 1, justifyContent: "center" },
@@ -83,7 +86,7 @@ const s = StyleSheet.create({
     height: 76,
     borderRadius: 24,
     borderWidth: 1,
-    borderColor: "rgba(26,136,255,.35)",
+    borderColor: theme.accent,
     shadowColor: "#000",
     shadowOpacity: 0.35,
     shadowRadius: 34,
@@ -96,7 +99,7 @@ const s = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 24,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,.10)",
+    borderColor: theme.border,
   },
 
   kicker: {
@@ -105,7 +108,7 @@ const s = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 1.6,
     textTransform: "uppercase",
-    color: "#4da6ff",
+    color: theme.accentHi,
     marginBottom: 12,
   },
   title: {
@@ -114,18 +117,18 @@ const s = StyleSheet.create({
     fontWeight: "800",
     lineHeight: 33,
     letterSpacing: -0.4,
-    color: "rgba(255,255,255,.88)",
+    color: theme.text,
     marginBottom: 14,
   },
   lead: {
     textAlign: "center",
     fontSize: 15.5,
     lineHeight: 24,
-    color: "rgba(255,255,255,.56)",
+    color: theme.dim,
     maxWidth: 320,
     alignSelf: "center",
   },
-  b: { color: "rgba(255,255,255,.88)", fontWeight: "600" },
+  b: { color: theme.text, fontWeight: "600" },
 
   why: { marginTop: 22, padding: 16, paddingHorizontal: 18 },
   whyRow: { flexDirection: "row", gap: 12, alignItems: "flex-start" },
@@ -133,20 +136,20 @@ const s = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 12,
-    backgroundColor: "rgba(26,136,255,.16)",
+    backgroundColor: theme.accentDim,
     borderWidth: 1,
-    borderColor: "rgba(26,136,255,.25)",
+    borderColor: theme.accent,
     alignItems: "center",
     justifyContent: "center",
   },
-  whyT: { fontSize: 14.5, fontWeight: "600", lineHeight: 20, color: "rgba(255,255,255,.88)", marginBottom: 3 },
-  whyD: { fontSize: 13.5, lineHeight: 20, color: "rgba(255,255,255,.56)" },
+  whyT: { fontSize: 14.5, fontWeight: "600", lineHeight: 20, color: theme.text, marginBottom: 3 },
+  whyD: { fontSize: 13.5, lineHeight: 20, color: theme.dim },
 
   settingsRow: {
     marginTop: 14,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,.07)",
+    borderTopColor: theme.border,
     flexDirection: "row",
     alignItems: "center",
     gap: 11,
@@ -155,18 +158,18 @@ const s = StyleSheet.create({
     width: 30,
     height: 30,
     borderRadius: 8,
-    backgroundColor: "#26262a",
+    backgroundColor: theme.surface2,
     alignItems: "center",
     justifyContent: "center",
   },
-  settingsText: { flex: 1, fontSize: 13, lineHeight: 18, color: "rgba(255,255,255,.56)" },
-  settingsBold: { color: "rgba(255,255,255,.88)", fontWeight: "600" },
-  settingsChev: { color: "rgba(255,255,255,.38)", fontSize: 16 },
+  settingsText: { flex: 1, fontSize: 13, lineHeight: 18, color: theme.dim },
+  settingsBold: { color: theme.text, fontWeight: "600" },
+  settingsChev: { color: theme.mute, fontSize: 16 },
 
   actions: { marginTop: 22, gap: 10 },
   btnPrimaryWrap: {
     borderRadius: 16,
-    shadowColor: "#1a88ff",
+    shadowColor: theme.accent,
     shadowOpacity: 0.34,
     shadowRadius: 28,
     shadowOffset: { width: 0, height: 10 },
@@ -180,35 +183,37 @@ const s = StyleSheet.create({
     justifyContent: "center",
     gap: 8,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,.25)",
+    borderColor: theme.border,
   },
-  btnPrimaryText: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  btnPrimaryText: { color: theme.onAccent, fontSize: 16, fontWeight: "700" },
   btnGhost: {
     minHeight: 50,
     borderRadius: 16,
-    backgroundColor: "rgba(255,255,255,.05)",
+    backgroundColor: theme.surface,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,.10)",
+    borderColor: theme.border,
     alignItems: "center",
     justifyContent: "center",
   },
-  btnGhostText: { color: "rgba(255,255,255,.56)", fontSize: 15, fontWeight: "600" },
+  btnGhostText: { color: theme.dim, fontSize: 15, fontWeight: "600" },
   btnPressed: { opacity: 0.85 },
-});
+  });
+}
 
 interface SlideDef {
   kicker: string;
   title: string;
   lead: React.ReactNode;
-  icon: string;
-  why: { icon: string; t: string; d: string };
+  icon: AppIconName;
+  why: { icon: AppIconName; t: string; d: string };
   settings?: { label: string; path: string };
   primary: { label: string; action: "next" | "files" | "battery" | "notifications" | "done" };
   ghost?: string;
   final?: boolean;
 }
 
-const SLIDES: SlideDef[] = [
+function getSlides(s: ReturnType<typeof makeStyles>): SlideDef[] {
+  return [
   {
     kicker: "Aso-z",
     title: "Твой личный AI-агент\nв кармане",
@@ -219,9 +224,9 @@ const SLIDES: SlideDef[] = [
         твоём телефоне — в настоящем Linux-терминале.
       </>
     ),
-    icon: "center-focus-strong",
+    icon: "camera",
     why: {
-      icon: "code",
+      icon: "terminal",
       t: "Не просто чат — рабочий инструмент",
       d: "Скажи «поставь python», «открой проект», «напиши скрипт» — агент сделает это сам.",
     },
@@ -236,9 +241,9 @@ const SLIDES: SlideDef[] = [
         любых папках — проекты, скачанное, документы.
       </>
     ),
-    icon: "folder-open",
+    icon: "folder",
     why: {
-      icon: "description",
+      icon: "file",
       t: "Зачем это нужно?",
       d: "Создание и редактирование проектов, сохранение результатов работы, быстрый доступ к загрузкам.",
     },
@@ -255,7 +260,7 @@ const SLIDES: SlideDef[] = [
         процессы не должны обрываться системой.
       </>
     ),
-    icon: "battery-charging-full",
+    icon: "bolt",
     why: {
       icon: "bolt",
       t: "Зачем это нужно?",
@@ -274,9 +279,9 @@ const SLIDES: SlideDef[] = [
         когда приложение свёрнуто.
       </>
     ),
-    icon: "notifications",
+    icon: "bell",
     why: {
-      icon: "info-outline",
+      icon: "info",
       t: "Зачем это нужно?",
       d: "Ты не сидишь в приложении — а агент продолжает работать и сообщает результат.",
     },
@@ -286,7 +291,7 @@ const SLIDES: SlideDef[] = [
   },
   {
     kicker: "Готово",
-    title: "Всё настроено!\nПогнали 🚀",
+    title: "Всё настроено!\nПогнали",
     lead: (
       <>
         Теперь попробуй что-нибудь — например: <Text style={s.b}>«покажи, что в моих файлах»</Text> или{" "}
@@ -294,11 +299,12 @@ const SLIDES: SlideDef[] = [
       </>
     ),
     icon: "check",
-    why: { icon: "rocket-launch", t: "Всё готово", d: "Разрешения выданы — агент готов к работе." },
+    why: { icon: "send", t: "Всё готово", d: "Разрешения выданы — агент готов к работе." },
     primary: { label: "Начать работу", action: "done" },
     final: true,
   },
-];
+  ];
+}
 
 /** Один слайд: анимация перехода (fade + translateX) + stagger-появление контента. */
 function Slide({
@@ -308,6 +314,8 @@ function Slide({
   active,
   onPrimary,
   onGhost,
+  s,
+  theme,
 }: {
   def: SlideDef;
   index: number;
@@ -315,6 +323,8 @@ function Slide({
   active: boolean;
   onPrimary: () => void;
   onGhost: () => void;
+  s: ReturnType<typeof makeStyles>;
+  theme: any;
 }) {
   const anims = useRef<Animated.Value[]>([]);
   if (anims.current.length === 0) anims.current = [0, 1, 2, 3, 4, 5].map(() => new Animated.Value(0));
@@ -368,16 +378,16 @@ function Slide({
         {/* эмблема */}
         <Animated.View style={[s.emblemWrap, rise(0)]}>
           <LinearGradient
-            colors={["rgba(26,136,255,.24)", "rgba(26,136,255,.05)"]}
+            colors={[theme.accentDim, "transparent"]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={s.emblem}
           >
             <View style={s.emblemInner}>
               {def.final ? (
-                <MaterialIcons name="check" size={46} color="#16c456" />
+                <AppIcon name="check" size={46} color={theme.ok} />
               ) : (
-                <MaterialIcons name={def.icon as never} size={34} color="#fff" />
+                <AppIcon name={def.icon} size={34} color={theme.onAccent} />
               )}
             </View>
           </LinearGradient>
@@ -403,7 +413,7 @@ function Slide({
           <Glass radius={20} blur={false} style={s.why}>
             <View style={s.whyRow}>
               <View style={s.whyIco}>
-                <MaterialIcons name={def.why.icon as never} size={19} color="#4da6ff" />
+                <AppIcon name={def.why.icon} size={19} color={theme.accentHi} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={s.whyT}>{def.why.t}</Text>
@@ -413,7 +423,7 @@ function Slide({
             {def.settings && (
               <View style={s.settingsRow}>
                 <View style={s.settingsIco}>
-                  <MaterialIcons name="settings" size={15} color="rgba(255,255,255,.38)" />
+                  <AppIcon name="settings" size={15} color={theme.mute} />
                 </View>
                 <Text style={s.settingsText}>
                   Пункт: <Text style={s.settingsBold}>{def.settings.label}</Text>
@@ -430,27 +440,27 @@ function Slide({
         <Animated.View style={[s.actions, rise(5)]}>
           <Pressable
             onPress={onPrimary}
-            android_ripple={{ color: "rgba(255,255,255,.15)" }}
+            android_ripple={{ color: theme.ripple }}
             style={({ pressed }) => [s.btnPrimaryWrap, pressed && s.btnPressed]}
           >
             <LinearGradient
-              colors={["#2b95ff", "#1a88ff"]}
+              colors={[theme.accentHi, theme.accent]}
               start={{ x: 0, y: 0 }}
               end={{ x: 0, y: 1 }}
               style={s.btnPrimary}
             >
               <Text style={s.btnPrimaryText}>{def.primary.label}</Text>
-              <MaterialIcons
-                name={def.primary.action === "done" ? "arrow-forward" : "chevron-right"}
+              <AppIcon
+                name={def.primary.action === "done" ? "check" : "chevron-right"}
                 size={22}
-                color="#fff"
+                color={theme.onAccent}
               />
             </LinearGradient>
           </Pressable>
           {def.ghost && (
             <Pressable
               onPress={onGhost}
-              android_ripple={{ color: "rgba(255,255,255,.08)" }}
+              android_ripple={{ color: theme.ripple }}
               style={({ pressed }) => [s.btnGhost, pressed && s.btnPressed]}
             >
               <Text style={s.btnGhostText}>{def.ghost}</Text>
@@ -464,6 +474,9 @@ function Slide({
 
 export function OnboardingScreen({ onDone }: { onDone: () => void }) {
   const insets = useSafeAreaInsets();
+  const { theme } = useApp();
+  const s = makeStyles(theme);
+  const SLIDES = getSlides(s);
   const [cur, setCur] = useState(0);
   const progress = useRef(new Animated.Value(0)).current;
   const busy = useRef(false);
@@ -548,6 +561,8 @@ export function OnboardingScreen({ onDone }: { onDone: () => void }) {
             active={i === cur}
             onPrimary={() => void handlePrimary()}
             onGhost={() => go(cur + 1)}
+            s={s}
+            theme={theme}
           />
         ))}
       </View>

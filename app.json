@@ -7,7 +7,7 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "splash": {
-      "backgroundColor": "#050505",
+      "backgroundColor": "#0d0d0d",
       "image": "./assets/logo.png",
       "resizeMode": "contain"
     },
@@ -16,7 +16,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#050505",
+        "backgroundColor": "#0d0d0d",
         "foregroundImage": "./assets/adaptive-icon.png"
       },
       "package": "app.aso.zmobile",

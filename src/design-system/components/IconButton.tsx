@@ -1,5 +1,5 @@
 /**
- * IconButton — круглая стеклянная кнопка с иконкой MaterialIcons.
+ * IconButton — круглая стеклянная кнопка с иконкой AppIcon.
  *
  * Без BlurView: стекло рисуется стилями (полупрозрачный фон + рамка + блик).
  * На Android это надёжно: тач-таргет ровно 44×44, иконка не режется,
@@ -7,14 +7,14 @@
  */
 import React from "react";
 import { Pressable, StyleSheet } from "react-native";
-import { MaterialIcons } from "@expo/vector-icons";
+import { AppIcon, AppIconName } from "./AppIcon";
 import * as Haptics from "expo-haptics";
 import { BlurView } from "expo-blur";
 import { useApp } from "../../store/AppStore";
 import { hitSlop, touchTarget } from "../tokens";
 import { GlassTint, GlassRim } from "./Glass";
 
-export type IconName = keyof typeof MaterialIcons.glyphMap;
+export type IconName = AppIconName;
 
 export function IconButton({
   name,
@@ -80,7 +80,7 @@ export function IconButton({
       {/* капля-блик + преломляющая кромка (liquid glass) */}
       <GlassTint dark={dark} />
       <GlassRim radius={touchTarget / 2} dark={dark} />
-      <MaterialIcons name={name} size={size} color={color ?? theme.dim} />
+      <AppIcon name={name} size={size} color={color ?? theme.dim} />
     </Pressable>
   );
 }

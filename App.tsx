@@ -14,6 +14,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { AppProvider, useApp } from "./src/store/AppStore";
 import { ChatScreen } from "./src/screens/ChatScreen";
+import { VibeScreen } from "./src/screens/VibeScreen";
 import { VibeProjectScreen } from "./src/screens/VibeProjectScreen";
 import { SettingsScreen } from "./src/screens/SettingsScreen";
 import { ProvidersScreen } from "./src/screens/ProvidersScreen";
@@ -73,6 +74,7 @@ function RootNav() {
     <NavigationContainer theme={navTheme}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Main" component={ChatScreen} />
+        <Stack.Screen name="Vibe" component={VibeScreen} />
         <Stack.Screen name="VibeProject" component={VibeProjectScreen} />
         <Stack.Screen name="Settings" component={SettingsScreen} />
         <Stack.Screen name="AgentSettings" component={AgentSettingsScreen} />

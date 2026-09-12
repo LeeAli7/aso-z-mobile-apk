@@ -3,13 +3,13 @@
  */
 import React from "react";
 import { Text, View, ViewStyle } from "react-native";
-import { MaterialIcons } from "@expo/vector-icons";
+import { AppIcon } from "./AppIcon";
 import { useApp } from "../../store/AppStore";
 import { Button } from "./Button";
 import { IconName } from "./IconButton";
 
 export function EmptyState({
-  icon = "inbox",
+  icon = "box",
   title,
   subtitle,
   cta,
@@ -37,7 +37,7 @@ export function EmptyState({
           marginBottom: 16,
         }}
       >
-        <MaterialIcons name={icon} size={28} color={theme.accentHi} />
+        <AppIcon name={icon} size={28} color={theme.accentHi} />
       </View>
       <Text style={{ color: theme.text, fontSize: 17, fontWeight: "700", marginBottom: 6, textAlign: "center" }}>
         {title}
