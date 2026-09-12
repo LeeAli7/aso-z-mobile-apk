@@ -30,7 +30,7 @@ import { buildAttachmentParts } from "../core/attachments";
 import { getToolDefs } from "../core/tools";
 import { dueJobs, markJobRun } from "../core/cron";
 import { runSelfReview } from "../core/selfImprove";
-import { CapBadge } from "../components/ui";
+import { Drawer } from "../components/Drawer";
 import { renderMarkdown } from "../components/Markdown";
 import { ThinkingBlock } from "../components/kimi/ThinkingBlock";
 import { ToolCard } from "../components/kimi/ToolCard";
@@ -46,9 +46,8 @@ import {
 } from "../core/vibeLocal";
 import { openInTermux, openFolderInFileManager, projectDirPath } from "../core/termux";
 import { parseCmdBlocks, runCommandCapture, runtimeAvailable } from "../core/runtime";
-import { IconButton, IconName } from "../design-system/components/IconButton";
+import { IconButton } from "../design-system/components/IconButton";
 import { Glass, GlassPressable } from "../design-system/components/Glass";
-import { GlassBackdrop } from "../design-system/components/GlassBackdrop";
 import { Sheet } from "../design-system/components/Sheet";
 import { Button } from "../design-system/components/Button";
 import { Input } from "../design-system/components/Input";
@@ -59,13 +58,12 @@ type Group =
   | { id: string; kind: "chain"; msgs: Msg[] }
   | { id: string; kind: "single"; msg: Msg };
 
-export function ChatScreen() {
+export function ChatScreen({ navigation }: { navigation: any }) {
   const { state, theme, dispatch, t, newSession, setActive, deleteSession, setDefaultModel } = useApp();
   const insets = useSafeAreaInsets();
 
   const [text, setText] = useState("");
-  const [sessionsOpen, setSessionsOpen] = useState(false);
-  const [modelsOpen, setModelsOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [search, setSearch] = useState("");
   // Стриминг — per-session: каждая сессия отвечает независимо, переключение
   // на другую сессию не блокирует и не рвёт текущий ответ.
@@ -727,9 +725,20 @@ export function ChatScreen() {
   const handleNewSession = useCallback(() => {
     const id = newSession();
     setActive(id);
-    setSessionsOpen(false);
+    setDrawerOpen(false);
     setText("");
   }, [newSession, setActive]);
+
+  const openDrawerSession = useCallback((sid: string) => {
+    setActive(sid);
+    setDrawerOpen(false);
+    setText("");
+  }, [setActive]);
+
+  const openDrawerRoute = useCallback((route: string) => {
+    setDrawerOpen(false);
+    navigation.navigate(route);
+  }, [navigation]);
 
   const deleteSessionById = useCallback(
     (sid: string) => {
@@ -742,7 +751,6 @@ export function ChatScreen() {
   const confirmDeleteSession = useCallback(() => {
     if (!deleteTarget) return;
     deleteSession(deleteTarget.id);
-    setSessionsOpen(false);
     setDeleteTarget(null);
   }, [deleteTarget, deleteSession]);
 
@@ -880,7 +888,7 @@ export function ChatScreen() {
       }
       // запоминаем выбранную модель для новых сессий (персист между запусками)
       setDefaultModel(m.modelName);
-      setModelsOpen(false);
+      setDrawerOpen(false);
     },
     [active, dispatch, setActive, setDefaultModel, t],
   );
@@ -934,10 +942,8 @@ export function ChatScreen() {
   }, [active?.messages]);
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      {/* светящиеся пятна под всем стеклом — чтобы глэссморфизм был виден */}
-      <GlassBackdrop fixed />
-
-      {/* плавающие кнопки шапки: без полосы, каждая со своим стеклом, сообщения проходят ПОД ними */}
+      {/* шапка-минимум (вариант B): бургер + название + новый чат.
+          Модель/конфиг/сессии живут в боковой панели. */}
       <View
         pointerEvents="box-none"
         style={{ position: "absolute", top: 0, left: 0, right: 0, zIndex: 20 }}
@@ -949,50 +955,10 @@ export function ChatScreen() {
             paddingHorizontal: 10, paddingTop: insets.top + 6,
           }}
         >
-          {/* левая группа: меню — симметрично с правым «+» */}
-          <IconButton name="menu" size={20} onPress={() => setSessionsOpen(true)} accessibilityLabel={t("sessions")} />
-
-          {/* центральная группа: модель + конфиг — по центру экрана, растянута flex 1 */}
-          <View pointerEvents="box-none" style={{ flex: 1, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6 }}>
-            {/* капсула модели — стекло */}
-            <GlassPressable
-              onPress={() => setModelsOpen(true)}
-              radius={99}
-              style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 16, height: 42, maxWidth: 140 }}
-              accessibilityLabel={t("model_select")}
-            >
-              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.accentHi }} />
-              <Text style={{ color: theme.text, fontSize: 12.5, fontWeight: "600", fontFamily: fonts.sansDemi, flexShrink: 1 }} numberOfLines={1}>
-                {modelName}
-              </Text>
-              <MaterialIcons name="keyboard-arrow-down" size={15} color={theme.mute} />
-            </GlassPressable>
-
-            {/* капсула хранилища (проекты + файлы + инструкции) — единый стиль с кнопкой модели */}
-            <GlassPressable
-              onPress={openStorageSheet}
-              radius={99}
-              style={{
-                flexDirection: "row", alignItems: "center", gap: 6,
-                paddingHorizontal: 16, height: 42, maxWidth: 140,
-              }}
-              accessibilityLabel="Конфиг"
-            >
-              <MaterialIcons name="folder" size={16} color={theme.accentHi} />
-              <Text numberOfLines={1} style={{ color: theme.text, fontSize: 12.5, fontWeight: "600", fontFamily: fonts.sansDemi, flexShrink: 1 }}>
-                {activeProject ? activeProject.name : "Конфиг"}
-              </Text>
-              {activeProject ? (
-                <Pressable onPress={() => selectProject(null)} hitSlop={8} accessibilityLabel="Отвязать проект">
-                  <MaterialIcons name="close" size={15} color={theme.mute} />
-                </Pressable>
-              ) : (
-                <MaterialIcons name="keyboard-arrow-down" size={15} color={theme.mute} />
-              )}
-            </GlassPressable>
+          <IconButton name="menu" size={20} onPress={() => setDrawerOpen(true)} accessibilityLabel={t("sessions")} />
+          <View pointerEvents="box-none" style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+            <Text style={{ color: theme.text, fontSize: 15, fontWeight: "600" }}>{t("chat_title")}</Text>
           </View>
-
-          {/* правая группа: новый чат — зеркально меню */}
           <IconButton name="add" size={20} onPress={handleNewSession} accessibilityLabel={t("newSession")} />
         </View>
       </View>
@@ -1190,75 +1156,29 @@ export function ChatScreen() {
         </View>
       </KeyboardAvoidingView>
 
-      {/* ── Sessions sheet ── */}
-      <Sheet visible={sessionsOpen} onClose={() => setSessionsOpen(false)} title={t("sessions")} snapPoints={["auto"]} autoMaxPct={70}>
-        <Button title={"＋ " + t("newSession")} onPress={handleNewSession} fullWidth />
-        <View style={{ marginTop: 10 }}>
-          <TextInput
-            value={search}
-            onChangeText={setSearch}
-            placeholder="Поиск сессий…"
-            placeholderTextColor={theme.mute}
-            style={{ backgroundColor: theme.surface2, borderColor: theme.border, borderWidth: 1, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8, fontSize: 13, color: theme.text, minHeight: 44 }}
-          />
-        </View>
-        <View style={{ gap: 8 }}>
-        {sessionList.map((s) => (
-          <Pressable
-            key={s.id}
-            onPress={() => { setActive(s.id); setSessionsOpen(false); }}
-            style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderRadius: 16, borderWidth: 1, borderColor: s.id === active?.id ? theme.accent : theme.border, backgroundColor: s.id === active?.id ? theme.accentDim : theme.surface }}
-          >
-            <View style={{ flex: 1 }}>
-              <Text numberOfLines={1} style={{ color: theme.text, fontSize: 13 }}>{s.name}</Text>
-              <Text style={{ color: theme.mute, fontSize: 10, marginTop: 2 }}>
-                {s.messages.length} · {new Date(s.updatedAt).toLocaleDateString()}
-              </Text>
-            </View>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-              <Pressable onPress={() => renameSessionById(s.id)} hitSlop={10} style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center" }} accessibilityLabel="Переименовать">
-                <MaterialIcons name="edit" size={17} color={theme.dim} />
-              </Pressable>
-              <Pressable onPress={() => deleteSessionById(s.id)} hitSlop={10} style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center" }} accessibilityLabel="Удалить">
-                <MaterialIcons name="delete-outline" size={18} color={theme.dim} />
-              </Pressable>
-            </View>
-          </Pressable>
-        ))}
-        </View>
-      </Sheet>
-
-      {/* ── Models sheet ── */}
-      <Sheet visible={modelsOpen} onClose={() => setModelsOpen(false)} title={t("model_select")} snapPoints={["60%"]}>
-        <View style={{ gap: 8 }}>
-        {allModels.map((m) => {
-          const on = model?.modelName === m.modelName;
-          return (
-            <Pressable
-              key={m.modelName}
-              onPress={() => switchModel(m)}
-              style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderRadius: 16, borderWidth: 1, borderColor: on ? theme.accent : theme.border, backgroundColor: on ? theme.accentDim : theme.surface }}
-            >
-              <View style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: on ? theme.accent : theme.border, alignItems: "center", justifyContent: "center" }}>
-                {on && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.accent }} />}
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: theme.text, fontSize: 14, fontWeight: "600" }}>{m.displayName}</Text>
-                <Text style={{ color: theme.mute, fontSize: 10, marginTop: 1, fontFamily: fonts.mono }}>{m.tier.toUpperCase()}</Text>
-              </View>
-              {m.caps.length > 0 && (
-                <View style={{ flexDirection: "row", gap: 4 }}>
-                  {m.caps.map((c) => <CapBadge key={c} label={c} active />)}
-                </View>
-              )}
-              {m.premium && (
-                <Text style={{ color: theme.warn, fontSize: 8.5, letterSpacing: 1, borderWidth: 1, borderColor: theme.warn + "66", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5 }}>{t("premium")}</Text>
-              )}
-            </Pressable>
-          );
-        })}
-        </View>
-      </Sheet>
+      {/* ── Боковая панель B: Новый чат + плоский список + поиск + сессии.
+          Шиты сессий/моделей удалены — всё здесь. */}
+      <Drawer
+        visible={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        theme={theme}
+        t={t}
+        models={allModels}
+        currentModelName={model?.modelName}
+        modelName={modelName}
+        onSelectModel={switchModel}
+        onNewChat={handleNewSession}
+        onNavigate={openDrawerRoute}
+        onOpenStorage={openStorageSheet}
+        activeProjectName={activeProject?.name ?? null}
+        sessions={sessionList}
+        activeId={active?.id ?? null}
+        onSelectSession={openDrawerSession}
+        search={search}
+        onSearchChange={setSearch}
+        onRename={renameSessionById}
+        onDelete={deleteSessionById}
+      />
 
       {/* ── Конфиг (проекты + файлы + инструкции — как хранилище Hermes) ── */}
       <StorageSheet
