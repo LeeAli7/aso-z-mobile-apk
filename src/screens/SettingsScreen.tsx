@@ -269,6 +269,12 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
           <Divider theme={theme} />
           <Row label="Агент: память, навыки, задачи" onPress={() => navigation.navigate("AgentSettings")} value="" theme={theme} />
           <Divider theme={theme} />
+          <Row label="Коннекторы — скоро" onPress={() => navigation.navigate("Connectors")} value="" theme={theme} />
+          <Divider theme={theme} />
+          <Row label="Доска агентов — скоро" onPress={() => navigation.navigate("Kanban")} value="" theme={theme} />
+          <Divider theme={theme} />
+          <Row label="Использование — скоро" onPress={() => navigation.navigate("Usage")} value="" theme={theme} />
+          <Divider theme={theme} />
           <View style={{ padding: 14, backgroundColor: theme.surface }}>
             <Text style={{ color: theme.text, fontSize: 13.5, marginBottom: 8 }}>Тема</Text>
             <View style={{ flexDirection: "row", gap: 8 }}>

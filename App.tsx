@@ -19,6 +19,9 @@ import { VibeProjectScreen } from "./src/screens/VibeProjectScreen";
 import { SettingsScreen } from "./src/screens/SettingsScreen";
 import { ProvidersScreen } from "./src/screens/ProvidersScreen";
 import { AgentSettingsScreen } from "./src/screens/AgentSettingsScreen";
+import { ConnectorsScreen } from "./src/screens/ConnectorsScreen";
+import { KanbanScreen } from "./src/screens/KanbanScreen";
+import { UsageScreen } from "./src/screens/UsageScreen";
 import { OnboardingScreen } from "./src/screens/OnboardingScreen";
 import { ToastHost, showToast } from "./src/design-system/components/Toast";
 
@@ -79,6 +82,9 @@ function RootNav() {
         <Stack.Screen name="Settings" component={SettingsScreen} />
         <Stack.Screen name="AgentSettings" component={AgentSettingsScreen} />
         <Stack.Screen name="Providers" component={ProvidersScreen} />
+        <Stack.Screen name="Connectors" component={ConnectorsScreen} />
+        <Stack.Screen name="Kanban" component={KanbanScreen} />
+        <Stack.Screen name="Usage" component={UsageScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );
