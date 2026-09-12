@@ -58,11 +58,14 @@ export function PenIcon({ color, size }: { color: string; size?: number }) {
   );
 }
 
-/** Модель — четырёхконечная звезда/искра (Sparkle). */
-export function SparkleIcon({ color, size }: { color: string; size?: number }) {
+/** Модель — минималистичный 3D-куб (изометрия). */
+export function CubeIcon({ color, size }: { color: string; size?: number }) {
   return (
     <LineIcon color={color} size={size} d={
-      <Path d="M12 3c.7 4.8 3.2 7.3 8 8-4.8.7-7.3 3.2-8 8-.7-4.8-3.2-7.3-8-8 4.8-.7 7.3-3.2 8-8Z" />
+      <>
+        <Path d="M12 3l7.5 4.3v9.4L12 21l-7.5-4.3V7.3Z" />
+        <Path d="M12 12l7.5-4.3M12 12L4.5 7.7M12 12v9" />
+      </>
     } />
   );
 }
@@ -83,13 +86,17 @@ export function SlidersIcon({ color, size }: { color: string; size?: number }) {
   );
 }
 
-/** Агент — аккуратная векторная шестерёнка. */
-export function AgentIcon({ color, size }: { color: string; size?: number }) {
+/** Агенты — человечек, за ним ниже ещё двое (группа). */
+export function AgentsIcon({ color, size }: { color: string; size?: number }) {
   return (
     <LineIcon color={color} size={size} d={
       <>
-        <Circle cx="12" cy="12" r="3.2" />
-        <Path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8" />
+        <Circle cx="9" cy="8.5" r="3" />
+        <Path d="M3.5 19c.6-3 2.8-4.5 5.5-4.5S13.9 16 14.5 19" />
+        <Circle cx="16.5" cy="9.5" r="2.3" />
+        <Path d="M15.5 14.7c2.3.2 4 1.6 4.5 4" />
+        <Circle cx="16" cy="15" r="0.1" />
+        <Path d="M13 20.2c1.8-.6 3.9-.4 5.3.8" />
       </>
     } />
   );
@@ -298,7 +305,7 @@ export function DrawerLineArt({
             {/* ровно 5 пунктов */}
             <View style={{ marginTop: 4 }}>
               {row(
-                <SparkleIcon color={modelsExpanded ? accent : iconColor} size={20} />,
+                <CubeIcon color={modelsExpanded ? accent : iconColor} size={20} />,
                 modelName, t("model_select"),
                 () => setModelsExpanded((v) => !v), modelsExpanded,
               )}
@@ -333,8 +340,7 @@ export function DrawerLineArt({
                   })}
                 </View>
               )}
-              {row(<SlidersIcon color={iconColor} size={20} />, t("providers"), undefined, () => onNavigate("Providers"))}
-              {row(<AgentIcon color={iconColor} size={20} />, "Агент", undefined, () => onNavigate("AgentSettings"))}
+              {row(<AgentsIcon color={iconColor} size={20} />, "Агенты", undefined, () => onNavigate("AgentSettings"))}
               {row(<FolderIcon color={iconColor} size={20} />, t("vibe_title"), undefined, () => onNavigate("Vibe"))}
               {row(<SettingsIcon color={iconColor} size={20} />, t("settings_title"), undefined, () => onNavigate("Settings"))}
             </View>
