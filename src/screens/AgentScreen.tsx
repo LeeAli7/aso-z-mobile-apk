@@ -5,7 +5,7 @@
 import React from "react";
 import { FlatList, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { MaterialIcons } from "@expo/vector-icons";
+import { AppIcon, materialToApp } from "../design-system/components/AppIcon";
 import { useApp } from "../store/AppStore";
 import { fonts } from "../theme/tokens";
 import { showToast } from "../design-system/components/Toast";
@@ -41,7 +41,7 @@ export function AgentScreen({ navigation }: { navigation: any }) {
             })}
           >
             <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: theme.accentDim, alignItems: "center", justifyContent: "center" }}>
-              <MaterialIcons name={item.icon as any} size={20} color={theme.accentHi} />
+              <AppIcon name={materialToApp(item.icon)} size={20} color={theme.accentHi} />
             </View>
             <View style={{ flex: 1 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -54,7 +54,7 @@ export function AgentScreen({ navigation }: { navigation: any }) {
               </View>
               <Text style={{ color: theme.dim, fontSize: 11.5, marginTop: 2 }}>{item.desc}</Text>
             </View>
-            <MaterialIcons name="chevron-right" size={18} color={theme.mute} />
+            <AppIcon name="chevron-right" size={18} color={theme.mute} />
           </Pressable>
         )}
       />

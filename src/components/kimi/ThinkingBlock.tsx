@@ -8,7 +8,7 @@
  */
 import React, { useEffect, useRef } from "react";
 import { Animated, Easing, Pressable, StyleSheet, Text, View } from "react-native";
-import { MaterialIcons } from "@expo/vector-icons";
+import { AppIcon } from "../../design-system/components/AppIcon";
 
 export type ThinkingStatus = "thinking" | "done" | "cancelled";
 
@@ -57,10 +57,10 @@ export function ThinkingBlock({ text, status, onSkip, onOpen, theme, bare }: Pro
         <View style={[styles.iconBox, { backgroundColor: theme.surface2 }]}>
           {isThinking ? (
             <Animated.View style={{ transform: [{ rotate: spin }] }}>
-              <MaterialIcons name="lightbulb" size={15} color={theme.accentHi} />
+              <AppIcon name="bulb" size={15} color={theme.accentHi} />
             </Animated.View>
           ) : (
-            <MaterialIcons name="lightbulb" size={15} color={theme.dim} />
+            <AppIcon name="bulb" size={15} color={theme.dim} />
           )}
         </View>
 
@@ -78,7 +78,7 @@ export function ThinkingBlock({ text, status, onSkip, onOpen, theme, bare }: Pro
           </Pressable>
         )}
         {text && !isThinking && (
-          <MaterialIcons name="chevron-right" size={16} color={theme.mute} />
+          <AppIcon name="chevron-right" size={16} color={theme.mute} />
         )}
       </Pressable>
     </View>

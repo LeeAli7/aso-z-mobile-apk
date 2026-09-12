@@ -8,32 +8,32 @@
  */
 import React, { useEffect, useRef } from "react";
 import { Animated, Easing, Pressable, StyleSheet, Text, View } from "react-native";
-import { MaterialIcons, MaterialIcons as MI } from "@expo/vector-icons";
+import { AppIcon, AppIconName } from "../../design-system/components/AppIcon";
 import { fonts } from "../../theme/tokens";
 
 export type ToolState = "loading" | "done" | "error";
 
 /** Типы инструментов — иконка + нейтральный цвет (всё одинаковое). */
-const TOOL_META: Record<string, { icon: keyof typeof MI.glyphMap }> = {
+const TOOL_META: Record<string, { icon: AppIconName }> = {
   shell: { icon: "terminal" },
   terminal: { icon: "terminal" },
-  python: { icon: "code" },
-  ipython: { icon: "code" },
+  python: { icon: "terminal" },
+  ipython: { icon: "terminal" },
   web_search: { icon: "search" },
   search: { icon: "search" },
-  browser: { icon: "language" },
-  read_file: { icon: "description" },
-  write_file: { icon: "note-add" },
+  browser: { icon: "globe" },
+  read_file: { icon: "file" },
+  write_file: { icon: "file" },
   edit_file: { icon: "edit" },
-  todo: { icon: "checklist" },
-  ask_user: { icon: "help-outline" },
-  mcp: { icon: "extension" },
+  todo: { icon: "check" },
+  ask_user: { icon: "info" },
+  mcp: { icon: "model" },
 };
 
 /** Префиксы глаголов — убираем, оставляем суть (команду/путь/запрос). */
 const VERB_PREFIXES = ["выполняю ", "выполнял ", "пишу ", "создаю ", "создал ", "читаю ", "редактирую ", "ищу ", "запускаю ", "запустил "];
 
-function metaFor(raw: string): { icon: keyof typeof MI.glyphMap } {
+function metaFor(raw: string): { icon: AppIconName } {
   const key = (raw || "").toLowerCase();
   if (key.includes("пишу") || key.includes("создаю") || key.includes("write")) return TOOL_META.write_file;
   if (key.includes("выполня") || key.includes("shell") || key.includes("терминал") || key.includes("запуск")) return TOOL_META.shell;
@@ -45,7 +45,7 @@ function metaFor(raw: string): { icon: keyof typeof MI.glyphMap } {
   if (key.includes("спросить") || key.includes("вопрос") || key.includes("ask")) return TOOL_META.ask_user;
   const exact = TOOL_META[key];
   if (exact) return exact;
-  return { icon: "build" };
+  return { icon: "more" };
 }
 
 /** Суть действия: убрать глагольный префикс → «npm run build», «src/index.ts». */
@@ -104,10 +104,10 @@ export function ToolCard({ tool, state, theme, output, onOpen, bare }: Props) {
       <View style={[styles.iconBox, { backgroundColor: theme.surface2 }]}>
         {state === "loading" ? (
           <Animated.View style={{ transform: [{ scale: iconScale }] }}>
-            <MaterialIcons name={meta.icon} size={15} color={iconColor} />
+            <AppIcon name={meta.icon} size={15} color={iconColor} />
           </Animated.View>
         ) : (
-          <MaterialIcons name={meta.icon} size={15} color={iconColor} />
+          <AppIcon name={meta.icon} size={15} color={iconColor} />
         )}
       </View>
       {label ? (
@@ -116,7 +116,7 @@ export function ToolCard({ tool, state, theme, output, onOpen, bare }: Props) {
         </Text>
       ) : null}
       {onOpen && (output || state !== "loading") ? (
-        <MaterialIcons name="chevron-right" size={15} color={theme.mute} />
+        <AppIcon name="chevron-right" size={15} color={theme.mute} />
       ) : null}
     </Pressable>
   );

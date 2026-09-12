@@ -5,7 +5,7 @@
 import React, { useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { MaterialIcons } from "@expo/vector-icons";
+import { AppIcon } from "../design-system/components/AppIcon";
 import { useApp } from "../store/AppStore";
 import { fonts } from "../theme/tokens";
 
@@ -28,7 +28,7 @@ export function SearchScreen() {
       <View style={{ paddingTop: insets.top + 10, paddingHorizontal: 14, paddingBottom: 8 }}>
         <Text style={{ color: theme.mute, fontSize: 11, fontFamily: fonts.mono, letterSpacing: 0.8 }}>SEARCH</Text>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8, backgroundColor: theme.surface2, borderRadius: 24, paddingHorizontal: 14, height: 46 }}>
-          <MaterialIcons name="search" size={18} color={theme.mute} />
+          <AppIcon name="search" size={18} color={theme.mute} />
           <TextInput
             value={q}
             onChangeText={setQ}
@@ -53,9 +53,9 @@ export function SearchScreen() {
               opacity: pressed ? 0.8 : 1,
             })}
           >
-            <MaterialIcons name="trending-up" size={15} color={theme.accentHi} />
+            <AppIcon name="trend" size={15} color={theme.accentHi} />
             <Text style={{ color: theme.text, fontSize: 13, flex: 1 }}>{t}</Text>
-            <MaterialIcons name="chevron-right" size={16} color={theme.mute} />
+            <AppIcon name="chevron-right" size={16} color={theme.mute} />
           </Pressable>
         ))}
       </ScrollView>

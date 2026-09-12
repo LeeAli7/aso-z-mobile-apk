@@ -22,7 +22,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
-import { MaterialIcons } from "@expo/vector-icons";
+import { AppIcon, AppIconName } from "../design-system/components/AppIcon";
 
 import { useApp, genId, Msg, Session } from "../store/AppStore";
 import { ModelInfo, streamChat, streamAgentChat, ChatMessage, ChatPart, AgentToolCall } from "../core/gateway";
@@ -959,7 +959,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           <View pointerEvents="box-none" style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
             <Text style={{ color: theme.text, fontSize: 15, fontWeight: "600" }}>{t("chat_title")}</Text>
           </View>
-          <IconButton name="add" size={20} onPress={handleNewSession} accessibilityLabel={t("newSession")} />
+          <IconButton name="plus" size={20} onPress={handleNewSession} accessibilityLabel={t("newSession")} />
         </View>
       </View>
 
@@ -1015,10 +1015,10 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                           {last && m.content && !m.streaming && (
                             <View style={{ flexDirection: "row", justifyContent: "flex-start", paddingTop: 4, gap: 2 }}>
                               <Pressable onPress={() => copyMsg(m)} hitSlop={10} accessibilityLabel="Копировать" style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center" }}>
-                                <MaterialIcons name="content-copy" size={17} color={theme.dim} />
+                                <AppIcon name="copy" size={17} color={theme.dim} />
                               </Pressable>
                               <Pressable onPress={() => shareMsg(m)} hitSlop={10} accessibilityLabel="Поделиться" style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center" }}>
-                                <MaterialIcons name="share" size={17} color={theme.dim} />
+                                <AppIcon name="share" size={17} color={theme.dim} />
                               </Pressable>
                             </View>
                           )}
@@ -1073,14 +1073,14 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                 <View key={ai} style={{ flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface, borderRadius: 18, paddingLeft: 6, paddingRight: 4, paddingVertical: 4 }}>
                   <View style={{ width: 28, height: 28, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: theme.accentDim }}>
                     {a.kind === "file" ? (
-                      <MaterialIcons name={fileIconName(a.name)} size={15} color={theme.accentHi} />
+                      <AppIcon name={fileIconName(a.name)} size={15} color={theme.accentHi} />
                     ) : (
-                      <MaterialIcons name={a.kind === "camera" ? "photo-camera" : "photo-library"} size={15} color={theme.accentHi} />
+                      <AppIcon name={a.kind === "camera" ? "camera" : "image"} size={15} color={theme.accentHi} />
                     )}
                   </View>
                   <Text numberOfLines={1} style={{ color: theme.dim, fontSize: 11, maxWidth: 110, flexShrink: 1 }}>{a.name ?? "файл"}</Text>
                   <Pressable onPress={() => setAttachments((prev) => prev.filter((_, i) => i !== ai))} hitSlop={8} accessibilityLabel="Убрать вложение" style={{ width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: theme.surface2 }}>
-                    <MaterialIcons name="close" size={14} color={theme.mute} />
+                    <AppIcon name="close" size={14} color={theme.mute} />
                   </Pressable>
                 </View>
               ))}
@@ -1101,7 +1101,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               })}
               accessibilityLabel="Прикрепить"
             >
-              <MaterialIcons name="add" size={22} color={theme.dim} />
+              <AppIcon name="plus" size={22} color={theme.dim} />
             </Pressable>
             <TextInput
               value={text}
@@ -1133,7 +1133,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                 style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.danger, alignItems: "center", justifyContent: "center" }}
                 accessibilityLabel="Остановить"
               >
-                <MaterialIcons name="stop" size={18} color="#fff" />
+                <AppIcon name="stop" size={18} color="#fff" />
               </Pressable>
             ) : text.trim() ? (
               <Pressable
@@ -1142,14 +1142,14 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                 style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.accent, alignItems: "center", justifyContent: "center" }}
                 accessibilityLabel="Отправить"
               >
-                <MaterialIcons name="arrow-upward" size={22} color="#fff" />
+                <AppIcon name="send" size={22} color="#fff" />
               </Pressable>
             ) : (
               <Pressable
                 style={{ width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.09)" : "rgba(255,255,255,.6)", borderWidth: 1, borderColor: theme.border }}
                 accessibilityLabel="Голосовой ввод"
               >
-                <MaterialIcons name="mic" size={20} color={theme.dim} />
+                <AppIcon name="mic" size={20} color={theme.dim} />
               </Pressable>
             )}
           </Glass>
@@ -1252,9 +1252,9 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       <Sheet visible={attachOpen} onClose={() => setAttachOpen(false)} snapPoints={["auto"]}>
         <View style={{ flexDirection: "row", gap: 12 }}>
           {[
-            { icon: "photo-library" as const, label: "Фото", onPress: pickImage },
-            { icon: "photo-camera" as const, label: "Камера", onPress: pickCamera },
-            { icon: "insert-drive-file" as const, label: "Файл", onPress: pickFile },
+            { icon: "image" as const, label: "Фото", onPress: pickImage },
+            { icon: "camera" as const, label: "Камера", onPress: pickCamera },
+            { icon: "file" as const, label: "Файл", onPress: pickFile },
           ].map((b) => (
             <GlassPressable
               key={b.label}
@@ -1272,7 +1272,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                 overflow: "hidden",
               }}
             >
-              <MaterialIcons name={b.icon} size={34} color={theme.dim} />
+              <AppIcon name={b.icon} size={34} color={theme.dim} />
             </GlassPressable>
           ))}
         </View>
@@ -1326,14 +1326,14 @@ export function ChatScreen({ navigation }: { navigation: any }) {
 }
 
 /**
- * Иконка файла по типу — те же MaterialIcons, что в меню «Прикрепить»:
+ * Иконка файла по типу — те же AppIcon, что в меню «Прикрепить»:
  * архив → archive, документ/текст → description, остальное → insert-drive-file.
  */
-function fileIconName(name?: string): "archive" | "description" | "insert-drive-file" {
+function fileIconName(name?: string): AppIconName {
   const ext = (name ?? "").split(".").pop()?.toLowerCase() ?? "";
-  if (["zip", "rar", "7z", "tar", "gz", "bz2", "xz", "tgz", "zst"].includes(ext)) return "archive";
-  if (["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "md", "rtf", "odt", "ods", "odp", "csv"].includes(ext)) return "description";
-  return "insert-drive-file";
+  if (["zip", "rar", "7z", "tar", "gz", "bz2", "xz", "tgz", "zst"].includes(ext)) return "box";
+  if (["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "md", "rtf", "odt", "ods", "odp", "csv"].includes(ext)) return "file";
+  return "file";
 }
 
 function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions, onOpenDetail }: { msg: Msg; theme: any; onCopy: () => void; onShare: () => void; onEdit?: () => void; onLongPress?: () => void; showActions?: boolean; onOpenDetail?: (m: Msg) => void }) {
@@ -1388,7 +1388,7 @@ function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions,
                 {list.map((a, i) =>
                   a.kind === "file" ? (
                     <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                      <MaterialIcons name={fileIconName(a.name)} size={16} color="rgba(255,255,255,.9)" />
+                      <AppIcon name={fileIconName(a.name)} size={16} color="rgba(255,255,255,.9)" />
                       <Text numberOfLines={1} style={{ color: theme.userText, fontSize: 12, flexShrink: 1 }}>{a.name}</Text>
                     </View>
                   ) : (
@@ -1421,15 +1421,15 @@ function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions,
             {showActions && !msg.streaming && (
               <View style={{ flexDirection: "row", justifyContent: user ? "flex-end" : "flex-start", marginTop: 8, gap: 2 }}>
                 <Pressable onPress={onCopy} hitSlop={10} accessibilityLabel="Копировать" style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center" }}>
-                  <MaterialIcons name="content-copy" size={17} color={theme.dim} />
+                  <AppIcon name="copy" size={17} color={theme.dim} />
                 </Pressable>
                 <Pressable onPress={onShare} hitSlop={10} accessibilityLabel="Поделиться" style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center" }}>
-                  <MaterialIcons name="share" size={17} color={theme.dim} />
+                  <AppIcon name="share" size={17} color={theme.dim} />
                 </Pressable>
                 {/* «Изменить» — только иконка, без текста (значок сам объясняет) */}
                 {user && onEdit && (
                   <Pressable onPress={onEdit} hitSlop={10} accessibilityLabel="Изменить сообщение" style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center" }}>
-                    <MaterialIcons name="edit" size={17} color={theme.dim} />
+                    <AppIcon name="edit" size={17} color={theme.dim} />
                   </Pressable>
                 )}
               </View>

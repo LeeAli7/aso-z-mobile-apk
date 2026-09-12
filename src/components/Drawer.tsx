@@ -19,7 +19,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { MaterialIcons } from "@expo/vector-icons";
+import { AppIcon, AppIconName } from "../design-system/components/AppIcon";
 import { ModelInfo } from "../core/gateway";
 import { Session } from "../store/AppStore";
 import { fonts } from "../theme/tokens";
@@ -116,7 +116,7 @@ export function Drawer({
     extrapolate: "clamp",
   });
 
-  const row = (icon: keyof typeof MaterialIcons.glyphMap, title: string, sub?: string, onPress?: () => void, active?: boolean) => (
+  const row = (icon: AppIconName, title: string, sub?: string, onPress?: () => void, active?: boolean) => (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => ({
@@ -134,7 +134,7 @@ export function Drawer({
       accessibilityRole="button"
       accessibilityLabel={title}
     >
-      <MaterialIcons name={icon} size={19} color={active ? theme.accentHi : theme.dim} />
+      <AppIcon name={icon} size={19} color={active ? theme.accentHi : theme.dim} />
       <View style={{ flex: 1 }}>
         <Text style={{ color: theme.text, fontSize: 13.5, fontWeight: "500" }}>{title}</Text>
         {sub ? (
@@ -189,12 +189,12 @@ export function Drawer({
               accessibilityRole="button"
               accessibilityLabel={t("newSession")}
             >
-              <MaterialIcons name="add" size={17} color="#fff" />
+              <AppIcon name="plus" size={17} color="#fff" />
               <Text style={{ color: "#fff", fontSize: 13.5, fontWeight: "600" }}>{t("newSession")}</Text>
             </Pressable>
 
             <View style={{ marginTop: 6 }}>
-              {row("smart-toy", modelName, t("model_select"), () => setModelsExpanded((v) => !v), modelsExpanded)}
+              {row("model", modelName, t("model_select"), () => setModelsExpanded((v) => !v), modelsExpanded)}
               {modelsExpanded && (
                 <View style={{ gap: 2, marginTop: 2, marginLeft: 8 }}>
                   {models.map((m) => {
@@ -230,11 +230,11 @@ export function Drawer({
                   })}
                 </View>
               )}
-              {row("cloud", t("providers"), undefined, () => onNavigate("Providers"))}
-              {row("psychology", "Агент", undefined, () => onNavigate("AgentSettings"))}
+              {row("link", t("providers"), undefined, () => onNavigate("Providers"))}
+              {row("terminal", "Агент", undefined, () => onNavigate("AgentSettings"))}
               {row("folder", t("vibe_title"), activeProjectName ?? undefined, () => onNavigate("Vibe"))}
               {row("settings", t("settings_title"), undefined, () => onNavigate("Settings"))}
-              {row("storage", "Хранилище", undefined, onOpenStorage)}
+              {row("box", "Хранилище", undefined, onOpenStorage)}
             </View>
 
             <View style={{ height: 1, backgroundColor: theme.border, opacity: 0.7, marginVertical: 10 }} />
@@ -269,10 +269,10 @@ export function Drawer({
                     </Text>
                   </View>
                   <Pressable onPress={() => onRename(s.id)} hitSlop={10} style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center" }} accessibilityLabel="Переименовать">
-                    <MaterialIcons name="edit" size={17} color={theme.dim} />
+                    <AppIcon name="edit" size={17} color={theme.dim} />
                   </Pressable>
                   <Pressable onPress={() => onDelete(s.id)} hitSlop={10} style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center" }} accessibilityLabel="Удалить">
-                    <MaterialIcons name="delete-outline" size={18} color={theme.dim} />
+                    <AppIcon name="delete" size={18} color={theme.dim} />
                   </Pressable>
                 </Pressable>
               ))}

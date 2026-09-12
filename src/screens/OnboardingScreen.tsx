@@ -23,7 +23,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { MaterialIcons } from "@expo/vector-icons";
+import { AppIcon, AppIconName } from "../design-system/components/AppIcon";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Glass } from "../design-system/components/Glass";
@@ -204,8 +204,8 @@ interface SlideDef {
   kicker: string;
   title: string;
   lead: React.ReactNode;
-  icon: string;
-  why: { icon: string; t: string; d: string };
+  icon: AppIconName;
+  why: { icon: AppIconName; t: string; d: string };
   settings?: { label: string; path: string };
   primary: { label: string; action: "next" | "files" | "battery" | "notifications" | "done" };
   ghost?: string;
@@ -224,9 +224,9 @@ function getSlides(s: ReturnType<typeof makeStyles>): SlideDef[] {
         твоём телефоне — в настоящем Linux-терминале.
       </>
     ),
-    icon: "center-focus-strong",
+    icon: "camera",
     why: {
-      icon: "code",
+      icon: "terminal",
       t: "Не просто чат — рабочий инструмент",
       d: "Скажи «поставь python», «открой проект», «напиши скрипт» — агент сделает это сам.",
     },
@@ -241,9 +241,9 @@ function getSlides(s: ReturnType<typeof makeStyles>): SlideDef[] {
         любых папках — проекты, скачанное, документы.
       </>
     ),
-    icon: "folder-open",
+    icon: "folder",
     why: {
-      icon: "description",
+      icon: "file",
       t: "Зачем это нужно?",
       d: "Создание и редактирование проектов, сохранение результатов работы, быстрый доступ к загрузкам.",
     },
@@ -260,7 +260,7 @@ function getSlides(s: ReturnType<typeof makeStyles>): SlideDef[] {
         процессы не должны обрываться системой.
       </>
     ),
-    icon: "battery-charging-full",
+    icon: "bolt",
     why: {
       icon: "bolt",
       t: "Зачем это нужно?",
@@ -279,9 +279,9 @@ function getSlides(s: ReturnType<typeof makeStyles>): SlideDef[] {
         когда приложение свёрнуто.
       </>
     ),
-    icon: "notifications",
+    icon: "bell",
     why: {
-      icon: "info-outline",
+      icon: "info",
       t: "Зачем это нужно?",
       d: "Ты не сидишь в приложении — а агент продолжает работать и сообщает результат.",
     },
@@ -291,7 +291,7 @@ function getSlides(s: ReturnType<typeof makeStyles>): SlideDef[] {
   },
   {
     kicker: "Готово",
-    title: "Всё настроено!\nПогнали 🚀",
+    title: "Всё настроено!\nПогнали",
     lead: (
       <>
         Теперь попробуй что-нибудь — например: <Text style={s.b}>«покажи, что в моих файлах»</Text> или{" "}
@@ -299,7 +299,7 @@ function getSlides(s: ReturnType<typeof makeStyles>): SlideDef[] {
       </>
     ),
     icon: "check",
-    why: { icon: "rocket-launch", t: "Всё готово", d: "Разрешения выданы — агент готов к работе." },
+    why: { icon: "send", t: "Всё готово", d: "Разрешения выданы — агент готов к работе." },
     primary: { label: "Начать работу", action: "done" },
     final: true,
   },
@@ -385,9 +385,9 @@ function Slide({
           >
             <View style={s.emblemInner}>
               {def.final ? (
-                <MaterialIcons name="check" size={46} color={theme.ok} />
+                <AppIcon name="check" size={46} color={theme.ok} />
               ) : (
-                <MaterialIcons name={def.icon as never} size={34} color={theme.onAccent} />
+                <AppIcon name={def.icon} size={34} color={theme.onAccent} />
               )}
             </View>
           </LinearGradient>
@@ -413,7 +413,7 @@ function Slide({
           <Glass radius={20} blur={false} style={s.why}>
             <View style={s.whyRow}>
               <View style={s.whyIco}>
-                <MaterialIcons name={def.why.icon as never} size={19} color={theme.accentHi} />
+                <AppIcon name={def.why.icon} size={19} color={theme.accentHi} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={s.whyT}>{def.why.t}</Text>
@@ -423,7 +423,7 @@ function Slide({
             {def.settings && (
               <View style={s.settingsRow}>
                 <View style={s.settingsIco}>
-                  <MaterialIcons name="settings" size={15} color={theme.mute} />
+                  <AppIcon name="settings" size={15} color={theme.mute} />
                 </View>
                 <Text style={s.settingsText}>
                   Пункт: <Text style={s.settingsBold}>{def.settings.label}</Text>
@@ -450,8 +450,8 @@ function Slide({
               style={s.btnPrimary}
             >
               <Text style={s.btnPrimaryText}>{def.primary.label}</Text>
-              <MaterialIcons
-                name={def.primary.action === "done" ? "arrow-forward" : "chevron-right"}
+              <AppIcon
+                name={def.primary.action === "done" ? "check" : "chevron-right"}
                 size={22}
                 color={theme.onAccent}
               />

@@ -17,7 +17,7 @@
  */
 import React, { useCallback, useEffect, useState } from "react";
 import { Alert, Pressable, Switch, Text, TextInput, View } from "react-native";
-import { MaterialIcons } from "@expo/vector-icons";
+import { AppIcon, AppIconName } from "../../design-system/components/AppIcon";
 import { useApp } from "../../store/AppStore";
 import { Sheet } from "../../design-system/components/Sheet";
 import { GlassPressable } from "../../design-system/components/Glass";
@@ -44,12 +44,12 @@ const INSTRUCTIONS_FILE = "INSTRUCTIONS.md";
 /** Путь в корневой папке: [] = корень, ["projects"], ["instructions"] … */
 type Path = string[];
 
-const ROOT_FOLDERS: { key: string; label: string; icon: keyof typeof MaterialIcons.glyphMap; desc: string }[] = [
-  { key: "storage", label: "Хранилище", icon: "storage", desc: "файлы и папки рабочей среды агента" },
-  { key: "skills", label: "Скиллы", icon: "extension", desc: "навыки агента (SKILL.md), управление" },
-  { key: "memory", label: "Память", icon: "memory", desc: "факты о пользователе, заметки агента" },
-  { key: "todo", label: "Задачи", icon: "checklist", desc: "план дел агента (todo)" },
-  { key: "cron", label: "Автозадачи", icon: "schedule", desc: "расписание, напоминания, отчёты" },
+const ROOT_FOLDERS: { key: string; label: string; icon: AppIconName; desc: string }[] = [
+  { key: "storage", label: "Хранилище", icon: "box", desc: "файлы и папки рабочей среды агента" },
+  { key: "skills", label: "Скиллы", icon: "model", desc: "навыки агента (SKILL.md), управление" },
+  { key: "memory", label: "Память", icon: "bulb", desc: "факты о пользователе, заметки агента" },
+  { key: "todo", label: "Задачи", icon: "check", desc: "план дел агента (todo)" },
+  { key: "cron", label: "Автозадачи", icon: "clock", desc: "расписание, напоминания, отчёты" },
   { key: "connectors", label: "Коннекторы", icon: "link", desc: "подключённые сервисы и инструменты" },
 ];
 
@@ -234,12 +234,12 @@ export function StorageSheet({
       {path.length > 0 && (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 10, flexWrap: "wrap" }}>
           <Pressable onPress={() => setPath([])} hitSlop={8} style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-            <MaterialIcons name="home" size={14} color={theme.accentHi} />
+            <AppIcon name="home" size={14} color={theme.accentHi} />
             <Text style={{ color: theme.accentHi, fontSize: 12, fontFamily: fonts.mono }}>Конфиг</Text>
           </Pressable>
           {path.map((seg, i) => (
             <React.Fragment key={seg}>
-              <MaterialIcons name="chevron-right" size={13} color={theme.mute} />
+              <AppIcon name="chevron-right" size={13} color={theme.mute} />
               <Pressable onPress={() => setPath(path.slice(0, i + 1))} hitSlop={8}>
                 <Text style={{ color: theme.dim, fontSize: 12, fontFamily: fonts.mono }}>{folderLabel(seg)}</Text>
               </Pressable>
@@ -262,13 +262,13 @@ export function StorageSheet({
               accessibilityLabel={f.label}
             >
               <View style={{ width: 38, height: 38, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.08)" : "rgba(255,255,255,.55)" }}>
-                <MaterialIcons name={f.icon} size={19} color={theme.accentHi} />
+                <AppIcon name={f.icon} size={19} color={theme.accentHi} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={{ color: theme.text, fontSize: 13.5, fontWeight: "600" }}>{f.label}</Text>
                 <Text style={{ color: theme.mute, fontSize: 11, marginTop: 1 }}>{f.desc}</Text>
               </View>
-              <MaterialIcons name="chevron-right" size={18} color={theme.mute} />
+              <AppIcon name="chevron-right" size={18} color={theme.mute} />
             </GlassPressable>
           ))}
           </View>
@@ -308,7 +308,7 @@ export function StorageSheet({
                   backgroundColor: !activeProj ? theme.accentDim : "transparent",
                 }}
               >
-                <MaterialIcons name="chat-bubble-outline" size={18} color={!activeProj ? theme.accentHi : theme.mute} />
+                <AppIcon name="chat" size={18} color={!activeProj ? theme.accentHi : theme.mute} />
                 <Text style={{ flex: 1, color: !activeProj ? theme.accentHi : theme.text, fontSize: 13, fontWeight: "600" }}>Без проекта</Text>
                 <Text style={{ color: theme.mute, fontSize: 10 }}>обычный чат</Text>
               </Pressable>
@@ -326,7 +326,7 @@ export function StorageSheet({
                     }}
                   >
                     <View style={{ width: 38, height: 38, borderRadius: 18, backgroundColor: on ? theme.accentDim : theme.surface2, alignItems: "center", justifyContent: "center" }}>
-                      <MaterialIcons name="folder" size={19} color={on ? theme.accentHi : theme.dim} />
+                      <AppIcon name="folder" size={19} color={on ? theme.accentHi : theme.dim} />
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text numberOfLines={1} style={{ color: theme.text, fontSize: 13.5, fontWeight: "500" }}>{p.name}</Text>
@@ -335,9 +335,9 @@ export function StorageSheet({
                         {fileCounts[p.id] ?? 0} файлов
                       </Text>
                     </View>
-                    {on && <MaterialIcons name="check-circle" size={17} color={theme.accentHi} />}
+                    {on && <AppIcon name="check-circle" size={17} color={theme.accentHi} />}
                     <Pressable onPress={() => setPath(["project-files", p.id])} hitSlop={8} style={{ width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" }} accessibilityLabel="Файлы проекта">
-                      <MaterialIcons name="insert-drive-file" size={16} color={theme.dim} />
+                      <AppIcon name="file" size={16} color={theme.dim} />
                     </Pressable>
                   </Pressable>
                 );
@@ -400,12 +400,12 @@ export function StorageSheet({
               todoItems.map((t: any) => (
                 <Pressable key={t.id} onPress={() => onTodoStatus(t.id, t.status === "completed" ? "pending" : "completed")}
                   style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 7, opacity: pressed ? 0.75 : 1 })}>
-                  <MaterialIcons name={t.status === "completed" ? "check-circle" : "radio-button-unchecked"} size={18} color={t.status === "completed" ? theme.ok : theme.dim} />
+                  <AppIcon name={t.status === "completed" ? "check-circle" : "circle"} size={18} color={t.status === "completed" ? theme.ok : theme.dim} />
                   <Text style={{ color: theme.text, fontSize: 13, flex: 1, textDecorationLine: t.status === "completed" ? "line-through" : "none", opacity: t.status === "completed" ? 0.55 : 1 }}>
                     {t.content}
                   </Text>
                   <Pressable onPress={() => onRemoveTodo(t.id)} hitSlop={8} style={{ padding: 2 }}>
-                    <MaterialIcons name="close" size={16} color={theme.danger} />
+                    <AppIcon name="close" size={16} color={theme.danger} />
                   </Pressable>
                 </Pressable>
               ))
@@ -454,7 +454,7 @@ export function StorageSheet({
                     <Text style={{ color: theme.dim, fontSize: 11, fontFamily: fonts.mono }}>{j.schedule} · {j.prompt.slice(0, 40)}{j.prompt.length > 40 ? "…" : ""}</Text>
                   </View>
                   <Pressable onPress={() => onRemoveJob(j.id)} hitSlop={8} style={{ padding: 2 }}>
-                    <MaterialIcons name="delete-outline" size={18} color={theme.danger} />
+                    <AppIcon name="delete" size={18} color={theme.danger} />
                   </Pressable>
                 </View>
               ))
@@ -501,7 +501,7 @@ export function StorageSheet({
           </Text>
           <GlassPressable radius={16} blur={false} style={{ padding: 16 }}>
             <View style={{ width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.08)" : "rgba(255,255,255,.55)", marginBottom: 10 }}>
-              <MaterialIcons name="link" size={20} color={theme.accentHi} />
+              <AppIcon name="link" size={20} color={theme.accentHi} />
             </View>
             <Text style={{ color: theme.dim, fontSize: 13, lineHeight: 20 }}>
               Подключённые сервисы и инструменты агента: файлы, терминал, Telegram, внешние API. Новые коннекторы подключаются через агента.
@@ -525,7 +525,7 @@ export function StorageSheet({
           >
             <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
               <View style={{ width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.08)" : "rgba(255,255,255,.55)" }}>
-                <MaterialIcons name="restart-alt" size={20} color={theme.accentHi} />
+                <AppIcon name="refresh" size={20} color={theme.accentHi} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={{ color: theme.text, fontSize: 13.5, fontWeight: "600" }}>Переустановить среду</Text>
@@ -533,7 +533,7 @@ export function StorageSheet({
                   Заново распакует встроенный Linux при следующей команде. Помогает, если команды падают с 126 (битые файлы от старых версий).
                 </Text>
               </View>
-              <MaterialIcons name="chevron-right" size={18} color={theme.mute} />
+              <AppIcon name="chevron-right" size={18} color={theme.mute} />
             </View>
           </GlassPressable>
         </View>
@@ -592,9 +592,9 @@ function ProjectFiles({
                   backgroundColor: "transparent",
                 }}
               >
-                <MaterialIcons name={isDir ? "folder" : "insert-drive-file"} size={17} color={isDir ? theme.warn : theme.accentHi} />
+                <AppIcon name={isDir ? "folder" : "file"} size={17} color={isDir ? theme.warn : theme.accentHi} />
                 <Text numberOfLines={1} style={{ flex: 1, color: theme.text, fontSize: 12.5, fontFamily: fonts.mono }}>{name}</Text>
-                {!isDir && <MaterialIcons name="visibility" size={14} color={theme.mute} />}
+                {!isDir && <AppIcon name="eye" size={14} color={theme.mute} />}
               </Pressable>
             );
           })}
@@ -603,7 +603,7 @@ function ProjectFiles({
       ) : (
         <>
           <Pressable onPress={onBack} style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 }}>
-            <MaterialIcons name="arrow-back" size={15} color={theme.accentHi} />
+            <AppIcon name="arrow-left" size={15} color={theme.accentHi} />
             <Text style={{ color: theme.accentHi, fontSize: 12.5, fontFamily: fonts.mono }}>{previewPath}</Text>
           </Pressable>
           <View style={{ backgroundColor: theme.codeBg, borderRadius: 18, borderWidth: 1, borderColor: theme.border, padding: 12 }}>
@@ -734,10 +734,10 @@ function SkillsManager({ theme }: { theme: any }) {
               <Text numberOfLines={1} style={{ color: theme.dim, fontSize: 11, marginTop: 1 }}>{s.description}</Text>
             </Pressable>
             <Pressable onPress={() => startEdit(s.name)} hitSlop={8} style={{ padding: 4 }}>
-              <MaterialIcons name="edit" size={16} color={theme.dim} />
+              <AppIcon name="edit" size={16} color={theme.dim} />
             </Pressable>
             <Pressable onPress={() => del(s.name)} hitSlop={8} style={{ padding: 4 }}>
-              <MaterialIcons name="delete-outline" size={17} color={theme.danger} />
+              <AppIcon name="delete" size={17} color={theme.danger} />
             </Pressable>
           </View>
         ))
@@ -852,7 +852,7 @@ function WorkspaceFiles({ theme }: { theme: any }) {
         </Pressable>
         {path.map((seg, i) => (
           <React.Fragment key={seg + i}>
-            <MaterialIcons name="chevron-right" size={11} color={theme.mute} />
+            <AppIcon name="chevron-right" size={11} color={theme.mute} />
             <Pressable onPress={() => setPath(path.slice(0, i + 1))} hitSlop={6}>
               <Text style={{ color: theme.dim, fontSize: 11, fontFamily: fonts.mono }}>{seg}</Text>
             </Pressable>
@@ -874,7 +874,7 @@ function WorkspaceFiles({ theme }: { theme: any }) {
             style={{ flex: 1, borderWidth: 1, borderColor: theme.border, borderRadius: 10, backgroundColor: theme.surface2, color: theme.text, fontSize: 12.5, paddingHorizontal: 10, paddingVertical: 7, fontFamily: fonts.mono }}
           />
           <Button title="OK" variant="primary" onPress={doCreate} />
-          <Button title="✕" variant="secondary" onPress={() => setCreating(null)} />
+          <Button title="Отмена" variant="secondary" onPress={() => setCreating(null)} />
         </View>
       ) : (
         <View style={{ flexDirection: "row", gap: 6, marginBottom: 8 }}>
@@ -901,7 +901,7 @@ function WorkspaceFiles({ theme }: { theme: any }) {
                   style={{ flex: 1, borderWidth: 1, borderColor: theme.border, borderRadius: 10, backgroundColor: theme.surface2, color: theme.text, fontSize: 12.5, paddingHorizontal: 10, paddingVertical: 5, fontFamily: fonts.mono }}
                 />
                 <Button title="OK" variant="primary" onPress={doRename} />
-                <Button title="✕" variant="secondary" onPress={() => setRenaming(null)} />
+                <Button title="Отмена" variant="secondary" onPress={() => setRenaming(null)} />
               </>
             ) : (
               <>
@@ -909,14 +909,14 @@ function WorkspaceFiles({ theme }: { theme: any }) {
                   onPress={() => (e.isDir ? setPath([...path, e.name]) : openEditor(e.name))}
                   style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 8 }}
                 >
-                  <MaterialIcons name={e.isDir ? "folder" : fileKindIcon(e.name)} size={16} color={e.isDir ? theme.warn : theme.accentHi} />
+                  <AppIcon name={e.isDir ? "folder" : fileKindIcon(e.name)} size={16} color={e.isDir ? theme.warn : theme.accentHi} />
                   <Text numberOfLines={1} style={{ color: theme.text, fontSize: 12.5, fontFamily: fonts.mono, flexShrink: 1 }}>{e.name}</Text>
                 </Pressable>
                 <Pressable onPress={() => { setRenaming(e.name); setRenameValue(e.name); }} hitSlop={8} style={{ padding: 3 }}>
-                  <MaterialIcons name="edit" size={15} color={theme.dim} />
+                  <AppIcon name="edit" size={15} color={theme.dim} />
                 </Pressable>
                 <Pressable onPress={() => doDelete(e.name, e.isDir)} hitSlop={8} style={{ padding: 3 }}>
-                  <MaterialIcons name="delete-outline" size={16} color={theme.danger} />
+                  <AppIcon name="delete" size={16} color={theme.danger} />
                 </Pressable>
               </>
             )}
@@ -948,13 +948,13 @@ function WorkspaceFiles({ theme }: { theme: any }) {
 }
 
 /** Иконка файла по расширению (для хранилища). */
-function fileKindIcon(name: string): "archive" | "description" | "insert-drive-file" | "image" | "code" {
+function fileKindIcon(name: string): AppIconName {
   const ext = (name || "").split(".").pop()?.toLowerCase() ?? "";
-  if (["zip", "rar", "7z", "tar", "gz", "bz2", "xz", "tgz", "zst"].includes(ext)) return "archive";
+  if (["zip", "rar", "7z", "tar", "gz", "bz2", "xz", "tgz", "zst"].includes(ext)) return "box";
   if (["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "heic"].includes(ext)) return "image";
-  if (["js", "ts", "tsx", "jsx", "py", "rb", "go", "rs", "java", "kt", "c", "h", "cpp", "css", "html", "json", "sh", "bash", "yaml", "yml", "toml"].includes(ext)) return "code";
-  if (["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "md", "rtf", "odt", "csv", "log"].includes(ext)) return "description";
-  return "insert-drive-file";
+  if (["js", "ts", "tsx", "jsx", "py", "rb", "go", "rs", "java", "kt", "c", "h", "cpp", "css", "html", "json", "sh", "bash", "yaml", "yml", "toml"].includes(ext)) return "terminal";
+  if (["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "md", "rtf", "odt", "csv", "log"].includes(ext)) return "file";
+  return "file";
 }
 
 /** UTF-8 → base64 (RN-safe, без Buffer). */

@@ -5,7 +5,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { MaterialIcons } from "@expo/vector-icons";
+import { AppIcon } from "../design-system/components/AppIcon";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 import { useApp } from "../store/AppStore";
@@ -300,7 +300,7 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
             style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12, backgroundColor: theme.surface, opacity: pressed ? 0.85 : 1 })}
           >
             <Text style={{ color: theme.danger, fontSize: 13.5, flex: 1 }}>Очистить все данные</Text>
-            <MaterialIcons name="delete-sweep" size={18} color={theme.danger} />
+            <AppIcon name="delete" size={18} color={theme.danger} />
           </Pressable>
         </View>
 
@@ -334,7 +334,7 @@ function Row({ label, onPress, value, theme }: { label: string; onPress: () => v
     >
       <Text style={{ color: theme.text, fontSize: 13.5, flex: 1 }}>{label}</Text>
       <Text style={{ color: theme.accentHi, fontSize: 12, fontFamily: fonts.mono }}>{value}</Text>
-      <MaterialIcons name="chevron-right" size={18} color={theme.mute} />
+      <AppIcon name="chevron-right" size={18} color={theme.mute} />
     </Pressable>
   );
 }
