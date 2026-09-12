@@ -51,6 +51,10 @@ export const APP_ICON_NAMES = [
   "home",
   "globe",
   "clock",
+  "pen",
+  "cube",
+  "group",
+  "gear",
 ] as const;
 
 export type AppIconName = (typeof APP_ICON_NAMES)[number];
@@ -106,15 +110,52 @@ function Shape({ name }: { name: AppIconName }) {
         </>
       );
     case "folder":
-      return <Path d="M3.5 7a2 2 0 0 1 2-2h4l2 2.5h7a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2V7z" />;
+      // LineArt-вариант (единый движок иконок).
+      return <Path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />;
     case "settings":
-      // Ползунки — минималистичный «настройки/тюнинг».
+      // LineArt-слайдеры: три линии с бегунками (единый движок иконок).
       return (
         <>
-          <Line x1="4" y1="8" x2="20" y2="8" />
-          <Circle cx="9" cy="8" r="2.2" />
-          <Line x1="4" y1="16" x2="20" y2="16" />
-          <Circle cx="15" cy="16" r="2.2" />
+          <Line x1="4" y1="7" x2="20" y2="7" />
+          <Circle cx="15" cy="7" r="2.2" />
+          <Line x1="4" y1="12" x2="20" y2="12" />
+          <Circle cx="9" cy="12" r="2.2" />
+          <Line x1="4" y1="17" x2="20" y2="17" />
+          <Circle cx="16" cy="17" r="2.2" />
+        </>
+      );
+    case "gear":
+      // LineArt-шестерёнка (единый движок иконок).
+      return (
+        <>
+          <Circle cx="12" cy="12" r="3" />
+          <Path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.06-.4.1-.8.1-1.2Z" />
+        </>
+      );
+    case "pen":
+      // LineArt-перо (единый движок иконок).
+      return (
+        <>
+          <Path d="M12 20h9" />
+          <Path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+        </>
+      );
+    case "cube":
+      // LineArt-куб (единый движок иконок).
+      return (
+        <>
+          <Path d="M12 3l7.5 4.3v9.4L12 21l-7.5-4.3V7.3Z" />
+          <Path d="M12 12l7.5-4.3M12 12L4.5 7.7M12 12v9" />
+        </>
+      );
+    case "group":
+      // LineArt-группа (единый движок иконок).
+      return (
+        <>
+          <Circle cx="9" cy="8.5" r="3" />
+          <Path d="M3.5 19c.6-3 2.8-4.5 5.5-4.5S13.9 16 14.5 19" />
+          <Circle cx="16.5" cy="9.5" r="2.3" />
+          <Path d="M15.5 14.7c2.3.2 4 1.6 4.5 4" />
         </>
       );
     case "model":
@@ -382,6 +423,10 @@ const MATERIAL_TO_APP: Record<string, AppIconName> = {
   psychology: "terminal",
   groups: "more",
   "more-vert": "more",
+  pen: "pen",
+  cube: "cube",
+  group: "group",
+  gear: "gear",
 };
 
 export function materialToApp(name: string): AppIconName {
