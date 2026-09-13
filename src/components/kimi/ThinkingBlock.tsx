@@ -1,10 +1,9 @@
 /**
  * ThinkingBlock — блок раздумий агента.
  *
- * БЕЗ статусов («Обдумывание завершено») и зелёных галочек.
- * Свёрнутая строка: иконка + «Раздумья». Клик открывает bottom-sheet
- * с текстом размышлений (как окно сессии снизу). Во время работы —
- * пульс + «…» + «Пропустить».
+ * Во время работы — только анимация (три дышащие точки, вариант A),
+ * без текста «Думаю» и без иконки. После — иконка-лампа + шеврон
+ * (тап открывает sheet с текстом размышлений). Зелёных галочек нет.
  */
 import React, { useEffect, useRef } from "react";
 import { Animated, Easing, Pressable, StyleSheet, Text, View } from "react-native";
@@ -26,58 +25,82 @@ interface Props {
 }
 
 export function ThinkingBlock({ text, status, onSkip, onOpen, theme, bare }: Props) {
-  const pulse = useRef(new Animated.Value(0)).current;
+  // три дышащие точки (вариант A): opacity + scale, каскад 0/.18/.36с
+  const d0 = useRef(new Animated.Value(0)).current;
+  const d1 = useRef(new Animated.Value(0)).current;
+  const d2 = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (status !== "thinking") return;
-    const p = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 700, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 0, duration: 700, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-      ]),
-    );
-    p.start();
-    return () => p.stop();
-  }, [status, pulse]);
-
-  const spin = pulse.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "18deg"] });
+    const beat = (v: Animated.Value, delay: number) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(delay),
+          Animated.timing(v, { toValue: 1, duration: 420, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+          Animated.timing(v, { toValue: 0, duration: 420, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+          Animated.delay(560 - delay),
+        ]),
+      );
+    const loops = [beat(d0, 0), beat(d1, 180), beat(d2, 360)];
+    loops.forEach((l) => l.start());
+    return () => loops.forEach((l) => l.stop());
+  }, [status, d0, d1, d2]);
 
   const isThinking = status === "thinking";
 
+  const dot = (v: Animated.Value) => {
+    const opacity = v.interpolate({ inputRange: [0, 1], outputRange: [0.25, 1] });
+    const scale = v.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1.15] });
+    return (
+      <Animated.View
+        style={{
+          width: 7,
+          height: 7,
+          borderRadius: 99,
+          backgroundColor: theme.accentHi,
+          opacity,
+          transform: [{ scale }],
+        }}
+      />
+    );
+  };
+
+  // во время работы — только точки, без текста и иконки
+  if (isThinking) {
+    return (
+      <View style={[styles.wrap, bare ? styles.wrapBare : null, { borderColor: "transparent" }]}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: bare ? 0 : 10, paddingVertical: bare ? 8 : 10 }}>
+          {dot(d0)}
+          {dot(d1)}
+          {dot(d2)}
+          {onSkip && (
+            <Pressable
+              onPress={(e) => { e.stopPropagation?.(); onSkip(); }}
+              hitSlop={8}
+              style={[styles.skip, { borderColor: theme.border }]}
+            >
+              <Text style={{ color: theme.dim, fontSize: 10.5 }}>Пропустить</Text>
+            </Pressable>
+          )}
+        </View>
+      </View>
+    );
+  }
+
   return (
-    <View style={[styles.wrap, bare ? styles.wrapBare : null, { borderColor: !bare && isThinking ? theme.border : "transparent" }]}>
+    <View style={[styles.wrap, bare ? styles.wrapBare : null, { borderColor: "transparent" }]}>
       <Pressable
-        onPress={() => text && !isThinking && onOpen?.()}
-        disabled={isThinking || !text}
-        accessibilityRole={text && !isThinking ? "button" : undefined}
+        onPress={() => text && onOpen?.()}
+        disabled={!text}
+        accessibilityRole={text ? "button" : undefined}
         style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: bare ? 0 : 10, paddingVertical: bare ? 4 : 8, opacity: pressed ? 0.8 : 1 }]}
         hitSlop={8}
       >
-        {/* иконка: пульсация во время раздумий, статичная после */}
+        {/* статичная лампа после завершения */}
         <View style={[styles.iconBox, { backgroundColor: theme.surface2 }]}>
-          {isThinking ? (
-            <Animated.View style={{ transform: [{ rotate: spin }] }}>
-              <AppIcon name="bulb" size={15} color={theme.accentHi} />
-            </Animated.View>
-          ) : (
-            <AppIcon name="bulb" size={15} color={theme.dim} />
-          )}
+          <AppIcon name="bulb" size={15} color={theme.dim} />
         </View>
-
-        <Text style={{ color: theme.dim, fontSize: 12.5, fontWeight: "500", flexShrink: 1 }}>
-          {isThinking ? "Думаю…" : "Думаю"}
-        </Text>
-
-        {isThinking && onSkip && (
-          <Pressable
-            onPress={(e) => { e.stopPropagation?.(); onSkip(); }}
-            hitSlop={8}
-            style={[styles.skip, { borderColor: theme.border }]}
-          >
-            <Text style={{ color: theme.dim, fontSize: 10.5 }}>Пропустить</Text>
-          </Pressable>
-        )}
-        {text && !isThinking && (
+        {text && (
           <AppIcon name="chevron-right" size={16} color={theme.mute} />
         )}
       </Pressable>

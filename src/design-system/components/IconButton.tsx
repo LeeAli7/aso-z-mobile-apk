@@ -57,9 +57,7 @@ export function IconButton({
           alignItems: "center",
           justifyContent: "center",
           overflow: "hidden",
-          borderWidth: 1,
-          borderColor: dark ? "rgba(255,255,255,.20)" : "rgba(255,255,255,.75)",
-          borderTopWidth: 1.5,
+          // рамка одна — GlassRim ниже (внешний border + Rim давали вторую дугу)
           backgroundColor: dark ? "rgba(20,20,24,.40)" : "rgba(255,255,255,.45)",
           shadowColor: "#000",
           shadowOpacity: dark ? 0.4 : 0.18,
