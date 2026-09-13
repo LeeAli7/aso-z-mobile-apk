@@ -23,6 +23,10 @@ import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { AppIcon, AppIconName } from "../design-system/components/AppIcon";
+import {
+  ExpoSpeechRecognitionModule,
+  useSpeechRecognitionEvent,
+} from "expo-speech-recognition";
 
 import { useApp, genId, Msg, Session } from "../store/AppStore";
 import { ModelInfo, streamChat, streamAgentChat, ChatMessage, ChatPart, AgentToolCall } from "../core/gateway";
@@ -65,6 +69,55 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   const [text, setText] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [search, setSearch] = useState("");
+  // ── Голосовой ввод (expo-speech-recognition: Android SpeechRecognizer,
+  // iOS SFSpeechRecognizer, web SpeechRecognition). Транскрипт дописывается
+  // в поле ввода, не отправляется сам — пользователь проверяет и жмёт send.
+  const [listening, setListening] = useState(false);
+  const voiceBaseRef = useRef("");
+
+  useSpeechRecognitionEvent("result", (ev) => {
+    const t0 = ev.results?.[0]?.transcript ?? "";
+    if (!t0) return;
+    // частичные результаты заменяем поверх базы, финальный — фиксируем
+    setText((voiceBaseRef.current ? voiceBaseRef.current + " " : "") + t0);
+    if (ev.isFinal) voiceBaseRef.current = (voiceBaseRef.current ? voiceBaseRef.current + " " : "") + t0;
+  });
+  useSpeechRecognitionEvent("error", (ev) => {
+    setListening(false);
+    if (ev.error !== "aborted" && ev.error !== "no-speech") {
+      showToast("err", "Не расслышал — попробуй ещё раз");
+    }
+  });
+  useSpeechRecognitionEvent("end", () => setListening(false));
+
+  const toggleVoice = useCallback(async () => {
+    try {
+      if (listening) {
+        ExpoSpeechRecognitionModule.stop();
+        return;
+      }
+      const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync().catch(() => null);
+      if (perm && perm.granted === false) {
+        showToast("err", "Нет доступа к микрофону");
+        return;
+      }
+      voiceBaseRef.current = text.trim();
+      setListening(true);
+      ExpoSpeechRecognitionModule.start({
+        lang: state.lang === "ru" ? "ru-RU" : "en-US",
+        interimResults: true,
+        addsPunctuation: true,
+      });
+    } catch {
+      setListening(false);
+      showToast("err", "Голосовой ввод недоступен на этом устройстве");
+    }
+  }, [listening, text, state.lang]);
+
+  useEffect(() => () => {
+    try { ExpoSpeechRecognitionModule.abort(); } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // Стриминг — per-session: каждая сессия отвечает независимо, переключение
   // на другую сессию не блокирует и не рвёт текущий ответ.
   const [streamingSessions, setStreamingSessions] = useState<Record<string, boolean>>({});
@@ -1146,10 +1199,11 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               </Pressable>
             ) : (
               <Pressable
-                style={{ width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.09)" : "rgba(255,255,255,.6)", borderWidth: 1, borderColor: theme.border }}
-                accessibilityLabel="Голосовой ввод"
+                onPress={toggleVoice}
+                style={{ width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: listening ? theme.danger : theme.name === "dark" ? "rgba(255,255,255,.09)" : "rgba(255,255,255,.6)", borderWidth: 1, borderColor: listening ? theme.danger : theme.border }}
+                accessibilityLabel={listening ? "Остановить запись" : "Голосовой ввод"}
               >
-                <AppIcon name="mic" size={20} color={theme.dim} />
+                <AppIcon name="mic" size={20} color={listening ? "#fff" : theme.dim} />
               </Pressable>
             )}
           </Glass>

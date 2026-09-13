@@ -19,20 +19,15 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useApp } from "../../store/AppStore";
 
 /**
- * Стеклянные стили (фон, рамка, блик, тень) — используются всеми компонентами.
- * «Физика стекла»: светлый край сверху-слева (блик), почти прозрачный снизу-справа,
- * полупрозрачная градиентная заливка, мягкая тень — элементы читаются как матовое стекло.
+ * Стеклянные стили (фон, тень) — используются всеми компонентами.
+ * Рамка здесь НЕ рисуется: единственный контур даёт GlassRim (инсет 0.5).
+ * Раньше внешний borderWidth:1 + внутренний GlassRim давали двойную линию
+ * (вторая дуга сверху на капсуле ввода) — убрано.
  */
 export function glassStyle(theme: any, radius: number): ViewStyle {
   const dark = theme.name === "dark";
   return {
     borderRadius: radius,
-    borderWidth: 1,
-    // световой край грани: верх/лево — полупрозрачный белый (блик), низ/право — почти прозрачный
-    borderTopColor: dark ? "rgba(255,255,255,.22)" : "rgba(255,255,255,.9)",
-    borderLeftColor: dark ? "rgba(255,255,255,.16)" : "rgba(255,255,255,.85)",
-    borderRightColor: dark ? "rgba(255,255,255,.05)" : "rgba(255,255,255,.45)",
-    borderBottomColor: dark ? "rgba(255,255,255,.03)" : "rgba(255,255,255,.35)",
     backgroundColor: dark ? "rgba(22,22,28,.62)" : "rgba(255,255,255,.58)",
     shadowColor: "#000",
     shadowOpacity: dark ? 0.45 : 0.2,
