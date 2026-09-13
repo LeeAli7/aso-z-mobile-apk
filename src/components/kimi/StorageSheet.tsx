@@ -1,16 +1,9 @@
 /**
- * StorageSheet — «Хранилище» приложения: корневая папка (как Hermes).
+ * StorageSheet — внутреннее «Хранилище» агента: корневая папка (как Hermes).
  *
- * Концепция: при нажатии на «Хранилище» открывается корневая папка,
- * внутри — системные папки, которые агент наполняет сам:
- *   • Проекты     — папки-проекты (агент создаёт их по запросу юзера)
- *   • Инструкции  — INSTRUCTIONS.md текущего проекта (правила для агента)
- *   • Самообучение— память агента: что он выучил/записал за время работы
- *   • Промпты     — заготовки промптов
- *   • Скиллы      — навыки агента (как скиллы Hermes)
- *
- * Без ручных кнопок «создать проект»: пользователь говорит агенту
- * «создай проект X» — агент создаёт папку и файлы сам.
+ * Концепция: файлы/папки/проекты в приоритете создаёт сам агент
+ * («создай проект X» — агент создаёт папку и файлы сам).
+ * Ручное создание файла/папки — вторично, скрыто за меню «＋ вручную».
  * Навигация папками с хлебными крошками; копировать/переносить — позже.
  *
  * Всё в стиле Kimi: стеклянные панели, капсулы, Geist Mono, без эмодзи.
@@ -229,13 +222,13 @@ export function StorageSheet({
   const crumb = (i: number) => path.slice(0, i + 1).map(folderLabel).join(" / ");
 
   return (
-    <Sheet visible={visible} onClose={onClose} title="Конфиг" snapPoints={["auto"]}>
+    <Sheet visible={visible} onClose={onClose} title="Хранилище" snapPoints={["auto"]}>
       {/* хлебные крошки */}
       {path.length > 0 && (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 10, flexWrap: "wrap" }}>
           <Pressable onPress={() => setPath([])} hitSlop={8} style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
             <AppIcon name="home" size={14} color={theme.accentHi} />
-            <Text style={{ color: theme.accentHi, fontSize: 12, fontFamily: fonts.mono }}>Конфиг</Text>
+            <Text style={{ color: theme.accentHi, fontSize: 12, fontFamily: fonts.mono }}>Хранилище</Text>
           </Pressable>
           {path.map((seg, i) => (
             <React.Fragment key={seg}>
@@ -294,7 +287,7 @@ export function StorageSheet({
           ) : projects.length === 0 ? (
             <GlassPressable radius={16} blur={false} style={{ padding: 16 }}>
               <Text style={{ color: theme.dim, fontSize: 13, lineHeight: 19 }}>
-                Проектов пока нет.
+                Файлы появятся, когда агент создаст проект.
               </Text>
             </GlassPressable>
           ) : (
@@ -860,7 +853,7 @@ function WorkspaceFiles({ theme }: { theme: any }) {
         ))}
       </View>
 
-      {/* создание */}
+      {/* создание вручную — вторично, за меню «＋» */}
       {creating ? (
         <View style={{ flexDirection: "row", gap: 6, marginBottom: 8 }}>
           <TextInput

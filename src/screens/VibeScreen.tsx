@@ -1,5 +1,7 @@
 /**
- * Vibe Coding — список локальных проектов + создание нового.
+ * Хранилище — внутреннее хранилище агента (бывшие «Проекты»).
+ * Файлы/папки/проекты в приоритете создаёт сам агент;
+ * ручное создание — вторично, через меню «＋».
  * Всё хранится на устройстве (AsyncStorage + documentDirectory).
  */
 import React, { useCallback, useEffect, useState } from "react";
@@ -7,8 +9,7 @@ import { Alert, FlatList, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppIcon } from "../design-system/components/AppIcon";
 import { useApp } from "../store/AppStore";
-import { fonts } from "../theme/tokens";
-import { PrimaryButton, TextField } from "../components/ui";
+import { TextField } from "../components/ui";
 import { IconButton } from "../design-system/components/IconButton";
 import { EmptyState } from "../design-system/components/EmptyState";
 import { Sheet } from "../design-system/components/Sheet";
@@ -29,6 +30,7 @@ export function VibeScreen({ navigation }: { navigation: any }) {
   const [projects, setProjects] = useState<VibeProject[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const [menuProject, setMenuProject] = useState<VibeProject | null>(null);
@@ -64,6 +66,7 @@ export function VibeScreen({ navigation }: { navigation: any }) {
       const p = await createProject(n, desc);
       setName("");
       setDesc("");
+      setCreateOpen(false);
       navigation.navigate("VibeProject", { id: p.id, name: p.name });
     } catch (e: any) {
       showToast("err", String(e?.message || e));
@@ -97,9 +100,19 @@ export function VibeScreen({ navigation }: { navigation: any }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      <View style={{ paddingTop: insets.top + 6, paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: theme.border }}>
-        <Text style={{ color: theme.dim, fontSize: 11 }}>{t("vibe_sub")}</Text>
-        <Text style={{ color: theme.text, fontSize: 24, fontWeight: "700", letterSpacing: -0.3 }}>{t("vibe_title")}</Text>
+      <View style={{ flexDirection: "row", alignItems: "center", paddingTop: insets.top + 6, paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: theme.border }}>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: theme.dim, fontSize: 11 }}>{t("vibe_sub")}</Text>
+          <Text style={{ color: theme.text, fontSize: 24, fontWeight: "700", letterSpacing: -0.3 }}>{t("vibe_title")}</Text>
+        </View>
+        {/* ручное создание — вторично, через меню */}
+        <IconButton
+          name="plus"
+          size={20}
+          onPress={() => setCreateOpen(true)}
+          haptic
+          accessibilityLabel={t("manual_create")}
+        />
       </View>
 
       {loading ? (
@@ -109,8 +122,8 @@ export function VibeScreen({ navigation }: { navigation: any }) {
       ) : projects.length === 0 ? (
         <EmptyState
           icon="folder"
-          title="Нет проектов"
-          subtitle="Создай проект — агент напишет код, файлы сохранятся прямо на устройстве."
+          title={t("storage_empty_title")}
+          subtitle={t("storage_empty_sub")}
         />
       ) : (
         <FlatList
@@ -141,7 +154,7 @@ export function VibeScreen({ navigation }: { navigation: any }) {
                 {item.desc ? (
                   <Text numberOfLines={1} style={{ color: theme.dim, fontSize: 11, marginTop: 1 }}>{item.desc}</Text>
                 ) : null}
-                <Text style={{ color: theme.mute, fontSize: 10, marginTop: 2, fontFamily: fonts.mono }}>
+                <Text style={{ color: theme.mute, fontSize: 10, marginTop: 2, fontFamily: "monospace" }}>
                   {(item as any).fileCount ?? 0} файлов · {new Date(item.createdAt).toLocaleDateString()}
                 </Text>
               </View>
@@ -157,14 +170,14 @@ export function VibeScreen({ navigation }: { navigation: any }) {
         />
       )}
 
-      {/* bottom create section */}
-      <View style={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 10, borderTopWidth: 1, borderTopColor: theme.border, paddingTop: 12 }}>
+      {/* ручное создание проекта — вторично, через меню «＋» */}
+      <Sheet visible={createOpen} onClose={() => setCreateOpen(false)} title={t("manual_create")} snapPoints={["40%"]}>
         <TextField value={name} onChangeText={setName} placeholder={t("project_name")} />
         <View style={{ height: 8 }} />
         <TextField value={desc} onChangeText={setDesc} placeholder={t("project_desc")} />
         <View style={{ height: 10 }} />
-        <PrimaryButton title={"＋ " + t("newProject")} onPress={create} disabled={creating || !name.trim()} />
-      </View>
+        <Button title={t("create")} variant="primary" fullWidth onPress={create} disabled={creating || !name.trim()} />
+      </Sheet>
 
       {/* project menu sheet */}
       <Sheet visible={!!menuProject} onClose={() => setMenuProject(null)} title={menuProject?.name ?? ""} snapPoints={["40%"]}>
