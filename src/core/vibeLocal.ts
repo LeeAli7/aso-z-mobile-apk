@@ -87,9 +87,18 @@ function projectDir(id: string): Directory {
   return new Directory(vibeRoot(), id);
 }
 
-async function ensureProjectDir(id: string): Promise<Directory> {
+/** Корень внутреннего хранилища агента: documentDirectory/vibe. */
+export const STORAGE_ROOT = "vibe";
+
+/** Гарантирует корень хранилища (создаёт vibe/, если его нет). */
+export async function ensureStorageRoot(): Promise<Directory> {
   const root = vibeRoot();
   if (!root.exists) root.create({ idempotent: true, intermediates: true });
+  return root;
+}
+
+async function ensureProjectDir(id: string): Promise<Directory> {
+  const root = await ensureStorageRoot();
   const dir = projectDir(id);
   if (!dir.exists) dir.create({ idempotent: true, intermediates: true });
   return dir;
@@ -111,6 +120,17 @@ export async function listProjects(): Promise<VibeProject[]> {
 
 async function saveProjects(list: VibeProject[]): Promise<void> {
   await AsyncStorage.setItem(PROJECTS_KEY, JSON.stringify(list));
+}
+
+/** Обновляет updatedAt проекта (файлы/папки создал агент — проект «свежий»). */
+async function touchProject(id: string): Promise<void> {
+  try {
+    const list = await listProjects();
+    const p = list.find((x) => x.id === id);
+    if (!p) return;
+    p.updatedAt = Date.now();
+    await saveProjects(list);
+  } catch {}
 }
 
 export async function createProject(name: string, desc: string): Promise<VibeProject> {
@@ -215,7 +235,7 @@ export async function readFile(projectId: string, relPath: string): Promise<stri
   return readFileInner(projectId, safeRel(relPath));
 }
 
-/** Пишет файл в проект, создавая промежуточные папки. */
+/** Пишет файл в проект, создавая промежуточные папки. Агент — первый автор. */
 export async function writeFile(projectId: string, relPath: string, content: string): Promise<void> {
   const clean = safeRel(relPath);
   const dir = await ensureProjectDir(projectId);
@@ -231,11 +251,12 @@ export async function writeFile(projectId: string, relPath: string, content: str
   const f = new File(cur, fileName);
   if (!f.exists) f.create({ intermediates: true });
   await f.write(content);
+  await touchProject(projectId);
 }
 
 export async function createDir(projectId: string, rel: string): Promise<void> {
   const clean = safeRel(rel);
-  const dir = projectDir(projectId);
+  const dir = await ensureProjectDir(projectId);
   const parts = clean.split("/").filter(Boolean);
   if (parts.length === 0) return;
   let cur = dir;
@@ -244,6 +265,7 @@ export async function createDir(projectId: string, rel: string): Promise<void> {
     if (!next.exists) next.create({ idempotent: true, intermediates: true });
     cur = next;
   }
+  await touchProject(projectId);
 }
 
 /** Содержимое папки: [{ name, isDir, size }] — для файлового менеджера. */
