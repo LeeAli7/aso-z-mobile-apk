@@ -250,7 +250,10 @@ export async function streamChat(
             const newPart = safe.slice(sentSafe);
             if (newPart) callbacks.onToken(newPart);
             sentSafe = safe.length;
-          } else if (reasoning) {
+          }
+          // reasoning — ОТДЕЛЬНЫМ потоком: финал в cleanText целиком, в thinking не течёт.
+          // Дельта может нести content И reasoning одновременно — обрабатываем оба независимо.
+          if (reasoning) {
             thinking += reasoning;
             callbacks.onThinking?.(thinking);
           }
@@ -277,7 +280,9 @@ export async function streamChat(
           const newPart = safe.slice(sentSafe);
           if (newPart) callbacks.onToken(newPart);
           sentSafe = safe.length;
-        } else {
+        }
+        // reasoning — отдельным потоком (см. выше): финал и думалка не смешиваются.
+        {
           const reasoning = delta?.reasoning_content || delta?.reasoning || "";
           if (reasoning) {
             thinking += reasoning;

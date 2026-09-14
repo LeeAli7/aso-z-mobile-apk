@@ -43,6 +43,13 @@
       ],
       "expo-secure-store",
       [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Aso использует микрофон для голосового ввода",
+          "speechRecognitionPermission": "Aso использует распознавание речи для голосового ввода"
+        }
+      ],
+      [
         "expo-image-picker",
         {
           "photosPermission": "Aso запрашивает доступ к фото для анализа изображений"
