@@ -386,6 +386,8 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
                 style={{ transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }}
               />
             </View>
+            <DeptDivider theme={theme} />
+            <Row label={t("providers")} onPress={() => navigation.navigate("Providers")} value="" theme={theme} />
           </View>
         )}
 
