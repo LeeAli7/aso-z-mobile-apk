@@ -8,6 +8,8 @@
  *  - файлы Vibe-проектов (documentDirectory/vibe/<id>/…)
  *  - агентское: память (aso_mem_user/aso_mem_memory), задачи (aso_todo),
  *    автозадачи (aso_cron_jobs)
+ *  - Hermes-паритет: конфиг агента, тулcеты, голос, kanban, MCP, webhooks,
+ *    usage, куратор (pinned/last), безопасность
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
@@ -27,6 +29,16 @@ const MEM_USER = "aso_mem_user";
 const MEM_MEMORY = "aso_mem_memory";
 const TODO_KEY = "aso_todo";
 const CRON_KEY = "aso_cron_jobs";
+const AGENT_CONFIG_KEY = "aso_agent_config";
+const TOOLSETS_KEY = "aso_toolsets_overrides";
+const VOICE_KEY = "aso_voice_config";
+const KANBAN_KEY = "aso_kanban_tasks";
+const MCP_KEY = "aso_mcp_servers";
+const WEBHOOK_KEY = "aso_webhooks";
+const USAGE_KEY = "aso_usage";
+const CURATOR_PINNED = "aso_curator_pinned";
+const CURATOR_LAST = "aso_curator_last";
+const SECURITY_KEY = "aso_security_config";
 
 const EXPORT_NAME = "aso-z-backup.json";
 const EXPORT_MIME = "application/json";
@@ -47,6 +59,16 @@ export interface BackupData {
   memMemory: unknown;
   todos: unknown;
   cronJobs: unknown;
+  agentConfig: unknown;
+  toolsets: unknown;
+  voice: unknown;
+  kanban: unknown;
+  mcp: unknown;
+  webhooks: unknown;
+  usage: unknown;
+  curatorPinned: unknown;
+  curatorLast: string | null;
+  security: unknown;
 }
 
 function fsSupported(): boolean {
@@ -85,6 +107,16 @@ export async function collectBackup(): Promise<BackupData> {
     memMemoryRaw,
     todosRaw,
     cronRaw,
+    agentConfigRaw,
+    toolsetsRaw,
+    voiceRaw,
+    kanbanRaw,
+    mcpRaw,
+    webhooksRaw,
+    usageRaw,
+    curatorPinnedRaw,
+    curatorLastRaw,
+    securityRaw,
   ] = await Promise.all([
     AsyncStorage.getItem(KEYS_SESSIONS),
     AsyncStorage.getItem(KEYS_ACTIVE),
@@ -96,6 +128,16 @@ export async function collectBackup(): Promise<BackupData> {
     AsyncStorage.getItem(MEM_MEMORY),
     AsyncStorage.getItem(TODO_KEY),
     AsyncStorage.getItem(CRON_KEY),
+    AsyncStorage.getItem(AGENT_CONFIG_KEY),
+    AsyncStorage.getItem(TOOLSETS_KEY),
+    AsyncStorage.getItem(VOICE_KEY),
+    AsyncStorage.getItem(KANBAN_KEY),
+    AsyncStorage.getItem(MCP_KEY),
+    AsyncStorage.getItem(WEBHOOK_KEY),
+    AsyncStorage.getItem(USAGE_KEY),
+    AsyncStorage.getItem(CURATOR_PINNED),
+    AsyncStorage.getItem(CURATOR_LAST),
+    AsyncStorage.getItem(SECURITY_KEY),
   ]);
 
   const vibeMessages: Record<string, unknown> = {};
@@ -146,6 +188,16 @@ export async function collectBackup(): Promise<BackupData> {
     memMemory: memMemoryRaw ? JSON.parse(memMemoryRaw) : [],
     todos: todosRaw ? JSON.parse(todosRaw) : [],
     cronJobs: cronRaw ? JSON.parse(cronRaw) : [],
+    agentConfig: agentConfigRaw ? JSON.parse(agentConfigRaw) : null,
+    toolsets: toolsetsRaw ? JSON.parse(toolsetsRaw) : {},
+    voice: voiceRaw ? JSON.parse(voiceRaw) : null,
+    kanban: kanbanRaw ? JSON.parse(kanbanRaw) : [],
+    mcp: mcpRaw ? JSON.parse(mcpRaw) : [],
+    webhooks: webhooksRaw ? JSON.parse(webhooksRaw) : [],
+    usage: usageRaw ? JSON.parse(usageRaw) : {},
+    curatorPinned: curatorPinnedRaw ? JSON.parse(curatorPinnedRaw) : [],
+    curatorLast: curatorLastRaw,
+    security: securityRaw ? JSON.parse(securityRaw) : null,
   };
 }
 
@@ -236,6 +288,17 @@ export async function importBackupFromFile(): Promise<{ ok: boolean; message: st
     if (data.memMemory) await AsyncStorage.setItem(MEM_MEMORY, JSON.stringify(data.memMemory));
     if (data.todos) await AsyncStorage.setItem(TODO_KEY, JSON.stringify(data.todos));
     if (data.cronJobs) await AsyncStorage.setItem(CRON_KEY, JSON.stringify(data.cronJobs));
+    // Hermes-паритет: конфиг агента, тулcеты, голос, kanban, MCP, webhooks, usage, куратор
+    if (data.agentConfig) await AsyncStorage.setItem(AGENT_CONFIG_KEY, JSON.stringify(data.agentConfig));
+    if (data.toolsets) await AsyncStorage.setItem(TOOLSETS_KEY, JSON.stringify(data.toolsets));
+    if (data.voice) await AsyncStorage.setItem(VOICE_KEY, JSON.stringify(data.voice));
+    if (data.kanban) await AsyncStorage.setItem(KANBAN_KEY, JSON.stringify(data.kanban));
+    if (data.mcp) await AsyncStorage.setItem(MCP_KEY, JSON.stringify(data.mcp));
+    if (data.webhooks) await AsyncStorage.setItem(WEBHOOK_KEY, JSON.stringify(data.webhooks));
+    if (data.usage) await AsyncStorage.setItem(USAGE_KEY, JSON.stringify(data.usage));
+    if (data.curatorPinned) await AsyncStorage.setItem(CURATOR_PINNED, JSON.stringify(data.curatorPinned));
+    if (typeof data.curatorLast === "string" && data.curatorLast) await AsyncStorage.setItem(CURATOR_LAST, data.curatorLast);
+    if (data.security) await AsyncStorage.setItem(SECURITY_KEY, JSON.stringify(data.security));
     // vibe-проекты
     if (Array.isArray(data.vibeProjects)) {
       await AsyncStorage.setItem(VIBE_PROJECTS, JSON.stringify(data.vibeProjects));
