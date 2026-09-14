@@ -31,6 +31,7 @@ import { getToolDefs } from "../core/tools";
 import { dueJobs, markJobRun } from "../core/cron";
 import { runSelfReview } from "../core/selfImprove";
 import { DrawerLineArt } from "../components/DrawerLineArt";
+import { AgentStatusBanner } from "../components/AgentStatusBanner";
 import { renderMarkdown } from "../components/Markdown";
 import { ThinkingBlock } from "../components/kimi/ThinkingBlock";
 import { ToolCard } from "../components/kimi/ToolCard";
@@ -962,6 +963,21 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           <IconButton name="plus" size={20} onPress={handleNewSession} accessibilityLabel={t("newSession")} />
         </View>
       </View>
+
+      {/* виджет «агент активен»: статус + таймер + Стоп, только во время стриминга */}
+      <AgentStatusBanner
+        visible={isStreaming(active?.id)}
+        theme={theme}
+        status={t("agent_active")}
+        stopLabel={t("agent_stop")}
+        onStop={() => {
+          const s = active?.id;
+          if (!s) return;
+          getRun(s).stop = true;
+          getRun(s).ctrl?.abort();
+          markStreaming(s, false);
+        }}
+      />
 
       {/* messages — контент скроллится ПОД плавающей шапкой */}
       {(!active || active.messages.length === 0) ? (
