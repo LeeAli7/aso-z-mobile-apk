@@ -1178,7 +1178,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         onDelete={deleteSessionById}
       />
 
-      {/* ── Конфиг (проекты + файлы + инструкции — как хранилище Hermes) ── */}
+      {/* ── Хранилище агента (внутреннее хранилище — файлы/проекты создаёт агент) ── */}
       <StorageSheet
         visible={storageOpen}
         onClose={() => setStorageOpen(false)}

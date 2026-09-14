@@ -6,6 +6,8 @@
  *  - кастомные провайдеры и их модели (SecureStore "aso_custom_providers")
  *  - Vibe-проекты (AsyncStorage "vibe:projects", "vibe:msgs:<id>")
  *  - файлы Vibe-проектов (documentDirectory/vibe/<id>/…)
+ *  - агентское: память (aso_mem_user/aso_mem_memory), задачи (aso_todo),
+ *    автозадачи (aso_cron_jobs)
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
@@ -21,6 +23,10 @@ const KEYS_LANG = "aso_lang";
 const KEYS_PROVIDERS = "aso_custom_providers";
 const VIBE_PROJECTS = "vibe:projects";
 const VIBE_MSGS_PREFIX = "vibe:msgs:";
+const MEM_USER = "aso_mem_user";
+const MEM_MEMORY = "aso_mem_memory";
+const TODO_KEY = "aso_todo";
+const CRON_KEY = "aso_cron_jobs";
 
 const EXPORT_NAME = "aso-z-backup.json";
 const EXPORT_MIME = "application/json";
@@ -37,6 +43,10 @@ export interface BackupData {
   vibeProjects: unknown;
   vibeMessages: Record<string, unknown>;
   vibeFiles: Record<string, Record<string, string>>; // projectId -> { relPath: content }
+  memUser: unknown;
+  memMemory: unknown;
+  todos: unknown;
+  cronJobs: unknown;
 }
 
 function fsSupported(): boolean {
@@ -71,6 +81,10 @@ export async function collectBackup(): Promise<BackupData> {
     langRaw,
     providersRaw,
     projectsRaw,
+    memUserRaw,
+    memMemoryRaw,
+    todosRaw,
+    cronRaw,
   ] = await Promise.all([
     AsyncStorage.getItem(KEYS_SESSIONS),
     AsyncStorage.getItem(KEYS_ACTIVE),
@@ -78,6 +92,10 @@ export async function collectBackup(): Promise<BackupData> {
     AsyncStorage.getItem(KEYS_LANG),
     SecureStore.getItemAsync(KEYS_PROVIDERS),
     AsyncStorage.getItem(VIBE_PROJECTS),
+    AsyncStorage.getItem(MEM_USER),
+    AsyncStorage.getItem(MEM_MEMORY),
+    AsyncStorage.getItem(TODO_KEY),
+    AsyncStorage.getItem(CRON_KEY),
   ]);
 
   const vibeMessages: Record<string, unknown> = {};
@@ -124,6 +142,10 @@ export async function collectBackup(): Promise<BackupData> {
     vibeProjects: projects,
     vibeMessages,
     vibeFiles,
+    memUser: memUserRaw ? JSON.parse(memUserRaw) : [],
+    memMemory: memMemoryRaw ? JSON.parse(memMemoryRaw) : [],
+    todos: todosRaw ? JSON.parse(todosRaw) : [],
+    cronJobs: cronRaw ? JSON.parse(cronRaw) : [],
   };
 }
 
@@ -209,6 +231,11 @@ export async function importBackupFromFile(): Promise<{ ok: boolean; message: st
     if (data.customProviders) {
       await SecureStore.setItemAsync(KEYS_PROVIDERS, JSON.stringify(data.customProviders));
     }
+    // агентское: память / задачи / автозадачи
+    if (data.memUser) await AsyncStorage.setItem(MEM_USER, JSON.stringify(data.memUser));
+    if (data.memMemory) await AsyncStorage.setItem(MEM_MEMORY, JSON.stringify(data.memMemory));
+    if (data.todos) await AsyncStorage.setItem(TODO_KEY, JSON.stringify(data.todos));
+    if (data.cronJobs) await AsyncStorage.setItem(CRON_KEY, JSON.stringify(data.cronJobs));
     // vibe-проекты
     if (Array.isArray(data.vibeProjects)) {
       await AsyncStorage.setItem(VIBE_PROJECTS, JSON.stringify(data.vibeProjects));
