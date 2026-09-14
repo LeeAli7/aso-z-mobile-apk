@@ -14,7 +14,7 @@ import { Pressable, Text, View } from "react-native";
 import { AppIcon, AppIconName } from "../design-system/components/AppIcon";
 
 export type IconSet = "A" | "B" | "C";
-export const ICON_SET: IconSet = "A";
+export const ICON_SET: IconSet = "C";
 
 export interface DeptDef {
   key: string;
