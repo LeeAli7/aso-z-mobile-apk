@@ -6,7 +6,8 @@
  * Своих SVG-дубликатов в файле нет.
  *
  *  - шапка: синий текст «Новый чат» + синее перо слева (без синей плашки)
- *  - пункты: Модель (куб) / Агенты (группа) / Проекты / Настройки
+ *  - пункты Hermes-паритета: Модель (куб) / Агенты (группа) / Хранилище (папка) /
+ *    Коннекторы (link) / Доска (check) / Использование (trend) / Настройки (gear)
  *  - поиск: плоская строка с лупой, без рамок (border none, transparent)
  *  - сессии: плоский текстовый список, без карточек/рамок/дат,
  *    иконки правки только у активной строки
@@ -27,6 +28,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppIcon } from "../design-system/components/AppIcon";
+import { DeptIcon } from "../components/Dept";
 import { ModelInfo } from "../core/gateway";
 import { Session } from "../store/AppStore";
 import { fonts } from "../theme/tokens";
@@ -200,7 +202,7 @@ export function DrawerLineArt({
               <Text style={{ color: accent, fontSize: 14, fontWeight: "600" }}>{t("newSession")}</Text>
             </Pressable>
 
-            {/* ровно 5 пунктов */}
+            {/* пункты Hermes-паритета: модель / агенты / хранилище / коннекторы / доска / использование / настройки */}
             <View style={{ marginTop: 4 }}>
               {row(
                 <AppIcon name="cube" color={modelsExpanded ? accent : iconColor} size={20} strokeWidth={SW} />,
@@ -238,9 +240,12 @@ export function DrawerLineArt({
                   })}
                 </View>
               )}
-              {row(<AppIcon name="group" color={iconColor} size={20} strokeWidth={SW} />, "Агенты", undefined, () => onNavigate("AgentSettings"))}
-              {row(<AppIcon name="folder" color={iconColor} size={20} strokeWidth={SW} />, t("vibe_title"), undefined, () => onNavigate("Vibe"))}
-              {row(<AppIcon name="gear" color={iconColor} size={20} strokeWidth={SW} />, t("settings_title"), undefined, () => onNavigate("Settings"))}
+              {row(<DeptIcon name="group" theme={theme} />, "Агенты", undefined, () => onNavigate("AgentSettings"))}
+              {row(<DeptIcon name="folder" theme={theme} />, t("vibe_title"), undefined, () => onNavigate("Vibe"))}
+              {row(<DeptIcon name="link" theme={theme} />, t("connectors_title"), undefined, () => onNavigate("Connectors"))}
+              {row(<DeptIcon name="check" theme={theme} />, t("kanban_title"), undefined, () => onNavigate("Kanban"))}
+              {row(<DeptIcon name="trend" theme={theme} />, t("usage_title"), undefined, () => onNavigate("Usage"))}
+              {row(<DeptIcon name="gear" theme={theme} />, t("settings_title"), undefined, () => onNavigate("Settings"))}
             </View>
 
             <View style={{ height: 1, backgroundColor: theme.border, opacity: 0.7, marginVertical: 10, marginHorizontal: 12 }} />
