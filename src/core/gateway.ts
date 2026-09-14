@@ -409,6 +409,8 @@ export interface AgentRequestResult {
   toolsRejected: boolean;
   /** Стрим завершился штатно ([DONE] или finish_reason stop/tool_calls). */
   finished?: boolean;
+  /** Usage из SSE (если провайдер прислал) — для учёта токенов. */
+  usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
 }
 
 const MAX_AGENT_ITERATIONS = 8;
@@ -437,9 +439,19 @@ export async function streamAgentChat(
   let tailRetries = 0;
   const MAX_TAIL_RETRIES = 2;
 
-  for (let iter = 0; iter < MAX_AGENT_ITERATIONS; iter++) {
-    // компрессия контекста при переполнении (P0.5)
-    messages = compressContext(messages);
+  // Лимит ходов и компрессия из конфига агента (Hermes: agent.max_turns, compression).
+  let maxIter = MAX_AGENT_ITERATIONS;
+  let compressionOn = true;
+  try {
+    const { loadAgentConfig } = await import("./agentConfig");
+    const cfg = await loadAgentConfig();
+    // maxTurns Hermes = всего ходов; итерации тулов — десятая часть, минимум 8
+    maxIter = Math.max(8, Math.min(90, Math.ceil(cfg.maxTurns / 10)));
+    compressionOn = cfg.compressionEnabled;
+  } catch {}
+
+  for (let iter = 0; iter < maxIter; iter++) {
+    if (compressionOn) messages = compressContext(messages);
     let r: AgentRequestResult;
     try {
       r = await agentRequest(model, messages, toolsEnabled ? tools : [], ctrl.signal);
@@ -472,6 +484,13 @@ export async function streamAgentChat(
       callbacks.onToken(r.text);
     }
     if (r.reasoning) callbacks.onThinking?.(r.reasoning);
+    // Учёт токенов (Hermes: usage) — fire-and-forget, UI читает usage.ts
+    if (r.usage && (r.usage.totalTokens > 0 || r.usage.promptTokens > 0 || r.usage.completionTokens > 0)) {
+      const u = r.usage;
+      const key = model.modelName || "unknown";
+      const prov = model.providerName ?? String(model.providerIdx ?? "");
+      import("./usage").then((m) => m.recordUsage(key, prov, u)).catch(() => {});
+    }
 
     // ── АНТИ-ОБРЫВ (все тулы): стрим не завершился штатно ([DONE]/finish_reason stop/tool_calls) ──
     // Провайдер порвал соединение на полуслове. Это касается ЛЮБОГО контента:
@@ -542,7 +561,7 @@ export async function streamAgentChat(
       messages.push({ role: "tool", tool_call_id: c.id, name: c.name, content: res.result });
     }
     // последняя итерация бюджета — просим финальный ответ без тулов
-    if (iter === MAX_AGENT_ITERATIONS - 1) toolsEnabled = false;
+    if (iter === maxIter - 1) toolsEnabled = false;
   }
 
   callbacks.onDone(lastText, messages);
@@ -623,6 +642,7 @@ async function agentRequest(
   let streamEnded = false;
   let sawDone = false;
   let finishReason: string | null = null;
+  let usage: { promptTokens: number; completionTokens: number; totalTokens: number } | undefined;
 
   while (true) {
     let chunk: ReadableStreamReadResult<Uint8Array>;
@@ -647,6 +667,14 @@ async function agentRequest(
       if (!line) continue;
       try {
         const obj = JSON.parse(line);
+        const u = obj?.usage;
+        if (u && typeof u === "object") {
+          usage = {
+            promptTokens: Number(u.prompt_tokens ?? u.promptTokens ?? 0) || 0,
+            completionTokens: Number(u.completion_tokens ?? u.completionTokens ?? 0) || 0,
+            totalTokens: Number(u.total_tokens ?? u.totalTokens ?? 0) || 0,
+          };
+        }
         const delta = obj?.choices?.[0]?.delta;
         if (!delta) continue;
         const fr = obj?.choices?.[0]?.finish_reason;
@@ -675,6 +703,14 @@ async function agentRequest(
     const tailLine = buffer.trim();
     try {
       const obj = JSON.parse(tailLine.replace(/^data:\s*/, ""));
+      const tu = (obj as any)?.usage;
+      if (tu && typeof tu === "object") {
+        usage = {
+          promptTokens: Number(tu.prompt_tokens ?? tu.promptTokens ?? 0) || 0,
+          completionTokens: Number(tu.completion_tokens ?? tu.completionTokens ?? 0) || 0,
+          totalTokens: Number(tu.total_tokens ?? tu.totalTokens ?? 0) || 0,
+        };
+      }
       const d = obj?.choices?.[0]?.delta;
       const fr = obj?.choices?.[0]?.finish_reason;
       if (typeof fr === "string" && fr) finishReason = fr;
@@ -716,7 +752,7 @@ async function agentRequest(
   // (net drop / length без [DONE]). finished=false — streamAgentChat не будет исполнять
   // вызовы вслепую, а сделает дозапрос (анти-обрыв). Сам calls оставляем (имя тула
   // полезно для промпта «повтори вызов»); аргументы могли обрезаться на полуслове.
-  return { text: textOut, reasoning, calls, toolsRejected: false, finished };
+  return { text: textOut, reasoning, calls, toolsRejected: false, finished, usage };
   }
 }
 
