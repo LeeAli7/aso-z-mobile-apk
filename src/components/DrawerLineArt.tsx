@@ -238,6 +238,28 @@ export function DrawerLineArt({
                       </Pressable>
                     );
                   })}
+                  {/* вход на Провайдеры — роут был без кнопки */}
+                  <Pressable
+                    onPress={() => onNavigate("Providers")}
+                    style={({ pressed }) => ({
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 10,
+                      paddingHorizontal: 12,
+                      paddingVertical: 9,
+                      opacity: pressed ? 0.6 : 1,
+                    })}
+                    accessibilityRole="button"
+                    accessibilityLabel={t("providers")}
+                  >
+                    <DeptIcon name="link" theme={theme} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: theme.text, fontSize: 13, fontWeight: "600" }}>{t("providers")}</Text>
+                      <Text style={{ color: theme.mute, fontSize: 9, marginTop: 1, fontFamily: fonts.mono }}>
+                        {t("add_provider").toUpperCase()}
+                      </Text>
+                    </View>
+                  </Pressable>
                 </View>
               )}
               {row(<DeptIcon name="group" theme={theme} />, "Агенты", undefined, () => onNavigate("AgentSettings"))}
