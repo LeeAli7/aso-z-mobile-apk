@@ -8,7 +8,7 @@
  * Движок не задет: чистый визуал, без логики.
  */
 import React from "react";
-import Svg, { Path, Circle, Line, Polyline, Rect } from "react-native-svg";
+import Svg, { Path, Circle, Ellipse, Line, Polyline, Rect } from "react-native-svg";
 
 export const APP_ICON_NAMES = [
   "menu",
@@ -55,6 +55,14 @@ export const APP_ICON_NAMES = [
   "cube",
   "group",
   "gear",
+  "account",
+  "palette",
+  "shield",
+  "database",
+  "board",
+  "webhook",
+  "message",
+  "server",
 ] as const;
 
 export type AppIconName = (typeof APP_ICON_NAMES)[number];
@@ -337,6 +345,80 @@ function Shape({ name }: { name: AppIconName }) {
           <Path d="M3.5 8L12 12.5 20.5 8M12 12.5v8" />
         </>
       );
+    case "account":
+      // Аккаунт и синхронизация: голова + плечи.
+      return (
+        <>
+          <Circle cx="12" cy="8" r="3.5" />
+          <Path d="M5 20c1-4 3.5-6 7-6s6 2 7 6" />
+        </>
+      );
+    case "palette":
+      // Внешний вид: палитра + точки красок.
+      return (
+        <>
+          <Circle cx="12" cy="12" r="8.5" />
+          <Circle cx="9" cy="10" r="0.4" />
+          <Circle cx="12.5" cy="8.8" r="0.4" />
+          <Circle cx="15.5" cy="11" r="0.4" />
+          <Path d="M12 20.5c-1.5-1-2-2.2-2-3.5" />
+        </>
+      );
+    case "shield":
+      // Безопасность: щит + галочка.
+      return (
+        <>
+          <Path d="M12 3.5l7 2.5v5c0 5-3 8.5-7 10-4-1.5-7-5-7-10v-5l7-2.5z" />
+          <Polyline points="9.5 11.8 11.3 13.6 14.8 9.8" />
+        </>
+      );
+    case "database":
+      // Данные/backup: цилиндр БД.
+      return (
+        <>
+          <Ellipse cx="12" cy="6" rx="7" ry="2.8" />
+          <Path d="M5 6v12c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8V6" />
+          <Path d="M5 12c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8" />
+        </>
+      );
+    case "board":
+      // Kanban-доска: рамка + 2 колонки.
+      return (
+        <>
+          <Rect x="4" y="4" width="16" height="16" rx="2" />
+          <Line x1="9.3" y1="4" x2="9.3" y2="20" />
+          <Line x1="14.6" y1="4" x2="14.6" y2="20" />
+        </>
+      );
+    case "webhook":
+      // Вебхуки: broadcast-дуги + точка.
+      return (
+        <>
+          <Circle cx="12" cy="18" r="0.4" />
+          <Path d="M8.5 14.5a5 5 0 0 1 7 0" />
+          <Path d="M6 12a9 9 0 0 1 12 0" />
+        </>
+      );
+    case "message":
+      // Мессенджеры: облачко с точками (chat — пустое облачко).
+      return (
+        <>
+          <Path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h8A2.5 2.5 0 0 1 17 5.5v6a2.5 2.5 0 0 1-2.5 2.5H8l-4 3.5V5.5z" />
+          <Circle cx="8.5" cy="9" r="0.4" />
+          <Circle cx="12" cy="9" r="0.4" />
+          <Circle cx="15.5" cy="9" r="0.4" />
+        </>
+      );
+    case "server":
+      // MCP-серверы / свои провайдеры: стойка из двух юнитов.
+      return (
+        <>
+          <Rect x="4" y="4" width="16" height="6.5" rx="1.5" />
+          <Rect x="4" y="13.5" width="16" height="6.5" rx="1.5" />
+          <Circle cx="7.5" cy="7.2" r="0.4" />
+          <Circle cx="7.5" cy="16.7" r="0.4" />
+        </>
+      );
   }
 }
 
@@ -427,6 +509,25 @@ const MATERIAL_TO_APP: Record<string, AppIconName> = {
   cube: "cube",
   group: "group",
   gear: "gear",
+  account: "account",
+  palette: "palette",
+  shield: "shield",
+  database: "database",
+  board: "board",
+  webhook: "webhook",
+  message: "message",
+  server: "server",
+  person: "account",
+  "account-circle": "account",
+  "admin-panel-settings": "shield",
+  security: "shield",
+  "data-usage": "database",
+  "view-kanban": "board",
+  "view-column": "board",
+  forum: "message",
+  sms: "message",
+  dns: "server",
+  "storage-server": "server",
 };
 
 export function materialToApp(name: string): AppIconName {

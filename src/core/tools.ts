@@ -441,3 +441,36 @@ registerTool({
     return snap || "Память пуста.";
   },
 });
+
+/* ── Тул: поиск по прошлым диалогам (Hermes session_search) ─────────────── */
+
+registerTool({
+  name: "session_search",
+  description:
+    "Поиск по прошлым диалогам (названия сессий + текст сообщений). " +
+    "Используй, когда пользователь ссылается на прошлый разговор.",
+  parameters: {
+    type: "object",
+    properties: {
+      query: { type: "string", description: "Поисковый запрос" },
+      limit: { type: "string", description: "Макс. результатов (по умолчанию 5)" },
+    },
+    required: ["query"],
+  },
+  handler: async (args): Promise<string> => {
+    const q = String(args.query ?? "").trim();
+    if (!q) return "ошибка: пустой запрос";
+    const lim = Math.max(1, Math.min(20, parseInt(String(args.limit ?? "5"), 10) || 5));
+    const { searchSessions } = await import("./sessions");
+    const hits = await searchSessions(q, lim);
+    if (!hits.length) return "Ничего не найдено.";
+    return hits
+      .map((s, i) => {
+        const last = Array.isArray(s.messages) && s.messages.length
+          ? String((s.messages[s.messages.length - 1] as any)?.content ?? "").slice(0, 200)
+          : "";
+        return `${i + 1}. ${s.name} (${new Date(s.updatedAt).toLocaleDateString()})${last ? `\n   …${last}` : ""}`;
+      })
+      .join("\n");
+  },
+});
