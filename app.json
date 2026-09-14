@@ -47,7 +47,8 @@
         {
           "photosPermission": "Aso запрашивает доступ к фото для анализа изображений"
         }
-      ]
+      ],
+      "expo-speech-recognition"
     ]
   }
 }

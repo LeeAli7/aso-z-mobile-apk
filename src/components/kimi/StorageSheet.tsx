@@ -38,13 +38,18 @@ const INSTRUCTIONS_FILE = "INSTRUCTIONS.md";
 type Path = string[];
 
 const ROOT_FOLDERS: { key: string; label: string; icon: AppIconName; desc: string }[] = [
-  { key: "storage", label: "Хранилище", icon: "box", desc: "файлы и папки рабочей среды агента" },
+  { key: "storage", label: "Хранилище", icon: "box", desc: "проекты и файлы рабочей среды агента" },
   { key: "skills", label: "Скиллы", icon: "model", desc: "навыки агента (SKILL.md), управление" },
   { key: "memory", label: "Память", icon: "bulb", desc: "факты о пользователе, заметки агента" },
   { key: "todo", label: "Задачи", icon: "check", desc: "план дел агента (todo)" },
   { key: "cron", label: "Автозадачи", icon: "clock", desc: "расписание, напоминания, отчёты" },
   { key: "connectors", label: "Коннекторы", icon: "link", desc: "подключённые сервисы и инструменты" },
 ];
+
+// Порядок корня-проводника: сначала проекты и файлы (рабочая среда),
+// затем отделы агента внутри (скиллы/память/задачи/автозадачи/коннекторы).
+const EXPLORER_FIRST = ["storage"];
+const AGENT_INSIDE = ["skills", "memory", "todo", "cron", "connectors"];
 
 export function StorageSheet({
   visible,
@@ -241,11 +246,35 @@ export function StorageSheet({
         </View>
       )}
 
-      {/* ── КОРЕНЬ: системные папки ── */}
+      {/* ── КОРЕНЬ-ПРОВОДНИК: рабочая среда первой, отделы агента — внутри ниже ── */}
       {inRoot && (
         <View style={{ marginTop: 6 }}>
           <View style={{ gap: 8 }}>
-          {ROOT_FOLDERS.map((f) => (
+          {ROOT_FOLDERS.filter((f) => EXPLORER_FIRST.includes(f.key)).map((f) => (
+            <GlassPressable
+              key={f.key}
+              radius={16}
+              blur={false}
+              onPress={() => setPath([f.key])}
+              style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 13, paddingVertical: 13 }}
+              accessibilityLabel={f.label}
+            >
+              <View style={{ width: 38, height: 38, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.08)" : "rgba(255,255,255,.55)" }}>
+                <AppIcon name={f.icon} size={19} color={theme.accentHi} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: theme.text, fontSize: 13.5, fontWeight: "600" }}>{f.label}</Text>
+                <Text style={{ color: theme.mute, fontSize: 11, marginTop: 1 }}>{f.desc}</Text>
+              </View>
+              <AppIcon name="chevron-right" size={18} color={theme.mute} />
+            </GlassPressable>
+          ))}
+          </View>
+          <Text style={{ color: theme.mute, fontSize: 10, letterSpacing: 1.2, textTransform: "uppercase", marginTop: 14, marginBottom: 6, marginHorizontal: 4 }}>
+            Агент · внутри
+          </Text>
+          <View style={{ gap: 8 }}>
+          {ROOT_FOLDERS.filter((f) => AGENT_INSIDE.includes(f.key)).map((f) => (
             <GlassPressable
               key={f.key}
               radius={16}
@@ -561,9 +590,29 @@ function ProjectFiles({
         <Text style={{ color: theme.dim, fontSize: 13 }}>Проект не найден.</Text>
       ) : !previewPath ? (
         <>
-          <Text style={{ color: theme.mute, fontSize: 11, marginBottom: 4 }}>
-            {project.name} · {files.length} записей
-          </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 }}>
+            <Text style={{ flex: 1, color: theme.mute, fontSize: 11 }}>
+              {project.name} · {files.length} записей
+            </Text>
+            <Pressable
+              onPress={async () => {
+                // Экспорт проекта: дерево текстом через Share.
+                // NATIVE OWNER (Арес): exportProject (zip) — заменить текст на файл.
+                try {
+                  const { Share: RNShare } = await import("react-native");
+                  const body = `${project.name}\n${"=".repeat(project.name.length)}\n${files.join("\n") || "(пусто)"}`;
+                  await RNShare.share({ message: body, title: project.name });
+                } catch (e: any) {
+                  showToast("err", String(e?.message || e));
+                }
+              }}
+              hitSlop={8}
+              style={{ flexDirection: "row", alignItems: "center", gap: 3, padding: 4 }}
+              accessibilityLabel="Экспорт проекта"
+            >
+              <AppIcon name="share" size={15} color={theme.accentHi} />
+            </Pressable>
+          </View>
           {files.length === 0 && (
             <GlassPressable radius={16} blur={false} style={{ padding: 16 }}>
               <Text style={{ color: theme.dim, fontSize: 13, lineHeight: 19 }}>

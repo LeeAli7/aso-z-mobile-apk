@@ -28,6 +28,7 @@ import { config, setApiBase } from "../core/env";
 import { showToast } from "../design-system/components/Toast";
 import { Button } from "../design-system/components/Button";
 import { Chip } from "../design-system/components/Chip";
+import { IconButton } from "../design-system/components/IconButton";
 
 // ключи хранилища (дублируют AppStore — чтобы не тянуть внутренности)
 const KEYS_SESSIONS = "aso_sessions";
@@ -259,9 +260,12 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      <View style={{ paddingTop: insets.top + 6, paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: theme.border }}>
-        <Text style={{ color: theme.dim, fontSize: 11 }}>{t("settings_sub")}</Text>
-        <Text style={{ color: theme.text, fontSize: 24, fontWeight: "700", letterSpacing: -0.3 }}>{t("settings_title")}</Text>
+      <View style={{ flexDirection: "row", alignItems: "center", paddingTop: insets.top + 6, paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: theme.border }}>
+        <IconButton name="arrow-left" size={20} onPress={() => (dept ? setDept(null) : navigation.goBack())} accessibilityLabel={t("back")} />
+        <View style={{ flex: 1, marginLeft: 6 }}>
+          <Text style={{ color: theme.dim, fontSize: 11 }}>{t("settings_sub")}</Text>
+          <Text style={{ color: theme.text, fontSize: 24, fontWeight: "700", letterSpacing: -0.3 }}>{t("settings_title")}</Text>
+        </View>
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 24 }} keyboardShouldPersistTaps="handled">

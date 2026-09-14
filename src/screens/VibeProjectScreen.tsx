@@ -14,6 +14,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Share,
   Text,
   TextInput,
   View,
@@ -453,6 +454,7 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
       <Sheet visible={showFile} onClose={() => setShowFile(false)} title="Файл" snapPoints={["75%"]}>
         <View style={{ flexDirection: "row", justifyContent: "space-around", marginBottom: 10, gap: 8 }}>
           <Button title="Копировать" variant="secondary" onPress={() => fileContent && Clipboard.setStringAsync(fileContent).then(() => showToast("ok", "Скопировано"))} style={{ flex: 1 }} />
+          <Button title="Экспорт" variant="secondary" onPress={() => fileContent && Share.share({ message: fileContent, title: viewName }).catch(() => {})} style={{ flex: 1 }} />
           <Button title="Редактировать" variant="secondary" onPress={() => { setShowFile(false); if (viewName) startEdit(viewName); }} style={{ flex: 1 }} />
         </View>
         <ScrollView style={{ maxHeight: "74%", backgroundColor: theme.codeBg, borderRadius: 10, padding: 12 }}>
@@ -613,6 +615,8 @@ function VibeBubble({ msg, theme }: { msg: VibeMsg; theme: any }) {
           <Text style={{ color: theme.userText, fontSize: 14, lineHeight: 20 }}>{msg.content}</Text>
         ) : (
           <>
+            {/* раздумья отдельно (сворачиваемый блок), финал — обычным текстом после, всегда.
+                Длинные финалы не схлопываются в раздумья: text идёт вне ThinkingBlock. */}
             {msg.thinking ? (
               <ThinkingBlock
                 text={msg.thinking}
@@ -620,7 +624,7 @@ function VibeBubble({ msg, theme }: { msg: VibeMsg; theme: any }) {
                 theme={theme}
               />
             ) : null}
-            {renderMarkdown(msg.content, theme)}
+            {msg.content ? renderMarkdown(msg.content, theme) : null}
           </>
         )}
       </View>

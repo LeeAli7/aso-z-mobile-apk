@@ -9,7 +9,7 @@
  * заменить вызовы ниже на движок, UI не менять.
  */
 import React, { useCallback, useEffect, useState } from "react";
-import { Alert, FlatList, Pressable, Text, View } from "react-native";
+import { Alert, FlatList, Pressable, Share, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppIcon } from "../design-system/components/AppIcon";
 import { useApp } from "../store/AppStore";
@@ -154,9 +154,13 @@ export function VibeScreen({ navigation }: { navigation: any }) {
     [load, t],
   );
 
-  const depts: (DeptDef & { key: DeptKey })[] = [
+  // Корень = ПРОВОДНИК рабочей среды: сначала проекты и файлы агента,
+  // затем отделы агента внутри (память/задачи/автозадачи/скиллы — не корень).
+  const explorerDepts: (DeptDef & { key: DeptKey })[] = [
     { key: "projects", title: t("dept_projects"), sub: `${projects.length}`, icon: "folder" },
     { key: "files", title: t("dept_agent_files"), icon: "file" },
+  ];
+  const agentDepts: (DeptDef & { key: DeptKey })[] = [
     { key: "memory", title: t("grp_memory"), icon: "bulb" },
     { key: "todos", title: t("dept_todos"), sub: `${todos.length}`, icon: "check" },
     { key: "cron", title: t("dept_cron"), sub: `${jobs.length}`, icon: "clock" },
@@ -166,7 +170,8 @@ export function VibeScreen({ navigation }: { navigation: any }) {
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <View style={{ flexDirection: "row", alignItems: "center", paddingTop: insets.top + 6, paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: theme.border }}>
-        <View style={{ flex: 1 }}>
+        <IconButton name="arrow-left" size={20} onPress={() => (dept ? setDept(null) : navigation.goBack())} accessibilityLabel={t("back")} />
+        <View style={{ flex: 1, marginLeft: 6 }}>
           <Text style={{ color: theme.dim, fontSize: 11 }}>{t("vibe_sub")}</Text>
           <Text style={{ color: theme.text, fontSize: 24, fontWeight: "700", letterSpacing: -0.3 }}>{t("vibe_title")}</Text>
         </View>
@@ -182,11 +187,22 @@ export function VibeScreen({ navigation }: { navigation: any }) {
         )}
       </View>
 
-      {/* корень — только список отделов */}
+      {/* корень = проводник: проекты и файлы первыми, отделы агента — ниже внутри */}
       {dept === null && (
         <View style={{ padding: 16 }}>
           <View style={{ borderRadius: 15, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
-            {depts.map((d, i) => (
+            {explorerDepts.map((d, i) => (
+              <View key={d.key}>
+                {i > 0 && <DeptDivider theme={theme} />}
+                <DeptRow dept={d} theme={theme} onPress={() => setDept(d.key)} />
+              </View>
+            ))}
+          </View>
+          <Text style={{ color: theme.mute, fontSize: 10, letterSpacing: 1.2, textTransform: "uppercase", marginTop: 14, marginBottom: 6, marginHorizontal: 4 }}>
+            {t("grp_agent")}
+          </Text>
+          <View style={{ borderRadius: 15, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
+            {agentDepts.map((d, i) => (
               <View key={d.key}>
                 {i > 0 && <DeptDivider theme={theme} />}
                 <DeptRow dept={d} theme={theme} onPress={() => setDept(d.key)} />
@@ -430,6 +446,25 @@ export function VibeScreen({ navigation }: { navigation: any }) {
       <Sheet visible={!!menuProject} onClose={() => setMenuProject(null)} title={menuProject?.name ?? ""} snapPoints={["40%"]}>
         {menuProject && (
           <View style={{ gap: 8 }}>
+            <Button
+              title={t("export_title")}
+              variant="secondary"
+              fullWidth
+              onPress={async () => {
+                // Экспорт проводника: дерево проекта текстом через Share.
+                // NATIVE OWNER (Арес): exportProject/exportFolder (zip) из
+                // documentDirectory/vibe — заменить текст на zip-файл.
+                try {
+                  const { treeFiles: tree } = await import("../core/vibeLocal");
+                  const tree_ = await tree(menuProject.id).catch(() => "");
+                  const body = `${menuProject.name}\n${"=".repeat(menuProject.name.length)}\n${tree_ || "(пусто)"}`;
+                  await Share.share({ message: body, title: menuProject.name });
+                } catch (e: any) {
+                  showToast("err", String(e?.message || e));
+                }
+                setMenuProject(null);
+              }}
+            />
             <Button
               title="Переименовать"
               variant="secondary"
