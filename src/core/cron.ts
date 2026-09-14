@@ -93,6 +93,32 @@ export async function setJobEnabled(id: string, enabled: boolean): Promise<void>
   }
 }
 
+/** Одна задача по id (Hermes: cron show). */
+export async function getJob(id: string): Promise<CronJob | null> {
+  const jobs = await loadJobs();
+  return jobs.find((x) => x.id === id) ?? null;
+}
+
+/** Пауза (Hermes: cron pause). */
+export async function pauseJob(id: string): Promise<boolean> {
+  const jobs = await loadJobs();
+  const j = jobs.find((x) => x.id === id);
+  if (!j) return false;
+  j.enabled = false;
+  await saveJobs(jobs);
+  return true;
+}
+
+/** Продолжить (Hermes: cron resume). */
+export async function resumeJob(id: string): Promise<boolean> {
+  const jobs = await loadJobs();
+  const j = jobs.find((x) => x.id === id);
+  if (!j) return false;
+  j.enabled = true;
+  await saveJobs(jobs);
+  return true;
+}
+
 export async function markJobRun(id: string, result: string): Promise<void> {
   const jobs = await loadJobs();
   const j = jobs.find((x) => x.id === id);
@@ -101,6 +127,16 @@ export async function markJobRun(id: string, result: string): Promise<void> {
   j.lastResult = result.slice(0, 500);
   if (j.once) j.enabled = false;
   await saveJobs(jobs);
+}
+
+/** Ручной запуск задачи (Hermes: cron run) — сбрасывает lastRunAt, тик подхватит. */
+export async function runJobNow(id: string): Promise<boolean> {
+  const jobs = await loadJobs();
+  const j = jobs.find((x) => x.id === id);
+  if (!j || !j.enabled) return false;
+  j.lastRunAt = 0; // dueJobs посчитает next <= now и запустит на следующем тике
+  await saveJobs(jobs);
+  return true;
 }
 
 /** Парсит расписание → следующий запуск (ms). null = невалидно. */

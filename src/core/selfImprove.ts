@@ -123,10 +123,110 @@ export async function runSelfReview(
  * Scheduling: навыки, не менявшиеся 30+ дней и имеющие _archive-клон → остаются;
  * простая версия: навыки созданные > 90 дней назад переносятся в архив.
  */
-export async function runCurator(): Promise<string> {
+
+/** Статус куратора (Hermes: curator status) — сколько навыков, сколько в архиве. */
+export async function curatorStatus(): Promise<{ skills: number; archived: number; pinned: number; enabled: boolean; lastRun: number | null }> {
   try {
+    const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
     const { skillsDir, listSkills } = await import("./skills");
     const { runCommandCapture } = await import("./runtime");
+    const { loadAgentConfig } = await import("./agentConfig");
+    const cfg = await loadAgentConfig().catch(() => ({ curatorEnabled: true }) as any);
+    const lastRaw = await AsyncStorage.getItem("aso_curator_last").catch(() => null);
+    const pinnedRaw = await AsyncStorage.getItem("aso_curator_pinned").catch(() => null);
+    let pinned = 0;
+    try {
+      const arr = pinnedRaw ? JSON.parse(pinnedRaw) : [];
+      pinned = Array.isArray(arr) ? arr.length : 0;
+    } catch {}
+    const dir = await skillsDir();
+    if (!dir) return { skills: 0, archived: 0, pinned, enabled: !!cfg.curatorEnabled, lastRun: lastRaw ? parseInt(lastRaw, 10) : null };
+    const list = await listSkills();
+    const arch = await runCommandCapture(`ls -1 "${dir}/_archive" 2>/dev/null | wc -l`);
+    const archived = parseInt((arch.output || "0").trim(), 10) || 0;
+    return { skills: list.length, archived, pinned, enabled: !!cfg.curatorEnabled, lastRun: lastRaw ? parseInt(lastRaw, 10) : null };
+  } catch {
+    return { skills: 0, archived: 0, pinned: 0, enabled: true, lastRun: null };
+  }
+}
+
+/** Закреплённые навыки (Hermes: curator pin — exempt от авто-архивации). */
+async function pinnedSkills(): Promise<string[]> {
+  try {
+    const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
+    const raw = await AsyncStorage.getItem("aso_curator_pinned").catch(() => null);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.filter((x) => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Закрепить навык (Hermes: curator pin). */
+export async function pinSkill(name: string): Promise<boolean> {
+  try {
+    const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
+    const pinned = await pinnedSkills();
+    if (!pinned.includes(name)) {
+      pinned.push(name);
+      await AsyncStorage.setItem("aso_curator_pinned", JSON.stringify(pinned));
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Открепить навык (Hermes: curator unpin). */
+export async function unpinSkill(name: string): Promise<boolean> {
+  try {
+    const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
+    const pinned = await pinnedSkills();
+    await AsyncStorage.setItem("aso_curator_pinned", JSON.stringify(pinned.filter((x) => x !== name)));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Архивировать навык вручную (Hermes: curator archive). Никогда не удаляет. */
+export async function archiveSkill(name: string): Promise<string> {
+  try {
+    if (!/^[a-z0-9_-]{1,64}$/.test(name)) return "ошибка: некорректное имя навыка";
+    const { skillsDir } = await import("./skills");
+    const { runCommandCapture } = await import("./runtime");
+    const dir = await skillsDir();
+    if (!dir) return "куратор: рантайм недоступен";
+    const r = await runCommandCapture(`mkdir -p "${dir}/_archive" && mv "${dir}/${name}" "${dir}/_archive/"`);
+    return r.ok ? `Навык «${name}» перемещён в архив.` : `не удалось архивировать: ${r.error || r.output || `exit ${r.code}`}`;
+  } catch (e: any) {
+    return `куратор: ошибка ${String(e?.message || e)}`;
+  }
+}
+
+/** Восстановить навык из архива (Hermes: curator restore). */
+export async function restoreSkill(name: string): Promise<string> {
+  try {
+    if (!/^[a-z0-9_-]{1,64}$/.test(name)) return "ошибка: некорректное имя навыка";
+    const { skillsDir } = await import("./skills");
+    const { runCommandCapture } = await import("./runtime");
+    const dir = await skillsDir();
+    if (!dir) return "куратор: рантайм недоступен";
+    const r = await runCommandCapture(`mv "${dir}/_archive/${name}" "${dir}/"`);
+    return r.ok ? `Навык «${name}» восстановлен из архива.` : `не удалось восстановить: ${r.error || r.output || `exit ${r.code}`}`;
+  } catch (e: any) {
+    return `куратор: ошибка ${String(e?.message || e)}`;
+  }
+}
+export async function runCurator(): Promise<string> {
+  try {
+    const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
+    const { skillsDir, listSkills } = await import("./skills");
+    const { runCommandCapture } = await import("./runtime");
+    const { loadAgentConfig } = await import("./agentConfig");
+    const cfg = await loadAgentConfig().catch(() => ({ curatorEnabled: true }) as any);
+    if (!cfg.curatorEnabled) return "куратор: выключен в настройках";
+    const pinned = await pinnedSkills();
     const dir = await skillsDir();
     if (!dir) return "куратор: рантайм недоступен";
     const list = await listSkills();
@@ -134,6 +234,7 @@ export async function runCurator(): Promise<string> {
     const archiveBase = `${dir}/_archive`;
     let moved = 0;
     for (const s of list.slice(0, 100)) {
+      if (pinned.includes(s.name)) continue; // закреплённые — exempt от авто-архивации
       // mtime файла SKILL.md
       const r = await runCommandCapture(`stat -c %Y "${dir}/${s.name}/SKILL.md" 2>/dev/null || echo 0`);
       const mtimeSec = parseInt((r.output || "0").trim(), 10);
@@ -144,6 +245,7 @@ export async function runCurator(): Promise<string> {
         moved++;
       }
     }
+    await AsyncStorage.setItem("aso_curator_last", String(now)).catch(() => {});
     return moved > 0 ? `куратор: переместил в архив ${moved} навык(ов)` : "куратор: некого архивировать";
   } catch (e: any) {
     return `куратор: ошибка ${String(e?.message || e)}`;
