@@ -1,10 +1,10 @@
 /**
- * Провайдеры — системные модели + свои endpoint'ы с API-ключами.
+ * Провайдеры — корень-список из 3 отделов-подокон.
+ *
+ * Отделы: Системные модели / Свои провайдеры / Свои модели.
+ * Корень — только список, внутри — существующие контролы (логика 1:1).
  *
  * Логика как у ТГ-бота Aso: ПРОВАЙДЕР = контейнер со списком моделей.
- * У провайдера: имя, endpoint, API-ключ. Внутри — модели (имя, температура,
- * system prompt). Можно добавлять/редактировать/удалять модели, тестировать
- * каждую отдельно.
  */
 import React, { useCallback, useEffect, useState } from "react";
 import { FlatList, Pressable, ScrollView, Text, View } from "react-native";
@@ -17,6 +17,7 @@ import { Button } from "../design-system/components/Button";
 import { Input } from "../design-system/components/Input";
 import { Sheet } from "../design-system/components/Sheet";
 import { showToast } from "../design-system/components/Toast";
+import { DeptRow, DeptDivider, DeptDef } from "../components/Dept";
 import {
   CustomProvider,
   CustomModel,
@@ -32,8 +33,11 @@ import {
 } from "../core/providers";
 
 export function ProvidersScreen({ navigation }: { navigation: any }) {
-  const { state, theme, dispatch } = useApp();
+  const { state, theme, dispatch, t } = useApp();
   const insets = useSafeAreaInsets();
+
+  type DeptKey = "sysmodels" | "myproviders" | "mymodels";
+  const [dept, setDept] = useState<DeptKey | null>(null);
 
   const [customs, setCustoms] = useState<CustomProvider[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null); // раскрытый провайдер
@@ -71,24 +75,55 @@ export function ProvidersScreen({ navigation }: { navigation: any }) {
     [refresh],
   );
 
+  const myModelsCount = customs.reduce((a, p) => a + (p.models?.length ?? 0), 0);
+  const depts: (DeptDef & { key: DeptKey })[] = [
+    { key: "sysmodels", title: t("dept_sysmodels"), sub: `${state.models.length}`, icon: "bolt" },
+    { key: "myproviders", title: t("dept_myproviders"), sub: `${customs.length}`, icon: "link" },
+    { key: "mymodels", title: t("dept_mymodels"), sub: `${myModelsCount}`, icon: "model" },
+  ];
+
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingBottom: 8, paddingTop: insets.top + 4, borderBottomWidth: 1, borderBottomColor: theme.border }}>
-        <IconButton name="arrow-left" onPress={() => navigation.goBack()} accessibilityLabel="Назад" />
+        <IconButton name="arrow-left" onPress={() => (dept ? setDept(null) : navigation.goBack())} accessibilityLabel="Назад" />
         <Text style={{ color: theme.text, fontSize: 16, fontWeight: "700" }}>Провайдеры и модели</Text>
       </View>
 
+      {/* корень — только список отделов */}
+      {dept === null && (
+        <View style={{ padding: 16 }}>
+          <View style={{ borderRadius: 15, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
+            {depts.map((d, i) => (
+              <View key={d.key}>
+                {i > 0 && <DeptDivider theme={theme} />}
+                <DeptRow dept={d} theme={theme} onPress={() => setDept(d.key)} />
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {dept === "sysmodels" && (
+        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 100 }}>
+          <SystemProvider state={state} theme={theme} />
+        </ScrollView>
+      )}
+
+      {dept !== null && dept !== "sysmodels" && (
       <FlatList
         data={customs}
         keyExtractor={(p) => p.id}
         contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
         ListHeaderComponent={
-          <>
-            <SystemProvider state={state} theme={theme} />
-            <Text style={{ color: theme.mute, fontSize: 10, letterSpacing: 1.2, textTransform: "uppercase", marginTop: 14, marginBottom: 6 }}>
-              Мои провайдеры ({customs.length})
+          dept === "mymodels" ? (
+            <Text style={{ color: theme.mute, fontSize: 10, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 6 }}>
+              {t("dept_mymodels")} ({myModelsCount})
             </Text>
-          </>
+          ) : (
+            <Text style={{ color: theme.mute, fontSize: 10, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 6 }}>
+              {t("dept_myproviders")} ({customs.length})
+            </Text>
+          )
         }
         ListEmptyComponent={
           <Text style={{ color: theme.dim, fontSize: 12.5, textAlign: "center", marginTop: 14, lineHeight: 19 }}>
@@ -151,10 +186,13 @@ export function ProvidersScreen({ navigation }: { navigation: any }) {
           );
         }}
       />
+      )}
 
-      <View style={{ position: "absolute", bottom: insets.bottom + 16, left: 16, right: 16 }}>
-        <Button title="＋ Добавить провайдера" onPress={() => { setEditProvider(null); setProviderForm(true); }} fullWidth />
-      </View>
+      {dept === "myproviders" && (
+        <View style={{ position: "absolute", bottom: insets.bottom + 16, left: 16, right: 16 }}>
+          <Button title="＋ Добавить провайдера" onPress={() => { setEditProvider(null); setProviderForm(true); }} fullWidth />
+        </View>
+      )}
 
       {/* форма провайдера (добавить/редактировать) */}
       <ProviderForm
