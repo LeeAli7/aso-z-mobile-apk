@@ -34,7 +34,8 @@ export async function listSkills(): Promise<{ name: string; description: string 
   const names = r.output
     ?.split("\n")
     .map((s) => s.trim())
-    .filter((s) => s && !s.startsWith(".")) ?? [];
+    // один источник навыков: только топ-уровень, без _archive и скрытых
+    .filter((s) => s && !s.startsWith(".") && s !== "_archive") ?? [];
   const out: { name: string; description: string }[] = [];
   for (const name of names.slice(0, 50)) {
     const fm = await readFrontmatter(dir, name);

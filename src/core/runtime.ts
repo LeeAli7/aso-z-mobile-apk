@@ -72,9 +72,36 @@ export function ensureRuntime(): Promise<{ ok: boolean; message: string }> {
 /**
  * Выполнить команду. Вывод приходит в onOutput (чанками), завершение — в onExit.
  * sessionId < 0 — команда не запустилась (error содержит причину).
+ * Регистрирует долгую сессию в background.ts (шторка фоновых, стоп из UI).
  */
 export function runCommand(cmd: string, cwd?: string): Promise<RuntimeHandle> {
-  return rtExec(cmd, cwd);
+  return (async () => {
+    const h = await rtExec(cmd, cwd);
+    if (h && h.sessionId >= 0) {
+      try {
+        const { registerBg, unregisterBg } = await import("./background");
+        const sid = h.sessionId;
+        registerBg("runtime", `runtime:${sid}`, `Команда: ${cmd.slice(0, 60)}`, async () => {
+          try {
+            await rtKill(sid);
+          } catch {}
+          unregisterBg(`runtime:${sid}`);
+        }, sid);
+        // автоснятие при выходе сессии (подписку снимаем, чтобы не копить слушатели)
+        try {
+          const sub = onExit((e) => {
+            if (e.sessionId === sid) {
+              unregisterBg(`runtime:${sid}`);
+              try {
+                sub?.remove();
+              } catch {}
+            }
+          });
+        } catch {}
+      } catch {}
+    }
+    return h;
+  })();
 }
 
 export function killSession(sessionId: number): Promise<boolean> {

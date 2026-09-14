@@ -22,6 +22,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
+import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from "expo-speech-recognition";
 import { AppIcon, AppIconName } from "../design-system/components/AppIcon";
 
 import { useApp, genId, Msg, Session } from "../store/AppStore";
@@ -31,7 +32,7 @@ import { getToolDefs } from "../core/tools";
 import { dueJobs, markJobRun } from "../core/cron";
 import { runSelfReview } from "../core/selfImprove";
 import { DrawerLineArt } from "../components/DrawerLineArt";
-import { AgentStatusBanner } from "../components/AgentStatusBanner";
+import { BgTasksSheet, BgIndicator, BgTask } from "../components/BgTasksSheet";
 import { renderMarkdown } from "../components/Markdown";
 import { ThinkingBlock } from "../components/kimi/ThinkingBlock";
 import { ToolCard } from "../components/kimi/ToolCard";
@@ -80,6 +81,12 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   const markStreaming = (sid: string, on: boolean) => {
     streamingRef.current[sid] = on;
     setStreamingSessions((p) => ({ ...p, [sid]: on }));
+    // шторка фоновых: стрим активной сессии — тоже фоновая задача
+    setBgTasks((p) => {
+      const rest = p.filter((x) => x.id !== "stream:" + sid);
+      if (on) return [...rest, { id: "stream:" + sid, kind: "stream", title: "Ответ агента" } as BgTask];
+      return rest;
+    });
   };
   const [msgMenuTarget, setMsgMenuTarget] = useState<Msg | null>(null);
   const [renameTarget, setRenameTarget] = useState<Session | null>(null);
@@ -109,6 +116,53 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // ── окно хранилища (проекты + файлы + инструкции, как у Hermes) ──
   const [projects, setProjects] = useState<VibeProject[]>([]);
   const [storageOpen, setStorageOpen] = useState(false);
+  // шторка фоновых процессов (рантайм/cron/делегация) — открывается только при наличии запущенных
+  const [bgOpen, setBgOpen] = useState(false);
+  const [bgTasks, setBgTasks] = useState<BgTask[]>([]);
+  // ── Голосовой ввод (expo-speech-recognition: Android SpeechRecognizer / iOS / web).
+  // Транскрипт дописывается в поле, отправки без проверки нет.
+  const [recording, setRecording] = useState(false);
+  const recStarting = useRef(false);
+  useSpeechRecognitionEvent("result", (e: any) => {
+    const txt = e?.results?.[0]?.transcript;
+    if (txt) setText((prev) => (prev ? prev + " " + txt : txt));
+  });
+  useSpeechRecognitionEvent("error", () => {
+    recStarting.current = false;
+    setRecording(false);
+  });
+  useSpeechRecognitionEvent("end", () => {
+    recStarting.current = false;
+    setRecording(false);
+  });
+  const toggleVoice = useCallback(async () => {
+    try {
+      if (recording) {
+        try { ExpoSpeechRecognitionModule.stop(); } catch {}
+        setRecording(false);
+        return;
+      }
+      if (recStarting.current) return;
+      recStarting.current = true;
+      try {
+        const perm: any = await ExpoSpeechRecognitionModule.requestPermissionsAsync().catch(() => null);
+        const granted = perm == null ? true : (perm.granted ?? perm.status === "granted");
+        if (!granted) {
+          showToast("err", "Нет доступа к микрофону");
+          recStarting.current = false;
+          return;
+        }
+      } catch {}
+      const lang = state.lang === "en" ? "en-US" : "ru-RU";
+      try {
+        ExpoSpeechRecognitionModule.start({ lang, interimResults: true, continuous: false } as any);
+        setRecording(true);
+      } catch (e: any) {
+        showToast("err", String(e?.message || e));
+        recStarting.current = false;
+      }
+    } catch {}
+  }, [recording, state.lang]);
   const listRef = useRef<FlatList<any>>(null);
 
   const active = state.sessions.find((s) => s.id === state.activeSessionId) ?? null;
@@ -907,27 +961,42 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     const msgs = active?.messages ?? [];
     let chain: Msg[] = [];
     let chainOpen = false;
+    let chainSeq = 0;
     const flush = () => {
       if (chain.length) {
-        const last = chain[chain.length - 1];
-        const body = chain.slice(0, -1);
-        // финальный ответ (content, не команда) — вне капсулы.
-        // thinking здесь может быть приклеенной думалкой plain-пути — она рендерится
-        // над текстом в обычном Bubble, а не в стеклянном блоке.
-        if (last.content && !last.tool) {
-          if (body.length) groups.push({ id: "chain-" + chain[0].id, kind: "chain", msgs: body });
-          groups.push({ id: last.id, kind: "single", msg: last });
-        } else {
-          groups.push({ id: "chain-" + chain[0].id, kind: "chain", msgs: chain });
+        // раздумья отдельно (стекло), финал — обычным текстом после, всегда.
+        // сообщение с content+thinking делится: думалка остаётся в стекле,
+        // текст уходит отдельным Bubble (там думалка — сворачиваемый блок сверху).
+        let buf: Msg[] = [];
+        const pushBuf = () => {
+          if (buf.length) {
+            chainSeq += 1;
+            groups.push({ id: "chain-" + buf[0].id + "-" + chainSeq, kind: "chain", msgs: buf });
+            buf = [];
+          }
+        };
+        for (const m of chain) {
+          if (m.content && !m.tool) {
+            if (m.thinking) buf.push({ ...m, content: "" });
+            pushBuf();
+            groups.push({ id: m.id, kind: "single", msg: m });
+          } else {
+            buf.push(m);
+          }
         }
+        pushBuf();
         chain = [];
       }
       chainOpen = false;
     };
     for (const m of msgs) {
       if (m.role === "assistant" && !m.error) {
-        // думалка/команда/текст открывает цепочку, дальше тянем ВСЁ подряд
-        if (chainOpen || m.thinking || m.tool || m.content) {
+        // чистый текст — всегда отдельным сообщением, никогда внутрь раздумий.
+        // думалка/команда открывает цепочку; текст её закрывает и идёт после.
+        if (m.content && !m.thinking && !m.tool) {
+          flush();
+          groups.push({ id: m.id, kind: "single", msg: m });
+        } else if (chainOpen || m.thinking || m.tool) {
           chain.push(m);
           chainOpen = true;
         } else {
@@ -960,23 +1029,43 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           <View pointerEvents="box-none" style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
             <Text style={{ color: theme.text, fontSize: 15, fontWeight: "600" }}>{t("chat_title")}</Text>
           </View>
+          <BgIndicator theme={theme} count={bgTasks.length} onPress={() => setBgOpen(true)} />
           <IconButton name="plus" size={20} onPress={handleNewSession} accessibilityLabel={t("newSession")} />
         </View>
       </View>
 
-      {/* виджет «агент активен»: статус + таймер + Стоп, только во время стриминга */}
-      <AgentStatusBanner
-        visible={isStreaming(active?.id)}
+      {/* шторка фоновых процессов — только когда есть запущенные (рантайм/cron/делегация).
+          Состояние стриминга видно по кнопке в капсуле внизу, там же стоп. */}
+      <BgTasksSheet
+        visible={bgOpen}
+        onClose={() => setBgOpen(false)}
         theme={theme}
-        status={t("agent_active")}
-        stopLabel={t("agent_stop")}
-        onStop={() => {
-          const s = active?.id;
-          if (!s) return;
-          getRun(s).stop = true;
-          getRun(s).ctrl?.abort();
-          markStreaming(s, false);
+        t={t}
+        tasks={bgTasks}
+        onStop={(task) => {
+          // стоп фоновой: рантайм-сессия / стрим активной сессии
+          if (task.kind === "runtime") {
+            const sid = Number(task.id.replace("rt:", ""));
+            if (!Number.isNaN(sid)) {
+              try {
+                const { killSession } = require("../core/runtime");
+                void killSession(sid).catch(() => {});
+              } catch {}
+            }
+            setBgTasks((p) => p.filter((x) => x.id !== task.id));
+          } else if (task.kind === "stream") {
+            const s = active?.id;
+            if (s) {
+              getRun(s).stop = true;
+              getRun(s).ctrl?.abort();
+              markStreaming(s, false);
+            }
+            setBgTasks((p) => p.filter((x) => x.id !== task.id));
+          } else {
+            setBgOpen(false);
+          }
         }}
+        onOpen={() => setBgOpen(false)}
       />
 
       {/* messages — контент скроллится ПОД плавающей шапкой */}
@@ -1021,12 +1110,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                               bare
                             />
                           ) : null}
-                          {/* итог агента — В ТОМ ЖЕ блоке (раздумья/команды + ответ не разваливаются) */}
-                          {m.content ? (
-                            <View style={{ paddingTop: 6 }}>
-                              {renderMarkdown(m.content, theme)}
-                            </View>
-                          ) : null}
+                          {/* финал в стекле НЕ рендерим: flush() выносит любой content
+                              отдельным Bubble после раздумий. Здесь только думалки и команды. */}
                           {/* действия для итога: копировать / поделиться */}
                           {last && m.content && !m.streaming && (
                             <View style={{ flexDirection: "row", justifyContent: "flex-start", paddingTop: 4, gap: 2 }}>
@@ -1113,7 +1198,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               style={({ pressed }) => ({
                 width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center",
                 backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.09)" : "rgba(255,255,255,.6)",
-                borderWidth: 1, borderColor: theme.border, opacity: pressed ? 0.7 : 1,
+                opacity: pressed ? 0.7 : 1,
               })}
               accessibilityLabel="Прикрепить"
             >
@@ -1162,10 +1247,12 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               </Pressable>
             ) : (
               <Pressable
-                style={{ width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.09)" : "rgba(255,255,255,.6)", borderWidth: 1, borderColor: theme.border }}
+                onPress={toggleVoice}
+                hitSlop={6}
+                style={{ width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: recording ? theme.danger + "22" : theme.name === "dark" ? "rgba(255,255,255,.09)" : "rgba(255,255,255,.6)" }}
                 accessibilityLabel="Голосовой ввод"
               >
-                <AppIcon name="mic" size={20} color={theme.dim} />
+                <AppIcon name={recording ? "stop" : "mic"} size={20} color={recording ? theme.danger : theme.dim} />
               </Pressable>
             )}
           </Glass>

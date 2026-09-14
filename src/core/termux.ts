@@ -86,6 +86,18 @@ async function pickDir(): Promise<string> {
 export async function exportProjectToShared(
   projectId: string,
 ): Promise<{ ok: boolean; message: string; path?: string }> {
+  return exportPathsToShared(projectId, null);
+}
+
+/**
+ * Экспорт подпапки или одного файла проекта (проводник Хранилища).
+ * relDir: "docs" (папка) или "docs/readme.md" (файл), null = весь проект.
+ * Файлы кладутся в Download/AsoVibe/<projectId>/<relDir>/ с сохранением структуры.
+ */
+export async function exportPathsToShared(
+  projectId: string,
+  relDir: string | null,
+): Promise<{ ok: boolean; message: string; path?: string }> {
   if (!nativeIntentsSupported()) {
     return { ok: false, message: "Экспорт доступен только на Android" };
   }
@@ -94,6 +106,9 @@ export async function exportProjectToShared(
     if (!dirUri) {
       dirUri = await pickDir();
     }
+    // Префикс экспорта из проводника: "docs" (папка) или "docs/a.md" (файл), "" = весь проект.
+    // Санитизация: сначала точки (traversal), потом слэши по краям — "../.." схлопывается в "".
+    const prefix = (relDir ?? "").replace(/\.\./g, "").replace(/^\/+|\/+$/g, "");
 
     const copy = async (rootUri: string) => {
       // создаём AsoVibe/<projectId>
@@ -136,8 +151,15 @@ export async function exportProjectToShared(
         } catch {}
       };
 
-      // копируем все файлы проекта с СОХРАНЕНИЕМ структуры папок
-      const files = await listFiles(projectId);
+      // копируем файлы проекта с СОХРАНЕНИЕМ структуры папок.
+      // prefix (экспорт из проводника): только "docs/" или один файл "docs/a.md"
+      const allFiles = await listFiles(projectId);
+      const files = prefix
+        ? allFiles.filter((f) => f.name === prefix || f.name.startsWith(prefix + "/"))
+        : allFiles;
+      if (prefix && files.length === 0) {
+        return { copied: 0, skipped: 0, empty: true as boolean };
+      }
       let copied = 0;
       let skipped = 0;
       for (const f of files) {
@@ -168,10 +190,10 @@ export async function exportProjectToShared(
           skipped++;
         }
       }
-      return { copied, skipped };
+      return { copied, skipped, empty: false };
     };
 
-    let res = { copied: 0, skipped: 0 };
+    let res = { copied: 0, skipped: 0, empty: false };
     try {
       res = await copy(dirUri);
     } catch (e: any) {
@@ -186,10 +208,12 @@ export async function exportProjectToShared(
     }
 
     return {
-      ok: true,
-      message: res.copied > 0
-        ? `Экспортировано файлов: ${res.copied}${res.skipped ? ` (пропущено ${res.skipped})` : ""} → Download/${SHARE_DIR_NAME}/${projectId}`
-        : "Папка проекта создана (файлов пока нет)",
+      ok: !res.empty,
+      message: res.empty
+        ? `В «${prefix}» файлов нет`
+        : res.copied > 0
+          ? `Экспортировано файлов: ${res.copied}${res.skipped ? ` (пропущено ${res.skipped})` : ""} → Download/${SHARE_DIR_NAME}/${projectId}`
+          : "Папка проекта создана (файлов пока нет)",
       path: `/storage/emulated/0/Download/${SHARE_DIR_NAME}/${projectId}`,
     };
   } catch (e: any) {

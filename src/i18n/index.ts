@@ -115,6 +115,9 @@ const ru = {
   dept_todos: "Задачи",
   dept_cron: "Автозадачи",
   subagents_desc: "Субагенты выполняют подзадачи через делегацию. Очередь и статусы — на Kanban-доске.",
+  bg_title: "Фоновые процессы",
+  bg_empty: "Фоновых задач нет.",
+  export_title: "Экспорт",
   // показ reasoning спрятан — не нужно
 };
 
@@ -232,6 +235,9 @@ const en = {
   dept_todos: "Tasks",
   dept_cron: "Cron jobs",
   subagents_desc: "Subagents run subtasks via delegation. Queue and statuses live on the Kanban board.",
+  bg_title: "Background tasks",
+  bg_empty: "No background tasks.",
+  export_title: "Export",
 };
 
 export type Translation = typeof ru;

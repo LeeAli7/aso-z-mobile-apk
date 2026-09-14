@@ -37,6 +37,34 @@ export async function runDelegation(
   const valid = (tasks || []).filter((t) => t?.goal?.trim()).slice(0, MAX_PARALLEL_TASKS);
   if (valid.length === 0) return [];
 
+  // Регистрируем пакет в background.ts (шторка фоновых, стоп = abort).
+  // Внутренний AbortController: внешний signal может отсутствовать.
+  const { AbortController: AC } = globalThis as any;
+  const inner = typeof AC === "function" ? new AC() : null;
+  const combined: AbortSignal | undefined = inner
+    ? signal
+      ? ((): AbortSignal => {
+          if (signal.aborted) inner.abort();
+          else signal.addEventListener("abort", () => inner.abort(), { once: true });
+          return inner.signal;
+        })()
+      : inner.signal
+    : signal;
+  let unregister: (() => void) | null = null;
+  try {
+    const { registerBg } = await import("./background");
+    unregister = registerBg(
+      "delegate",
+      `delegate:${Date.now().toString(36)}`,
+      `Субагенты: ${valid.length} (${valid[0]?.goal?.slice(0, 40) ?? ""}…)`,
+      () => {
+        try {
+          inner?.abort();
+        } catch {}
+      },
+    );
+  } catch {}
+
   const results: (DelegateResult | null)[] = valid.map(() => null);
   let cursor = 0;
   const workers: Promise<void>[] = [];
@@ -46,13 +74,17 @@ export async function runDelegation(
       const idx = cursor;
       cursor += 1;
       const task = valid[idx];
-      results[idx] = await runSubAgent(model, task, signal);
+      results[idx] = await runSubAgent(model, task, combined);
     }
   };
 
   const n = Math.min(MAX_CONCURRENT, valid.length);
   for (let i = 0; i < n; i++) workers.push(runOne());
   await Promise.all(workers);
+
+  try {
+    unregister?.();
+  } catch {}
 
   return results.filter((r): r is DelegateResult => r !== null);
 }
