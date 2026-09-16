@@ -262,7 +262,7 @@ export function DrawerLineArt({
                   </Pressable>
                 </View>
               )}
-              {row(<DeptIcon name="group" theme={theme} />, "Агенты", undefined, () => onNavigate("AgentSettings"))}
+              {row(<DeptIcon name="group" theme={theme} />, "Агенты", undefined, () => onNavigate("Agents"))}
               {row(<DeptIcon name="folder" theme={theme} />, t("vibe_title"), undefined, () => onNavigate("Vibe"))}
               {row(<DeptIcon name="link" theme={theme} />, t("connectors_title"), undefined, () => onNavigate("Connectors"))}
               {row(<DeptIcon name="check" theme={theme} />, t("kanban_title"), undefined, () => onNavigate("Kanban"))}

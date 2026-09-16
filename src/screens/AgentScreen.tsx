@@ -95,6 +95,20 @@ export function AgentScreen({ navigation }: { navigation: any }) {
                 <AppIcon name="chevron-right" size={18} color={theme.mute} />
               </Pressable>
             ))}
+            <Pressable
+              onPress={() => navigation.navigate("AgentSettings")}
+              style={({ pressed }) => ({
+                flexDirection: "row", alignItems: "center", gap: 12,
+                padding: 13, borderRadius: 14, marginTop: 4,
+                backgroundColor: "transparent", borderWidth: 1, borderColor: theme.border,
+                opacity: pressed ? 0.8 : 1,
+              })}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: theme.accentHi, fontSize: 13, fontWeight: "600" }}>Настройки агента: память, навыки</Text>
+              </View>
+              <AppIcon name="chevron-right" size={18} color={theme.mute} />
+            </Pressable>
           </>
         )}
       </ScrollView>
