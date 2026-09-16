@@ -150,9 +150,9 @@ export async function streamChat(
   }
 
   // Retry на транзиентные ошибки (exponential backoff 1.5с → 3с → 6с).
-  // 400/408/429/500/502/503/504 — сервер перегружен/временный сбой: повторяем.
+  // Фаза 1: 400 НЕ ретраим — битый запрос/отвергнутые tools не чинятся повтором.
   const isRetryable = (s: number) =>
-    s === 400 || s === 408 || s === 429 || s === 500 || s === 502 || s === 503 || s === 504;
+    s === 408 || s === 429 || s === 500 || s === 502 || s === 503 || s === 504;
   const maxRetries = 3;
   for (let attempt = 0; ; attempt++) {
     let resp: Response;
@@ -602,10 +602,11 @@ async function agentRequest(
   if (model.apiKey) headers.Authorization = `Bearer ${model.apiKey}`;
 
   // Retry на транзиентные ошибки (400/408/429/500/502/503/504) — exponential backoff.
+  // Фаза 1: 400 НЕ ретраим — битый запрос не чинится повтором (tools-фолбэк выше уже отработал).
   // 400 с tools — провайдер не поддерживает function calling: НЕ ретраим, а включаем
   // фолбэк без tools (иначе зацикливаемся).
   const isRetryable = (s: number) =>
-    s === 400 || s === 408 || s === 429 || s === 500 || s === 502 || s === 503 || s === 504;
+    s === 408 || s === 429 || s === 500 || s === 502 || s === 503 || s === 504;
   const maxRetries = 3;
   for (let attempt = 0; ; attempt++) {
   let resp: Response;

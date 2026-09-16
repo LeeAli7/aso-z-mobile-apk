@@ -18,6 +18,7 @@ import { VibeScreen } from "./src/screens/VibeScreen";
 import { VibeProjectScreen } from "./src/screens/VibeProjectScreen";
 import { SettingsScreen } from "./src/screens/SettingsScreen";
 import { ProvidersScreen } from "./src/screens/ProvidersScreen";
+import { AgentScreen } from "./src/screens/AgentScreen";
 import { AgentSettingsScreen } from "./src/screens/AgentSettingsScreen";
 import { ConnectorsScreen } from "./src/screens/ConnectorsScreen";
 import { KanbanScreen } from "./src/screens/KanbanScreen";
@@ -80,6 +81,7 @@ function RootNav() {
         <Stack.Screen name="Vibe" component={VibeScreen} />
         <Stack.Screen name="VibeProject" component={VibeProjectScreen} />
         <Stack.Screen name="Settings" component={SettingsScreen} />
+        <Stack.Screen name="Agents" component={AgentScreen} />
         <Stack.Screen name="AgentSettings" component={AgentSettingsScreen} />
         <Stack.Screen name="Providers" component={ProvidersScreen} />
         <Stack.Screen name="Connectors" component={ConnectorsScreen} />

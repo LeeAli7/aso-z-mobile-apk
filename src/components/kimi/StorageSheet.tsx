@@ -508,9 +508,7 @@ export function StorageSheet({
               style={{ marginBottom: 8, minHeight: 52 }}
             />
             <Button title="Создать автозадачу" variant="primary" onPress={onAddJob} disabled={!jobDraft.prompt.trim()} />
-            <Pressable onPress={async () => { const msg = await runCurator(); showToast("info", msg.slice(0, 120)); void refreshAgent(); }} style={{ marginTop: 8, alignSelf: "flex-start" }}>
-              <Text style={{ color: theme.accentHi, fontSize: 12 }}>Запустить куратора навыков</Text>
-            </Pressable>
+            <Text style={{ color: theme.mute, fontSize: 11, marginTop: 8 }}>Куратор навыков — в разделе «Скиллы».</Text>
           </View>
         </View>
       )}

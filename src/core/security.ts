@@ -17,6 +17,9 @@ export interface SecurityConfig {
 
 const KEY = "aso_security_config";
 
+/** Legacy-ключ SettingsScreen (Фаза 1: единый стор читает его, пока UI на нём пишет). */
+const LEGACY_REDACT_KEY = "aso_redact_secrets";
+
 export const DEFAULT_SECURITY_CONFIG: SecurityConfig = {
   redactSecrets: true,
   confirmDangerous: true,
@@ -26,15 +29,23 @@ export const DEFAULT_SECURITY_CONFIG: SecurityConfig = {
 export async function loadSecurity(): Promise<SecurityConfig> {
   try {
     const raw = await AsyncStorage.getItem(KEY);
-    if (!raw) return { ...DEFAULT_SECURITY_CONFIG };
-    const parsed = JSON.parse(raw);
-    return {
-      ...DEFAULT_SECURITY_CONFIG,
-      ...parsed,
-      websiteBlocklist: Array.isArray((parsed as any)?.websiteBlocklist)
-        ? (parsed as any).websiteBlocklist.filter((x: unknown) => typeof x === "string")
-        : [],
-    };
+    const base = { ...DEFAULT_SECURITY_CONFIG };
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        Object.assign(base, parsed);
+        base.websiteBlocklist = Array.isArray((parsed as any)?.websiteBlocklist)
+          ? (parsed as any).websiteBlocklist.filter((x: unknown) => typeof x === "string")
+          : [];
+      } catch {}
+    } else {
+      // Фаза 1: JSON-конфига нет — подхватываем legacy-ключ UI.
+      try {
+        const legacy = await AsyncStorage.getItem(LEGACY_REDACT_KEY);
+        if (legacy !== null) base.redactSecrets = legacy !== "0";
+      } catch {}
+    }
+    return base;
   } catch {
     return { ...DEFAULT_SECURITY_CONFIG };
   }
@@ -45,6 +56,10 @@ export async function saveSecurity(patch: Partial<SecurityConfig>): Promise<Secu
   const next: SecurityConfig = { ...cur, ...patch };
   try {
     await AsyncStorage.setItem(KEY, JSON.stringify(next));
+  } catch {}
+  // Фаза 1: зеркалим redact в legacy-ключ — UI видит то же.
+  try {
+    await AsyncStorage.setItem(LEGACY_REDACT_KEY, next.redactSecrets ? "1" : "0");
   } catch {}
   return next;
 }

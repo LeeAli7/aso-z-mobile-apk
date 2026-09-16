@@ -105,8 +105,23 @@ export async function stopBg(kind: BgKind, id: string): Promise<boolean> {
       return false;
     }
   }
-  const e = registry.get(id);
-  if (!e) return false;
+  // Фаза 1: UI шлёт id с префиксом "rt:" (ChatScreen onStop), движок — "runtime:".
+  // Принимаем оба, числовой sessionId достаём из любого.
+  const e = registry.get(id)
+    ?? registry.get(id.replace(/^rt:/, "runtime:"))
+    ?? registry.get(id.replace(/^runtime:/, "rt:"));
+  const realId = [...registry.keys()].find((k) => k === id || k === id.replace(/^rt:/, "runtime:") || k === id.replace(/^runtime:/, "rt:"));
+  if (!e) {
+    // Нет в реестре, но id числовой — пробуем kill напрямую (UI-путь ChatScreen).
+    const num = Number(id.replace(/^(rt:|runtime:)/, ""));
+    if (kind === "runtime" && !Number.isNaN(num)) {
+      try {
+        await rtKill(num).catch(() => false);
+        return true;
+      } catch {}
+    }
+    return false;
+  }
   try {
     if (kind === "runtime" && typeof e.sessionNum === "number") {
       await rtKill(e.sessionNum).catch(() => false);
@@ -114,7 +129,8 @@ export async function stopBg(kind: BgKind, id: string): Promise<boolean> {
       await e.stop();
     }
   } catch {}
-  registry.delete(id);
+  if (realId) registry.delete(realId);
+  else registry.delete(id);
   return true;
 }
 
