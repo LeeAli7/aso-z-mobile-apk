@@ -31,10 +31,54 @@ export async function listTasks(): Promise<KanbanTask[]> {
     const raw = await AsyncStorage.getItem(KEY);
     if (!raw) return [];
     const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? (arr as KanbanTask[]) : [];
+    if (!Array.isArray(arr)) return [];
+    // Фаза 1: нормализация UI-формата {id,title,assignee,col} → движковый KanbanTask.
+    // Один ключ aso_kanban_tasks, два писателя — читаем оба, сохраняем движковый.
+    return (arr as Array<Record<string, unknown>>).map((x) => normalizeTask(x)).filter((t): t is KanbanTask => !!t);
   } catch {
     return [];
   }
+}
+
+/** UI-формат KanbanScreen: { id, title, assignee: string, col: todo|doing|done }. */
+export interface UiKanbanTask {
+  id: string;
+  title: string;
+  assignee: string;
+  col: "todo" | "doing" | "done";
+}
+
+function normalizeTask(x: Record<string, unknown>): KanbanTask | null {
+  if (!x || typeof x !== "object") return null;
+  const id = String((x as { id?: unknown }).id ?? "");
+  const title = String((x as { title?: unknown }).title ?? "").trim() || "Без названия";
+  if (!id) return null;
+  // Движковый формат уже: status + comments
+  if (typeof (x as { status?: unknown }).status === "string" && Array.isArray((x as { comments?: unknown }).comments)) {
+    const t = x as unknown as KanbanTask;
+    return { ...t, id, title };
+  }
+  // UI-формат: col → status, assignee строка → assignee|null
+  const col = (x as { col?: unknown }).col;
+  const status: KanbanStatus = col === "doing" || col === "done" ? (col as KanbanStatus) : "todo";
+  const assigneeRaw = (x as { assignee?: unknown }).assignee;
+  const now = Date.now();
+  return {
+    id,
+    title,
+    status,
+    assignee: typeof assigneeRaw === "string" && assigneeRaw.trim() ? assigneeRaw.trim() : null,
+    comments: [],
+    createdAt: typeof (x as { createdAt?: unknown }).createdAt === "number" ? (x as { createdAt: number }).createdAt : now,
+    updatedAt: now,
+  };
+}
+
+/** Движковые задачи → UI-формат KanbanScreen (для обратной совместимости чтения). */
+export function toUiTasks(tasks: KanbanTask[]): UiKanbanTask[] {
+  return tasks
+    .filter((t) => t.status === "todo" || t.status === "doing" || t.status === "done")
+    .map((t) => ({ id: t.id, title: t.title, assignee: t.assignee ?? "", col: t.status as "todo" | "doing" | "done" }));
 }
 
 async function save(tasks: KanbanTask[]): Promise<void> {

@@ -46,10 +46,50 @@ export async function listMcpServers(): Promise<McpServer[]> {
     const raw = await AsyncStorage.getItem(MCP_KEY);
     if (!raw) return [];
     const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? (arr as McpServer[]) : [];
+    if (!Array.isArray(arr)) return [];
+    // Фаза 1: нормализация UI-формата {id,name,target} → движковый McpServer.
+    return (arr as Array<Record<string, unknown>>).map((x) => normalizeMcp(x)).filter((s): s is McpServer => !!s);
   } catch {
     return [];
   }
+}
+
+/** UI-формат ConnectorsScreen: { id, name, target } где target = "cmd ..." или URL. */
+export interface UiMcpServer {
+  id: string;
+  name: string;
+  target: string;
+}
+
+function normalizeMcp(x: Record<string, unknown>): McpServer | null {
+  if (!x || typeof x !== "object") return null;
+  const id = String((x as { id?: unknown }).id ?? "");
+  const name = String((x as { name?: unknown }).name ?? "").trim() || "MCP";
+  if (!id) return null;
+  // Движковый формат уже: transport поле есть
+  const t = (x as { transport?: unknown }).transport;
+  if (t === "stdio" || t === "http") return { ...(x as unknown as McpServer), id, name };
+  // UI-формат: target строка — URL → http, иначе stdio-команда
+  const target = String((x as { target?: unknown }).target ?? "").trim();
+  const isUrl = /^https?:\/\//i.test(target);
+  return {
+    id,
+    name,
+    transport: isUrl ? "http" : "stdio",
+    command: isUrl ? undefined : target || undefined,
+    url: isUrl ? target : undefined,
+    enabled: true,
+    createdAt: typeof (x as { createdAt?: unknown }).createdAt === "number" ? (x as { createdAt: number }).createdAt : Date.now(),
+  };
+}
+
+/** Движковые серверы → UI-формат (для обратной совместимости чтения). */
+export function toUiMcp(list: McpServer[]): UiMcpServer[] {
+  return list.map((s) => ({
+    id: s.id,
+    name: s.name,
+    target: s.transport === "http" ? (s.url ?? "") : [s.command ?? "", ...(s.args ?? [])].join(" ").trim(),
+  }));
 }
 
 async function saveMcp(list: McpServer[]): Promise<void> {
@@ -131,10 +171,43 @@ export async function listWebhooks(): Promise<WebhookSub[]> {
     const raw = await AsyncStorage.getItem(WEBHOOK_KEY);
     if (!raw) return [];
     const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? (arr as WebhookSub[]) : [];
+    if (!Array.isArray(arr)) return [];
+    // Фаза 1: нормализация UI-формата {id,name,events} → движковый WebhookSub.
+    return (arr as Array<Record<string, unknown>>).map((x) => normalizeWebhook(x)).filter((w): w is WebhookSub => !!w);
   } catch {
     return [];
   }
+}
+
+/** UI-формат ConnectorsScreen: { id, name, events }. */
+export interface UiWebhook {
+  id: string;
+  name: string;
+  events: string;
+}
+
+function normalizeWebhook(x: Record<string, unknown>): WebhookSub | null {
+  if (!x || typeof x !== "object") return null;
+  const id = String((x as { id?: unknown }).id ?? "");
+  const name = String((x as { name?: unknown }).name ?? "").trim() || "Webhook";
+  if (!id) return null;
+  // Движковый формат уже: prompt/deliver поля есть
+  if ("prompt" in x || "deliver" in x) return { ...(x as unknown as WebhookSub), id, name };
+  const events = String((x as { events?: unknown }).events ?? "").trim();
+  return {
+    id,
+    name,
+    events,
+    prompt: "",
+    deliver: "chat",
+    enabled: true,
+    createdAt: typeof (x as { createdAt?: unknown }).createdAt === "number" ? (x as { createdAt: number }).createdAt : Date.now(),
+  };
+}
+
+/** Движковые вебхуки → UI-формат (для обратной совместимости чтения). */
+export function toUiWebhooks(list: WebhookSub[]): UiWebhook[] {
+  return list.map((w) => ({ id: w.id, name: w.name, events: w.events }));
 }
 
 async function saveWebhooks(list: WebhookSub[]): Promise<void> {

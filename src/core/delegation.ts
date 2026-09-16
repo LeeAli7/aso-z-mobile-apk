@@ -37,6 +37,14 @@ export async function runDelegation(
   const valid = (tasks || []).filter((t) => t?.goal?.trim()).slice(0, MAX_PARALLEL_TASKS);
   if (valid.length === 0) return [];
 
+  // Фаза 1: лимит параллелизма из единого стора (agentConfig.maxConcurrentChildren).
+  let maxConc = MAX_CONCURRENT;
+  try {
+    const { loadAgentConfig } = await import("./agentConfig");
+    const cfg = await loadAgentConfig();
+    if (cfg.maxConcurrentChildren >= 1) maxConc = Math.min(6, cfg.maxConcurrentChildren);
+  } catch {}
+
   // Регистрируем пакет в background.ts (шторка фоновых, стоп = abort).
   // Внутренний AbortController: внешний signal может отсутствовать.
   const { AbortController: AC } = globalThis as any;
@@ -78,7 +86,7 @@ export async function runDelegation(
     }
   };
 
-  const n = Math.min(MAX_CONCURRENT, valid.length);
+  const n = Math.min(maxConc, valid.length);
   for (let i = 0; i < n; i++) workers.push(runOne());
   await Promise.all(workers);
 
