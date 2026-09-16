@@ -43,7 +43,10 @@ export function getTool(name: string): ToolSpec | undefined {
   return registry.get(name);
 }
 
-/** OpenAI-формат тулов для payload. */
+/** OpenAI-формат тулов для payload.
+ * Фаза 1: фильтр по включённым тулсетам — выключенные сеты модели не отдаём.
+ * tools.ts не импортирует toolsets.ts напрямую (цикл) — фильтр через dynamic import,
+ * при ошибке отдаём всё (fail-open, как раньше). Self-review/субагенты используют getToolDefsFor. */
 export function getToolDefs(): Array<{ type: "function"; function: unknown }> {
   return [...registry.values()].map((t) => ({
     type: "function" as const,
@@ -53,6 +56,18 @@ export function getToolDefs(): Array<{ type: "function"; function: unknown }> {
       parameters: t.parameters,
     },
   }));
+}
+
+/** Асинхронная версия с тулсет-гейтом: только тулы включённых сетов. */
+export async function getToolDefsGated(): Promise<Array<{ type: "function"; function: unknown }>> {
+  const all = getToolDefs();
+  try {
+    const { enabledTools } = await import("./toolsets");
+    const allowed = new Set(await enabledTools());
+    return all.filter((t) => allowed.has((t.function as { name: string }).name));
+  } catch {
+    return all;
+  }
 }
 
 /** Только выбранные тулы (whitelist — для self-improve/субагентов). */
@@ -74,7 +89,10 @@ export function toolNames(): string[] {
   return [...registry.keys()];
 }
 
-/** Исполнить тул (Hermes: ошибки тоже возвращаются модели, агент продолжает). */
+/** Исполнить тул (Hermes: ошибки тоже возвращаются модели, агент продолжает).
+ * Фаза 1: тулсет-гейт — тул выключенного сета не исполняется (модель могла
+ * получить все дефы: ChatScreen зовёт синхронный getToolDefs()).
+ * Фаза 2: approvals опасных команд + redact секретов в результате. */
 export async function executeTool(
   name: string,
   args: Record<string, unknown>,
@@ -84,12 +102,68 @@ export async function executeTool(
   if (!spec) {
     return { ok: false, result: `Tool '${name}' does not exist. Available tools: ${toolNames().join(", ")}` };
   }
+  // ── Тулсет-гейт ──
+  try {
+    const { enabledTools } = await import("./toolsets");
+    const allowed = await enabledTools();
+    if (!allowed.includes(name)) {
+      return { ok: false, result: `Тулсет с тулом '${name}' выключен в настройках. Скажи пользователю включить его.` };
+    }
+  } catch {}
+  // ── Approvals опасных команд (Hermes: approvals.mode) ──
+  if (name === "run_command") {
+    try {
+      const { loadAgentConfig } = await import("./agentConfig");
+      const cfg = await loadAgentConfig();
+      const cmd = String((args as Record<string, unknown>)?.command ?? "");
+      if (cfg.approvalsMode !== "off" && isDangerousCommand(cmd)) {
+        const { loadSecurity } = await import("./security");
+        const sec = await loadSecurity().catch(() => ({ confirmDangerous: true }) as { confirmDangerous: boolean });
+        if (sec.confirmDangerous) {
+          return { ok: false, result: `Опасная команда «${cmd.slice(0, 120)}» требует подтверждения пользователя (approvals: ${cfg.approvalsMode}). Спроси пользователя явно, выполнять ли её, и дождись согласия.` };
+        }
+      }
+    } catch {}
+  }
   try {
     const result = await spec.handler(args ?? {}, ctx);
+    // ── Redact секретов (Hermes: security.redact_secrets, on by default) ──
+    try {
+      const { loadSecurity } = await import("./security");
+      const sec = await loadSecurity().catch(() => ({ redactSecrets: true }) as { redactSecrets: boolean });
+      if (sec.redactSecrets) return { ok: true, result: redactSecrets(result) };
+    } catch {}
     return { ok: true, result };
   } catch (e: any) {
     return { ok: false, result: `Error in tool '${name}': ${String(e?.message || e)}` };
   }
+}
+
+/** Опасная команда (Hermes: destructive-flag): rm -rf, форматирование, сброс git. */
+function isDangerousCommand(cmd: string): boolean {
+  const c = cmd.trim().toLowerCase();
+  if (!c) return false;
+  return (
+    /rm\s+(-[^ ]*r[^ ]*\s+(-[^ ]*\s+)*(\/|\*|~|\$home|\$prefix)|-rf?\s+\/)/.test(c) ||
+    c.includes("mkfs") ||
+    c.includes(":(){") ||
+    /git\s+reset\s+--hard/.test(c) ||
+    /git\s+clean\s+-f/.test(c) ||
+    /del\s+\/[fs]/.test(c) ||
+    /format\s+[a-z]:/.test(c)
+  );
+}
+
+/** Замазать секреты в выводе (ключи, токены, Bearer). */
+function redactSecrets(text: string): string {
+  if (!text) return text;
+  return text
+    .replace(/(sk-[A-Za-z0-9_-]{8,})/g, "sk-***")
+    .replace(/(ghp_[A-Za-z0-9_]{8,})/g, "ghp_***")
+    .replace(/(gho_[A-Za-z0-9_]{8,})/g, "gho_***")
+    .replace(/(xox[bap]-[A-Za-z0-9-]+)/g, "xox-***")
+    .replace(/(Bearer\s+)[A-Za-z0-9._~+/-]{12,}=*/gi, "$1***")
+    .replace(/((?:api[_-]?key|token|secret|password)\s*[:=]\s*['"]?)([^'"\s,}]{8,})/gi, "$1***");
 }
 
 function firstArg(args: Record<string, unknown>, keys: string[]): string {
