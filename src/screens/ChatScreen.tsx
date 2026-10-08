@@ -1070,7 +1070,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
 
       {/* messages — контент скроллится ПОД плавающей шапкой */}
       {(!active || active.messages.length === 0) ? (
-        <EmptyChat theme={theme} topInset={insets.top} />
+        <EmptyChat theme={theme} topInset={insets.top} noModels={allModels.length === 0} onOpenProviders={() => navigation.navigate("Providers")} />
       ) : (
         <FlatList<Group>
           ref={listRef}
@@ -1540,15 +1540,22 @@ function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions,
 }
 
 /* ── Пустой экран: только приветственный текст (сверху, не по центру) ── */
-function EmptyChat({ theme, topInset }: { theme: any; topInset?: number }) {
+function EmptyChat({ theme, topInset, noModels, onOpenProviders }: { theme: any; topInset?: number; noModels?: boolean; onOpenProviders?: () => void }) {
   return (
     <View style={{ flex: 1, paddingTop: (topInset ?? 0) + 66, paddingHorizontal: 22 }}>
       <Text style={{ color: theme.text, fontSize: 24, fontWeight: "700", letterSpacing: -0.5, fontFamily: fonts.sansDemi, lineHeight: 31 }}>
         Привет!{"\n"}Чем займёмся сегодня?
       </Text>
       <Text style={{ color: theme.dim, fontSize: 13.5, marginTop: 12, lineHeight: 21 }}>
-        Спроси что угодно — помогу с кодом, проектами и задачами.
+        {noModels
+          ? "Нет доступных моделей — добавь провайдера или проверь системные модели."
+          : "Спроси что угодно — помогу с кодом, проектами и задачами."}
       </Text>
+      {noModels && onOpenProviders && (
+        <Pressable onPress={onOpenProviders} style={{ marginTop: 14, paddingVertical: 12, paddingHorizontal: 16, borderRadius: 14, backgroundColor: theme.accent, alignItems: "center" }}>
+          <Text style={{ color: "#fff", fontSize: 14, fontWeight: "600" }}>Открыть провайдеры</Text>
+        </Pressable>
+      )}
     </View>
   );
 }

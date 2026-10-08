@@ -264,6 +264,7 @@ export function DrawerLineArt({
               )}
               {row(<DeptIcon name="group" theme={theme} />, "Агенты", undefined, () => onNavigate("Agents"))}
               {row(<DeptIcon name="folder" theme={theme} />, t("vibe_title"), undefined, () => onNavigate("Vibe"))}
+              {row(<DeptIcon name="link" theme={theme} />, t("providers"), t("add_provider"), () => onNavigate("Providers"))}
               {row(<DeptIcon name="link" theme={theme} />, t("connectors_title"), undefined, () => onNavigate("Connectors"))}
               {row(<DeptIcon name="check" theme={theme} />, t("kanban_title"), undefined, () => onNavigate("Kanban"))}
               {row(<DeptIcon name="trend" theme={theme} />, t("usage_title"), undefined, () => onNavigate("Usage"))}

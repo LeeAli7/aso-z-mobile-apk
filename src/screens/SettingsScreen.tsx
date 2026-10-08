@@ -12,7 +12,7 @@
  * заменить PREFS/loadPrefs/savePref на вызовы движка, UI не менять.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Pressable, ScrollView, Switch, Text, View } from "react-native";
+import { Alert, Platform, Pressable, ScrollView, Switch, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppIcon } from "../design-system/components/AppIcon";
 import { DeptRow, DeptDivider, DeptBack, DeptDef } from "../components/Dept";
@@ -24,7 +24,7 @@ import { Lang } from "../i18n";
 import { TextField, PrimaryButton } from "../components/ui";
 import { requestSync, pollSync, fetchProfile } from "../core/sync";
 import { exportBackupToFile, importBackupFromFile } from "../core/backup";
-import { config, setApiBase } from "../core/env";
+import { config, setApiBase, loadApiBase } from "../core/env";
 import { showToast } from "../design-system/components/Toast";
 import { Button } from "../design-system/components/Button";
 import { Chip } from "../design-system/components/Chip";
@@ -34,7 +34,18 @@ import { IconButton } from "../design-system/components/IconButton";
 const KEYS_SESSIONS = "aso_sessions";
 const KEYS_TOKEN = "aso_token";
 const KEYS_DEVICE = "aso_device";
-const KEYS_TMP = ["aso_theme", "aso_lang", "aso_sessions", "aso_active", "vibe:projects"];
+// полный список AsyncStorage-ключей приложения (см. core/backup.ts) — wipe чистит всё
+const KEYS_WIPE = [
+  "aso_theme", "aso_lang", "aso_sessions", "aso_active", "aso_default_model",
+  "vibe:projects", "api_base",
+  "aso_mem_user", "aso_mem_memory", "aso_todo", "aso_cron_jobs",
+  "aso_agent_config", "aso_toolsets_overrides", "aso_voice_config",
+  "aso_kanban_tasks", "aso_mcp_servers", "aso_webhooks", "aso_usage",
+  "aso_curator_pinned", "aso_curator_last", "aso_security_config",
+  "aso_agent_max_turns", "aso_approvals_mode", "aso_compression",
+  "aso_stt_enabled", "aso_stt_provider", "aso_tts_provider",
+  "aso_memory_enabled", "aso_redact_secrets", "aso_delegation_max",
+];
 
 // ── Пресеты агента (UI Hermes-паритета, локальный стор).
 // NATIVE OWNER (Арес): движок agent-config — заменить на вызовы движка.
@@ -206,14 +217,24 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
     const res = await importBackupFromFile();
     if (res.ok) {
       showToast("ok", res.message);
-      // перечитываем всё из хранилища — максимально просто: полный рестарт состояния
+      // на web — полный рестарт; на нативе перечитываем базу, тему и провайдеры в стор
       setTimeout(() => {
-        if (globalThis.location) globalThis.location.reload();
+        if (Platform.OS === "web" && (globalThis as any).location) {
+          (globalThis as any).location.reload();
+          return;
+        }
+        void (async () => {
+          try {
+            await loadApiBase();
+            setServer(config.apiBase);
+          } catch {}
+          dispatch({ type: "SET_READY" });
+        })();
       }, 800);
     } else {
       showToast("err", res.message);
     }
-  }, []);
+  }, [dispatch]);
 
   const wipeAll = useCallback(() => {
     Alert.alert("Очистить всё", "Удалятся все сессии, чаты, проекты и файлы. Это нельзя отменить.", [
@@ -222,7 +243,18 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
         text: "Очистить", style: "destructive",
         onPress: async () => {
           try {
-            for (const k of KEYS_TMP) await AsyncStorage.removeItem(k);
+            for (const k of KEYS_WIPE) await AsyncStorage.removeItem(k);
+            for (const p of Object.keys(PREFS)) await AsyncStorage.removeItem((PREFS as any)[p]);
+            // vibe-сообщения по проектам: ключи vibe:msgs:<id>
+            try {
+              const projectsRaw = await AsyncStorage.getItem("vibe:projects");
+              const projects = JSON.parse(projectsRaw ?? "[]");
+              if (Array.isArray(projects)) {
+                for (const p of projects) {
+                  if (p?.id) await AsyncStorage.removeItem("vibe:msgs:" + p.id);
+                }
+              }
+            } catch {}
             await SecureStore.deleteItemAsync(KEYS_TOKEN);
             await SecureStore.deleteItemAsync(KEYS_DEVICE);
             await SecureStore.deleteItemAsync("aso_custom_providers");
@@ -336,6 +368,22 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
                   <TextField value={username} onChangeText={setUsername} placeholder={t("sync_username_ph")} />
                   <View style={{ height: 10 }} />
                   <PrimaryButton title={t("sync_send")} onPress={doSync} disabled={syncing || !username.trim()} />
+                  <View style={{ height: 12 }} />
+                  <Text style={{ color: theme.dim, fontSize: 11.5, marginBottom: 6 }}>Сервер API (sync + web-прокси)</Text>
+                  <TextField value={server} onChangeText={setServer} placeholder="https://…" />
+                  <View style={{ height: 8 }} />
+                  <Button
+                    title="Сохранить сервер"
+                    variant="secondary"
+                    onPress={() => {
+                      const v = server.trim();
+                      if (!v) { showToast("err", "Введи адрес сервера"); return; }
+                      void setApiBase(v).then(() => {
+                        setServer(config.apiBase);
+                        showToast("ok", "Сервер сохранён");
+                      });
+                    }}
+                  />
                   {status === "pending" && (
                     <View style={{ marginTop: 10, gap: 8 }}>
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 9, borderRadius: 10, borderWidth: 1, borderColor: theme.warn + "55", backgroundColor: theme.warn + "12" }}>

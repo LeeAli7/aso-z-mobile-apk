@@ -1,21 +1,18 @@
 /**
- * UsageScreen — использование (UI Hermes-паритета, локальный стор).
+ * UsageScreen — использование (реальные данные из core/usage).
  *
  * Суммарные токены + таблица по моделям (prompt/completion/total).
- * Движок учёта (Арес) позже заменит STATS на реальные замеры.
- *
- * NATIVE OWNER (Арес): движок usage (учёт токенов по моделям/провайдерам)
- * — заменить STATS ниже на реальные данные, UI не менять.
+ * gateway пишет через recordUsage, экран читает getUsageSummary.
  */
-import React from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";
 import { AppIcon } from "../design-system/components/AppIcon";
 import { useApp } from "../store/AppStore";
 import { fonts } from "../theme/tokens";
-
-/** Заглушка до движка usage: структуру таблицы держим, цифры — нули. */
-const STATS: { model: string; prompt: number; completion: number }[] = [];
+import { getUsageSummary, clearUsage, type ModelUsage } from "../core/usage";
+import { showToast } from "../design-system/components/Toast";
 
 function fmt(n: number): string {
   return n.toLocaleString("ru-RU");
@@ -24,9 +21,34 @@ function fmt(n: number): string {
 export function UsageScreen({ navigation }: { navigation: any }) {
   const { theme, t } = useApp();
   const insets = useSafeAreaInsets();
-  const total = STATS.reduce((a, s) => a + s.prompt + s.completion, 0);
-  const totalIn = STATS.reduce((a, s) => a + s.prompt, 0);
-  const totalOut = STATS.reduce((a, s) => a + s.completion, 0);
+  const [stats, setStats] = useState<ModelUsage[]>([]);
+  const [clearing, setClearing] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const { models } = await getUsageSummary();
+      setStats(models);
+    } catch {}
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+  useFocusEffect(useCallback(() => { void load(); }, [load]));
+
+  const total = stats.reduce((a, s) => a + s.totalTokens, 0);
+  const totalIn = stats.reduce((a, s) => a + s.promptTokens, 0);
+  const totalOut = stats.reduce((a, s) => a + s.completionTokens, 0);
+
+  const doClear = useCallback(async () => {
+    if (clearing) return;
+    setClearing(true);
+    try {
+      await clearUsage();
+      setStats([]);
+      showToast("ok", "Статистика очищена");
+    } finally {
+      setClearing(false);
+    }
+  }, [clearing]);
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
@@ -56,24 +78,29 @@ export function UsageScreen({ navigation }: { navigation: any }) {
 
         {/* по моделям */}
         <Text style={{ color: theme.text, fontSize: 13, fontWeight: "600", marginTop: 16, marginBottom: 6 }}>{t("models")}</Text>
-        {STATS.length === 0 ? (
+        {stats.length === 0 ? (
           <View style={{ padding: 14, borderRadius: 15, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }}>
             <Text style={{ color: theme.dim, fontSize: 12.5, lineHeight: 18 }}>{t("usage_empty")}</Text>
           </View>
         ) : (
           <View style={{ borderRadius: 15, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface, overflow: "hidden" }}>
-            {STATS.map((s, i) => (
-              <View key={s.model} style={{ padding: 12, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: theme.border }}>
+            {stats.map((s, i) => (
+              <View key={s.modelKey} style={{ padding: 12, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: theme.border }}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                  <Text style={{ color: theme.text, fontSize: 13, fontWeight: "600", fontFamily: fonts.mono }}>{s.model}</Text>
-                  <Text style={{ color: theme.accentHi, fontSize: 12, fontFamily: fonts.mono }}>{fmt(s.prompt + s.completion)}</Text>
+                  <Text style={{ color: theme.text, fontSize: 13, fontWeight: "600", fontFamily: fonts.mono }}>{s.modelKey}</Text>
+                  <Text style={{ color: theme.accentHi, fontSize: 12, fontFamily: fonts.mono }}>{fmt(s.totalTokens)}</Text>
                 </View>
                 <Text style={{ color: theme.mute, fontSize: 10.5, fontFamily: fonts.mono, marginTop: 2 }}>
-                  {t("usage_prompt")}: {fmt(s.prompt)} · {t("usage_completion")}: {fmt(s.completion)}
+                  {t("usage_prompt")}: {fmt(s.promptTokens)} · {t("usage_completion")}: {fmt(s.completionTokens)} · {s.calls}
                 </Text>
               </View>
             ))}
           </View>
+        )}
+        {stats.length > 0 && (
+          <Pressable onPress={doClear} disabled={clearing} hitSlop={8} style={{ marginTop: 12, alignSelf: "flex-start", paddingVertical: 6 }}>
+            <Text style={{ color: theme.danger, fontSize: 12.5 }}>{clearing ? "…" : t("clear")}</Text>
+          </Pressable>
         )}
       </ScrollView>
     </View>

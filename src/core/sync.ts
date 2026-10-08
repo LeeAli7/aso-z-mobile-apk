@@ -8,10 +8,13 @@
  */
 import { config } from "./env";
 
-const API = config.apiBase;
+/** Базу читаем при каждом вызове — адрес меняется в Настройках. */
+function apiBase(): string {
+  return config.apiBase;
+}
 
 export async function requestSync(username: string, deviceId: string) {
-  const resp = await fetch(`${API}/api/mobile/sync-request`, {
+  const resp = await fetch(`${apiBase()}/api/mobile/sync-request`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, device_id: deviceId }),
@@ -26,14 +29,14 @@ export async function pollSync(deviceId: string): Promise<{
   token?: string;
   username?: string;
 }> {
-  const resp = await fetch(`${API}/api/mobile/sync-status?device_id=${deviceId}`);
+  const resp = await fetch(`${apiBase()}/api/mobile/sync-status?device_id=${deviceId}`);
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) throw new Error(data?.detail || `sync-status ${resp.status}`);
   return data;
 }
 
 export async function fetchProfile(token: string) {
-  const resp = await fetch(`${API}/api/mobile/profile`, {
+  const resp = await fetch(`${apiBase()}/api/mobile/profile`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   const data = await resp.json().catch(() => ({}));

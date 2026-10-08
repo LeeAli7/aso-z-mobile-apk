@@ -17,6 +17,8 @@ import { useApp } from "../store/AppStore";
 import { fonts } from "../theme/tokens";
 import { Button } from "../design-system/components/Button";
 import { DeptRow, DeptDivider, DeptBack, DeptDef } from "../components/Dept";
+import { showToast } from "../design-system/components/Toast";
+import { testMcpServer } from "../core/connectors";
 
 const KEY_MCP = "aso_mcp_servers";
 const KEY_WH = "aso_webhooks";
@@ -46,6 +48,7 @@ export function ConnectorsScreen({ navigation }: { navigation: any }) {
   const [wh, setWh] = useState<Wh[]>([]);
   const [mcpDraft, setMcpDraft] = useState({ name: "", target: "" });
   const [whDraft, setWhDraft] = useState({ name: "", events: "" });
+  const [testingId, setTestingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setMcp(await readJson<Mcp>(KEY_MCP));
@@ -83,6 +86,17 @@ export function ConnectorsScreen({ navigation }: { navigation: any }) {
     await AsyncStorage.setItem(KEY_WH, JSON.stringify(next));
     setWh(next);
   }, [wh]);
+
+  const testMcp = useCallback(async (id: string) => {
+    if (testingId) return;
+    setTestingId(id);
+    try {
+      const res = await testMcpServer(id);
+      showToast(res.ok ? "ok" : "err", res.message.slice(0, 160));
+    } finally {
+      setTestingId(null);
+    }
+  }, [testingId]);
 
   const input = {
     borderWidth: 1, borderColor: theme.border, borderRadius: 10,
@@ -154,6 +168,9 @@ export function ConnectorsScreen({ navigation }: { navigation: any }) {
                   <Text style={{ color: theme.text, fontSize: 13, fontWeight: "600" }}>{m.name}</Text>
                   <Text numberOfLines={1} style={{ color: theme.mute, fontSize: 10.5, fontFamily: fonts.mono }}>{m.target}</Text>
                 </View>
+                <Pressable onPress={() => testMcp(m.id)} disabled={testingId === m.id} hitSlop={8} style={{ padding: 4, opacity: testingId === m.id ? 0.4 : 1 }} accessibilityLabel="Проверить">
+                  <AppIcon name={testingId === m.id ? "refresh" : "check-circle"} size={17} color={theme.ok} />
+                </Pressable>
                 <Pressable onPress={() => delMcp(m.id)} hitSlop={8} style={{ padding: 4 }}>
                   <AppIcon name="delete" size={17} color={theme.danger} />
                 </Pressable>

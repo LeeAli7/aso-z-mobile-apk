@@ -1,69 +1,85 @@
 /**
- * KanbanScreen — доска агентов (UI Hermes-паритета, локальный стор).
+ * KanbanScreen — доска агентов (через движок core/kanban).
  *
- * Три колонки: todo / doing / done, карточки с исполнителем,
- * добавление снизу, тапы двигают задачу вперёд. Без эмодзи.
- *
- * NATIVE OWNER (Арес): движок kanban (create/assign/status, SQLite-борда)
- * — заменить AsyncStorage-стор ниже на вызовы движка, UI не менять.
+ * Колонки: todo / doing / done (+ blocked/archived из движка: блок и архив
+ * доступны долгим списком действий на карточке), карточки с исполнителем,
+ * добавление снизу, тап двигает задачу вперёд.
  */
 import React, { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { AppIcon } from "../design-system/components/AppIcon";
 import { useApp } from "../store/AppStore";
 import { Button } from "../design-system/components/Button";
+import { showToast } from "../design-system/components/Toast";
+import {
+  listTasks, createTask, deleteTask, blockTask, unblockTask, archiveTask,
+  type KanbanStatus, type KanbanTask,
+} from "../core/kanban";
 
-const KEY_KB = "aso_kanban_tasks";
+type Col = "todo" | "doing" | "done" | "blocked" | "archived";
 
-type Col = "todo" | "doing" | "done";
-interface Kb { id: string; title: string; assignee: string; col: Col }
+const NEXT: Record<Col, Col | null> = { todo: "doing", doing: "done", done: null, blocked: null, archived: null };
 
-const NEXT: Record<Col, Col | null> = { todo: "doing", doing: "done", done: null };
-
-async function readKb(): Promise<Kb[]> {
-  try {
-    const raw = await AsyncStorage.getItem(KEY_KB);
-    if (!raw) return [];
-    const v = JSON.parse(raw);
-    return Array.isArray(v) ? v : [];
-  } catch { return []; }
-}
-function genId(): string {
-  return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+function colOf(t: KanbanTask): Col {
+  return (t.status as Col) ?? "todo";
 }
 
 export function KanbanScreen({ navigation }: { navigation: any }) {
   const { theme, t } = useApp();
   const insets = useSafeAreaInsets();
-  const [tasks, setTasks] = useState<Kb[]>([]);
+  const [tasks, setTasks] = useState<KanbanTask[]>([]);
   const [draft, setDraft] = useState({ title: "", assignee: "" });
 
-  const load = useCallback(async () => setTasks(await readKb()), []);
+  const load = useCallback(async () => setTasks(await listTasks().catch(() => [])), []);
   useEffect(() => { void load(); }, [load]);
-
-  const save = useCallback(async (next: Kb[]) => {
-    setTasks(next);
-    await AsyncStorage.setItem(KEY_KB, JSON.stringify(next));
-  }, []);
 
   const add = useCallback(async () => {
     const title = draft.title.trim();
     if (!title) return;
-    await save([...tasks, { id: genId(), title, assignee: draft.assignee.trim(), col: "todo" }]);
+    await createTask(title).catch(() => null);
+    // assignee сразу после создания (движок держит его отдельно)
+    const created = (await listTasks().catch(() => []))[0];
+    if (created && draft.assignee.trim()) {
+      const { assignTask } = await import("../core/kanban");
+      await assignTask(created.id, draft.assignee.trim()).catch(() => false);
+    }
+    setTasks(await listTasks().catch(() => []));
     setDraft({ title: "", assignee: "" });
-  }, [tasks, draft, save]);
+  }, [draft]);
 
   const forward = useCallback(async (id: string) => {
-    const nx = NEXT[tasks.find((x) => x.id === id)?.col ?? "todo"];
-    if (!nx) return;
-    await save(tasks.map((x) => (x.id === id ? { ...x, col: nx } : x)));
-  }, [tasks, save]);
+    const cur = tasks.find((x) => x.id === id);
+    const col = cur ? colOf(cur) : "todo";
+    if (col === "blocked") {
+      await unblockTask(id).catch(() => false);
+    } else {
+      const nx = NEXT[col];
+      if (!nx || nx === "blocked" || nx === "archived") return;
+      const { setTaskStatus } = await import("../core/kanban");
+      await setTaskStatus(id, nx as KanbanStatus).catch(() => false);
+    }
+    setTasks(await listTasks().catch(() => []));
+  }, [tasks]);
+
+  const toggleBlock = useCallback(async (id: string) => {
+    const cur = tasks.find((x) => x.id === id);
+    if (!cur) return;
+    if (colOf(cur) === "blocked") await unblockTask(id).catch(() => false);
+    else await blockTask(id).catch(() => false);
+    setTasks(await listTasks().catch(() => []));
+  }, [tasks]);
+
+  const archive = useCallback(async (id: string) => {
+    await archiveTask(id).catch(() => false);
+    setTasks(await listTasks().catch(() => []));
+    showToast("ok", "В архиве");
+  }, []);
 
   const del = useCallback(async (id: string) => {
-    await save(tasks.filter((x) => x.id !== id));
-  }, [tasks, save]);
+    await deleteTask(id).catch(() => false);
+    setTasks(await listTasks().catch(() => []));
+  }, []);
 
   const input = {
     borderWidth: 1, borderColor: theme.border, borderRadius: 10,
@@ -74,7 +90,9 @@ export function KanbanScreen({ navigation }: { navigation: any }) {
     { key: "todo", label: "TODO" },
     { key: "doing", label: "DOING" },
     { key: "done", label: "DONE" },
+    { key: "blocked", label: "BLOCKED" },
   ];
+  const archivedCount = tasks.filter((x) => colOf(x) === "archived").length;
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
@@ -94,30 +112,44 @@ export function KanbanScreen({ navigation }: { navigation: any }) {
         {cols.map((c) => (
           <View key={c.key} style={{ marginBottom: 12 }}>
             <Text style={{ color: theme.mute, fontSize: 10, letterSpacing: 1.2, marginBottom: 6 }}>
-              {c.label} · {tasks.filter((x) => x.col === c.key).length}
+              {c.label} · {tasks.filter((x) => colOf(x) === c.key).length}
             </Text>
-            {tasks.filter((x) => x.col === c.key).map((x) => (
+            {tasks.filter((x) => colOf(x) === c.key).map((x) => {
+              const col = colOf(x);
+              const blocked = col === "blocked";
+              return (
               <Pressable
                 key={x.id}
                 onPress={() => forward(x.id)}
                 android_ripple={{ color: theme.ripple }}
-                style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface, marginBottom: 6 }}
+                style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: blocked ? theme.warn : theme.border, backgroundColor: theme.surface, marginBottom: 6 }}
               >
-                <AppIcon name={x.col === "done" ? "check-circle" : x.col === "doing" ? "refresh" : "circle"} size={17} color={x.col === "done" ? theme.ok : theme.dim} />
+                <AppIcon name={col === "done" ? "check-circle" : col === "doing" ? "refresh" : blocked ? "stop" : "circle"} size={17} color={col === "done" ? theme.ok : blocked ? theme.warn : theme.dim} />
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: theme.text, fontSize: 13, textDecorationLine: x.col === "done" ? "line-through" : "none", opacity: x.col === "done" ? 0.55 : 1 }}>
+                  <Text style={{ color: theme.text, fontSize: 13, textDecorationLine: col === "done" ? "line-through" : "none", opacity: col === "done" ? 0.55 : 1 }}>
                     {x.title}
                   </Text>
                   {x.assignee ? <Text style={{ color: theme.mute, fontSize: 10.5, marginTop: 1 }}>{x.assignee}</Text> : null}
+                  {x.comments.length > 0 ? <Text style={{ color: theme.mute, fontSize: 10.5, marginTop: 1 }}>{x.comments.length} коммент.</Text> : null}
                 </View>
-                {NEXT[x.col] ? <AppIcon name="chevron-right" size={16} color={theme.mute} /> : null}
+                {NEXT[col] || blocked ? <AppIcon name="chevron-right" size={16} color={theme.mute} /> : null}
+                <Pressable onPress={() => toggleBlock(x.id)} hitSlop={8} style={{ padding: 4 }} accessibilityLabel={blocked ? "Разблокировать" : "Заблокировать"}>
+                  <AppIcon name={blocked ? "refresh" : "stop"} size={14} color={blocked ? theme.warn : theme.mute} />
+                </Pressable>
+                <Pressable onPress={() => archive(x.id)} hitSlop={8} style={{ padding: 4 }} accessibilityLabel="В архив">
+                  <AppIcon name="box" size={14} color={theme.mute} />
+                </Pressable>
                 <Pressable onPress={() => del(x.id)} hitSlop={8} style={{ padding: 4 }}>
                   <AppIcon name="close" size={14} color={theme.danger} />
                 </Pressable>
               </Pressable>
-            ))}
+              );
+            })}
           </View>
         ))}
+        {archivedCount > 0 && (
+          <Text style={{ color: theme.mute, fontSize: 11, marginBottom: 8 }}>В архиве: {archivedCount}</Text>
+        )}
         <View style={{ height: 1, backgroundColor: theme.border, marginVertical: 8 }} />
         <TextInput value={draft.title} onChangeText={(v) => setDraft({ ...draft, title: v })} placeholder={t("kb_add_ph")} placeholderTextColor={theme.mute} style={input} onSubmitEditing={add} />
         <View style={{ height: 6 }} />

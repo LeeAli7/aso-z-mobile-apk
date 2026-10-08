@@ -11,12 +11,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppIcon, materialToApp } from "../design-system/components/AppIcon";
 import { useApp } from "../store/AppStore";
 import { DeptRow, DeptDivider, DeptBack, DeptDef } from "../components/Dept";
+import { showToast } from "../design-system/components/Toast";
 
 const AGENTS = [
-  { icon: "groups", name: "Agent Swarm", desc: "Несколько агентов параллельно", tag: "Экспериментально" },
-  { icon: "chat", name: "Kimi Claw", desc: "Групповой чат с агентами", tag: null },
-  { icon: "code", name: "Кодер", desc: "Пишет и правит код в проекте", tag: "Vibe" },
-  { icon: "terminal", name: "Терминал", desc: "Выполняет команды через Termux", tag: "Vibe" },
+  { icon: "groups", name: "Agent Swarm", desc: "Несколько агентов параллельно", tag: "Экспериментально", hint: "Субагенты и параллельные задачи — смотри Kanban" },
+  { icon: "chat", name: "Kimi Claw", desc: "Групповой чат с агентами", tag: null, hint: "Групповой чат пока один — общий чат" },
+  { icon: "code", name: "Кодер", desc: "Пишет и правит код в проекте", tag: "Vibe", hint: "Код правится в Хранилище (Vibe)" },
+  { icon: "terminal", name: "Терминал", desc: "Выполняет команды через Termux", tag: "Vibe", hint: "Команды — в проекте Хранилища" },
 ];
 
 type DeptKey = "subagents" | "kanban" | "usage";
@@ -77,7 +78,12 @@ export function AgentScreen({ navigation }: { navigation: any }) {
             {AGENTS.map((a) => (
               <Pressable
                 key={a.name}
-                onPress={() => navigation.navigate("Kanban")}
+                onPress={() => {
+                  if (a.name === "Кодер" || a.name === "Терминал") navigation.navigate("Vibe");
+                  else if (a.name === "Kimi Claw") navigation.navigate("Main");
+                  else navigation.navigate("Kanban");
+                  showToast("info", a.hint);
+                }}
                 style={({ pressed }) => ({
                   flexDirection: "row", alignItems: "center", gap: 12,
                   padding: 13, borderRadius: 14, marginBottom: 8,
