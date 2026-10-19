@@ -98,6 +98,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   const [detailTarget, setDetailTarget] = useState<Msg | null>(null);
   // прикрепление: окно-меню (фото/камера/файл) и выбранные вложения
   const [attachOpen, setAttachOpen] = useState(false);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
   // ── Мультивложение (t9): массив выбранных файлов/фото ──
   const [attachments, setAttachments] = useState<{ kind: "image" | "camera" | "file"; uri: string; name?: string }[]>([]);
   const [toolNote, setToolNote] = useState<string | null>(null);
@@ -1013,7 +1014,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           <BgIndicator theme={theme} count={bgTasks.length} onPress={() => setBgOpen(true)} />
           {/* Выбор модели — справа, габариты как у бургера: высота touchTarget, капсула. */}
           <Pressable
-            onPress={() => setDrawerOpen(true)}
+            onPress={() => setModelPickerOpen(true)}
             accessibilityRole="button"
             accessibilityLabel="Модель"
             style={({ pressed }) => ({
@@ -1322,6 +1323,40 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       />
 
 
+
+      {/* ── Выбор модели: снизу, как панель вложений ── */}
+      <Sheet
+        visible={modelPickerOpen}
+        onClose={() => setModelPickerOpen(false)}
+        title="Модель"
+        snapPoints={["auto"]}
+        autoMaxPct={65}
+      >
+        {allModels.length === 0 && (
+          <Text style={{ color: theme.dim, fontSize: 13, paddingVertical: 14 }}>Модели не подключены</Text>
+        )}
+        {allModels.map((m) => (
+          <Pressable
+            key={m.modelName}
+            onPress={() => {
+              switchModel(m);
+              setModelPickerOpen(false);
+            }}
+            style={({ pressed }) => ({
+              flexDirection: "row",
+              alignItems: "center",
+              paddingVertical: 14,
+              opacity: pressed ? 0.8 : 1,
+            })}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: theme.text, fontSize: 15, fontWeight: "600" }}>{m.displayName}</Text>
+              <Text style={{ color: theme.dim, fontSize: 11.5, marginTop: 2, fontFamily: fonts.mono }}>{m.modelName}</Text>
+            </View>
+            {m.modelName === model?.modelName && <AppIcon name="check" size={18} color={theme.text} />}
+          </Pressable>
+        ))}
+      </Sheet>
 
       {/* ── Message actions sheet (in-app, не системный Alert) ── */}
       <Sheet visible={!!msgMenuTarget} onClose={() => setMsgMenuTarget(null)} title={msgMenuTarget?.role === "user" ? "Сообщение" : "Ответ"} snapPoints={["auto"]} autoMaxPct={55}>
