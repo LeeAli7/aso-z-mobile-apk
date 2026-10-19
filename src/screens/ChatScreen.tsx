@@ -29,7 +29,7 @@ import { useApp, genId, Msg, Session } from "../store/AppStore";
 import { ModelInfo, streamChat, streamAgentChat, ChatMessage, ChatPart, AgentToolCall } from "../core/gateway";
 import { buildAttachmentParts } from "../core/attachments";
 import { getToolDefs } from "../core/tools";
-import { dueJobs, markJobRun } from "../core/cron";
+import { claimDueJobs, setJobResult } from "../core/cron";
 import { runSelfReview } from "../core/selfImprove";
 import { DrawerLineArt } from "../components/DrawerLineArt";
 import { BgTasksSheet, BgIndicator, BgTask } from "../components/BgTasksSheet";
@@ -143,6 +143,13 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         return;
       }
       if (recStarting.current) return;
+      // кнопка микрофона подчиняется настройке «Голосовой ввод»
+      const { loadVoiceConfig } = await import("../core/voice");
+      const voice = await loadVoiceConfig().catch(() => null);
+      if (voice && !voice.sttEnabled) {
+        showToast("err", "Голосовой ввод выключен в настройках");
+        return;
+      }
       recStarting.current = true;
       try {
         const perm: any = await ExpoSpeechRecognitionModule.requestPermissionsAsync().catch(() => null);
@@ -471,8 +478,11 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       // По роадмапу Hermes: память инжектится в USER-сообщение (не system) —
       // чтобы не гасить prefix-cache системного промпта и не путать модель.
       try {
+        // выключенная память действительно не вшивается в контекст
+        const { loadAgentConfig } = await import("../core/agentConfig");
+        const cfg = await loadAgentConfig();
         const { memorySnapshot } = await import("../core/memory");
-        const snap = await memorySnapshot();
+        const snap = cfg.memoryEnabled ? await memorySnapshot() : "";
         if (snap) {
           const firstUser = chatMessages.findIndex((m) => m.role === "user");
           if (firstUser >= 0) {
@@ -719,13 +729,15 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     const tick = async () => {
       if (disposed || !model) return;
       try {
-        const jobs = await dueJobs();
+        // claim помечает задачу выполненной ДО запуска, поэтому следующий тик
+        // не запустит её повторно, пока агент ещё думает
+        const jobs = await claimDueJobs();
         for (const job of jobs) {
           if (disposed || !model) break;
           // префикс: модель понимает, что это автозадача, и отвечает кратко
           const prompt = `[Автозадача: ${job.name}]\n${job.prompt}\n\nВыполни и дай краткий отчёт.`;
           void sendText(prompt).then(() => {
-            void markJobRun(job.id, "выполнена").catch(() => {});
+            void setJobResult(job.id, "выполнена").catch(() => {});
           });
         }
       } catch {

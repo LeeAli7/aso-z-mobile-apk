@@ -73,3 +73,28 @@ export function isBlockedUrl(url: string, blocklist: string[]): boolean {
     return !!rule && u.includes(rule);
   });
 }
+
+const SECRET_RULES: [RegExp, string][] = [
+  [/gh[pousr]_[A-Za-z0-9]{16,}/g, "gh*_[REDACTED]"],
+  [/github_pat_[A-Za-z0-9_]{20,}/g, "github_pat_[REDACTED]"],
+  [/\bsk-[A-Za-z0-9_-]{16,}/g, "sk-[REDACTED]"],
+  [/\bAKIA[0-9A-Z]{16}\b/g, "AKIA[REDACTED]"],
+  [/\bxox[baprs]-[A-Za-z0-9-]{10,}/g, "xox-[REDACTED]"],
+  [/\bAIza[0-9A-Za-z_-]{35}/g, "AIza[REDACTED]"],
+  [/(Bearer\s+)[A-Za-z0-9._-]{20,}/gi, "$1[REDACTED]"],
+  [/([?&](?:token|key|api_key|access_token)=)[^&\s]+/gi, "$1[REDACTED]"],
+];
+
+/**
+ * Маскирует секреты в произвольном тексте.
+ *
+ * Вывод команд (`env`, `cat .env`, лог сборки) шёл в терминал и в Vibe как
+ * есть — токен из него попадал в чат и в историю сессии. Теперь единая
+ * функция на все пути вывода.
+ */
+export function redactSecrets(text: string): string {
+  if (!text) return text;
+  let out = text;
+  for (const [re, to] of SECRET_RULES) out = out.replace(re, to);
+  return out;
+}

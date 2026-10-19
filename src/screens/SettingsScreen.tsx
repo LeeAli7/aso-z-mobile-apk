@@ -12,7 +12,7 @@
  * заменить PREFS/loadPrefs/savePref на вызовы движка, UI не менять.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Pressable, ScrollView, Switch, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, Switch, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppIcon } from "../design-system/components/AppIcon";
 import { DeptRow, DeptDivider, DeptBack, DeptDef } from "../components/Dept";
@@ -24,6 +24,8 @@ import { Lang } from "../i18n";
 import { TextField, PrimaryButton } from "../components/ui";
 import { requestSync, pollSync, fetchProfile } from "../core/sync";
 import { saveAgentConfig } from "../core/agentConfig";
+import { saveVoiceConfig } from "../core/voice";
+import { DEFAULT_SECURITY_CONFIG, loadSecurity, saveSecurity, SecurityConfig } from "../core/security";
 import { exportBackupToFile, importBackupFromFile } from "../core/backup";
 import { config, setApiBase } from "../core/env";
 import { showToast } from "../design-system/components/Toast";
@@ -177,6 +179,21 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
   // пресеты агента (локальный стор до движка agent-config)
   const [prefs, setPrefs] = useState<Record<string, string>>(PREF_DEFAULTS);
   useEffect(() => { void loadPrefs().then(setPrefs); }, []);
+
+  // безопасность читается из единого стора, а не из одного legacy-флага
+  const [security, setSecurityState] = useState(DEFAULT_SECURITY_CONFIG);
+  const [blocklistText, setBlocklistText] = useState("");
+  useEffect(() => {
+    void loadSecurity().then((sec) => {
+      setSecurityState(sec);
+      setBlocklistText(sec.websiteBlocklist.join("\n"));
+    });
+  }, []);
+  const setSecurity = useCallback(async (patch: Partial<SecurityConfig>) => {
+    const next = await saveSecurity(patch);
+    setSecurityState(next);
+    if (patch.websiteBlocklist) setBlocklistText(next.websiteBlocklist.join("\n"));
+  }, []);
   const setPref = useCallback((name: string, value: string) => {
     setPrefs((p) => ({ ...p, [name]: value }));
     void savePref(name, value);
@@ -187,6 +204,8 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
     else if (name === "compression") void saveAgentConfig({ compressionEnabled: value !== "0" });
     else if (name === "memoryEnabled") void saveAgentConfig({ memoryEnabled: value !== "0" });
     else if (name === "delegationMax") void saveAgentConfig({ maxConcurrentChildren: parseInt(value, 10) || 2 });
+    else if (name === "sttEnabled") void saveVoiceConfig({ sttEnabled: value === "1" });
+    else if (name === "redactSecrets") void saveSecurity({ redactSecrets: value === "1" });
   }, []);
 
   const logout = useCallback(() => {
@@ -440,21 +459,10 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
             </View>
             <DeptDivider theme={theme} />
             <View style={{ padding: 14, backgroundColor: theme.surface }}>
-              <Text style={{ color: theme.text, fontSize: 13.5, marginBottom: 8 }}>{t("stt_provider")}: {prefs.sttProvider}</Text>
-              <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-                {(["local", "groq", "openai", "mistral"] as const).map((v) => (
-                  <Chip key={v} label={v} active={prefs.sttProvider === v} onPress={() => setPref("sttProvider", v)} />
-                ))}
-              </View>
-            </View>
-            <DeptDivider theme={theme} />
-            <View style={{ padding: 14, backgroundColor: theme.surface }}>
-              <Text style={{ color: theme.text, fontSize: 13.5, marginBottom: 8 }}>{t("tts_provider")}: {prefs.ttsProvider}</Text>
-              <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-                {(["edge", "elevenlabs", "openai", "gemini"] as const).map((v) => (
-                  <Chip key={v} label={v} active={prefs.ttsProvider === v} onPress={() => setPref("ttsProvider", v)} />
-                ))}
-              </View>
+              <Text style={{ color: theme.dim, fontSize: 12.5, lineHeight: 18 }}>
+                Распознавание идёт системным движком Android — выбор облачного провайдера
+                не поддерживается, поэтому выключателя провайдера здесь нет.
+              </Text>
             </View>
           </View>
         )}
@@ -488,6 +496,34 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
                 trackColor={{ false: theme.surface2, true: theme.accent }}
                 thumbColor={prefs.redactSecrets === "1" ? "#fff" : theme.mute}
                 style={{ transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }}
+              />
+            </View>
+            <DeptDivider theme={theme} />
+            <View style={{ paddingHorizontal: 14, paddingVertical: 10, backgroundColor: theme.surface, flexDirection: "row", alignItems: "center" }}>
+              <Text style={{ color: theme.text, fontSize: 13.5, flex: 1 }}>Подтверждать опасные действия</Text>
+              <Switch
+                value={security.confirmDangerous}
+                onValueChange={(v) => void setSecurity({ confirmDangerous: v })}
+                trackColor={{ false: theme.surface2, true: theme.accent }}
+                thumbColor={security.confirmDangerous ? "#fff" : theme.mute}
+                style={{ transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }}
+              />
+            </View>
+            <DeptDivider theme={theme} />
+            <View style={{ padding: 14, backgroundColor: theme.surface }}>
+              <Text style={{ color: theme.text, fontSize: 13.5, marginBottom: 4 }}>Блок-лист сайтов</Text>
+              <Text style={{ color: theme.dim, fontSize: 11.5, marginBottom: 8 }}>
+                По одному домену на строку — поиск их не покажет.
+              </Text>
+              <TextInput
+                value={blocklistText}
+                onChangeText={setBlocklistText}
+                onEndEditing={() => void setSecurity({ websiteBlocklist: blocklistText.split("\n").map((x) => x.trim()).filter(Boolean) })}
+                placeholder="example.com"
+                placeholderTextColor={theme.mute}
+                multiline
+                autoCapitalize="none"
+                style={{ minHeight: 66, color: theme.text, fontSize: 13, fontFamily: fonts.mono, textAlignVertical: "top" }}
               />
             </View>
           </View>

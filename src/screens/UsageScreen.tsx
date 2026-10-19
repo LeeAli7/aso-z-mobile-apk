@@ -7,6 +7,7 @@ import { AppIcon } from "../design-system/components/AppIcon";
 import { getUsageSummary, clearUsage, ModelUsage } from "../core/usage";
 import { useApp } from "../store/AppStore";
 import { fonts } from "../theme/tokens";
+import { confirmDangerous } from "../core/confirm";
 
 const fmt = (n: number) => n.toLocaleString("ru-RU");
 
@@ -75,7 +76,17 @@ export function UsageScreen({ navigation }: { navigation: any }) {
 
         {models.length > 0 && (
           <Pressable
-            onPress={() => { clearUsage(); setModels([]); setTotal({ promptTokens: 0, completionTokens: 0, totalTokens: 0, calls: 0 }); }}
+            onPress={() =>
+              confirmDangerous(
+                "Сбросить счётчики?",
+                "Расход токенов обнулится без возможности отмены.",
+                async () => {
+                  await clearUsage();
+                  setModels([]);
+                  setTotal({ promptTokens: 0, completionTokens: 0, totalTokens: 0, calls: 0 });
+                },
+              )
+            }
             style={{ marginTop: 26, paddingHorizontal: 20 }}
             hitSlop={8}
           >

@@ -22,6 +22,7 @@ import { listSkills, viewSkill, saveSkill, deleteSkill } from "../core/skills";
 import { memorySnapshot, clearMemory } from "../core/memory";
 import { loadJobs, upsertJob, removeJob, setJobEnabled, upcoming, CronJob } from "../core/cron";
 import { runCurator } from "../core/selfImprove";
+import { confirmDangerous } from "../core/confirm";
 
 export function AgentSettingsScreen({ navigation }: { navigation: any }) {
   const { theme } = useApp();
@@ -296,7 +297,10 @@ export function AgentSettingsScreen({ navigation }: { navigation: any }) {
             <Button title="Добавить" variant="primary" onPress={handleAddTodo} disabled={!todoDraft.trim()} />
           </View>
           {todos.length > 0 && (
-            <Pressable onPress={handleClearTodos} style={{ marginTop: 8, alignSelf: "flex-start" }}>
+            <Pressable
+              onPress={() => confirmDangerous("Очистить все задачи?", "Список задач агента будет удалён.", handleClearTodos, "Очистить")}
+              style={{ marginTop: 8, alignSelf: "flex-start" }}
+            >
               <Text style={{ color: c.danger, fontSize: 12 }}>Очистить все</Text>
             </Pressable>
           )}
@@ -322,7 +326,7 @@ export function AgentSettingsScreen({ navigation }: { navigation: any }) {
                   <Text style={{ color: c.dim, fontSize: 11, fontFamily: fonts.mono }}>{j.schedule} · {j.prompt.slice(0, 50)}{j.prompt.length > 50 ? "…" : ""}</Text>
                   {j.lastResult ? <Text style={{ color: c.dim, fontSize: 10.5, marginTop: 2 }} numberOfLines={1}>↳ {j.lastResult}</Text> : null}
                 </View>
-                <Pressable onPress={() => handleRemoveJob(j.id)} hitSlop={8} style={{ padding: 2 }}>
+                <Pressable onPress={() => confirmDangerous("Удалить автозадачу?", j.name, () => handleRemoveJob(j.id))} hitSlop={8} style={{ padding: 2 }}>
                   <AppIcon name="delete" size={18} color={c.danger} />
                 </Pressable>
               </View>

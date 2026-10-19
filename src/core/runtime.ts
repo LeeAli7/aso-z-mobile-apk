@@ -180,7 +180,19 @@ export function runCommandCapture(cmd: string, projectId?: string, cwd?: string)
           return;
         } catch {}
       }
-      resolve({ ok: true, output: text.slice(0, 4000), code: r.code });
+      // Обрезка больше не молчит: иначе в терминале терялся хвост логов
+      // (пользователь и модель думают, что это весь вывод).
+      const LIMIT = 4000;
+      if (text.length > LIMIT) {
+        const kept = text.slice(0, LIMIT);
+        resolve({
+          ok: true,
+          output: `${kept}\n… обрезано: показано ${LIMIT} из ${text.length} симв.`,
+          code: r.code,
+        });
+        return;
+      }
+      resolve({ ok: true, output: text, code: r.code });
     } catch (e: any) {
       resolve({ ok: false, output: "", code: -1, error: String(e?.message || e) });
     }

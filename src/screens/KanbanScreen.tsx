@@ -14,11 +14,13 @@ import { listTasks, createTask, assignTask, setTaskStatus, completeTask, deleteT
 import { AppIcon } from "../design-system/components/AppIcon";
 import { useApp } from "../store/AppStore";
 import { Button } from "../design-system/components/Button";
+import { confirmDangerous } from "../core/confirm";
 
 type Col = "todo" | "doing" | "done";
-interface Kb { id: string; title: string; assignee: string; col: Col }
+interface Kb { id: string; title: string; assignee: string; col: Col; blocked: boolean }
 
-const NEXT: Record<Col, Col | null> = { todo: "doing", doing: "done", done: null };
+// тап двигает статус по кругу: done возвращается в todo, иначе завершённую задачу нельзя переоткрыть
+const NEXT: Record<Col, Col> = { todo: "doing", doing: "done", done: "todo" };
 
 /** Доска читается из единого движка core/kanban — тот же стор, что видит агент. */
 async function readKb(): Promise<Kb[]> {
@@ -30,6 +32,7 @@ async function readKb(): Promise<Kb[]> {
       title: x.title,
       assignee: x.assignee ?? "",
       col: x.status === "done" ? "done" : x.status === "doing" || x.status === "blocked" ? "doing" : "todo",
+      blocked: x.status === "blocked",
     }));
 }
 
@@ -55,7 +58,6 @@ export function KanbanScreen({ navigation }: { navigation: any }) {
   const forward = useCallback(async (id: string) => {
     const cur = tasks.find((x) => x.id === id)?.col ?? "todo";
     const nx = NEXT[cur];
-    if (!nx) return;
     if (nx === "done") await completeTask(id);
     else await setTaskStatus(id, nx);
     await load();
@@ -104,7 +106,11 @@ export function KanbanScreen({ navigation }: { navigation: any }) {
                 android_ripple={{ color: theme.ripple }}
                 style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface, marginBottom: 6 }}
               >
-                <AppIcon name={x.col === "done" ? "check-circle" : x.col === "doing" ? "refresh" : "circle"} size={17} color={x.col === "done" ? theme.ok : theme.dim} />
+                <AppIcon
+                  name={x.col === "done" ? "check-circle" : x.col === "doing" ? "refresh" : "circle"}
+                  size={17}
+                  color={x.blocked ? theme.danger : x.col === "done" ? theme.ok : theme.dim}
+                />
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: theme.text, fontSize: 13, textDecorationLine: x.col === "done" ? "line-through" : "none", opacity: x.col === "done" ? 0.55 : 1 }}>
                     {x.title}
@@ -112,7 +118,12 @@ export function KanbanScreen({ navigation }: { navigation: any }) {
                   {x.assignee ? <Text style={{ color: theme.mute, fontSize: 10.5, marginTop: 1 }}>{x.assignee}</Text> : null}
                 </View>
                 {NEXT[x.col] ? <AppIcon name="chevron-right" size={16} color={theme.mute} /> : null}
-                <Pressable onPress={() => del(x.id)} hitSlop={8} style={{ padding: 4 }}>
+                <Pressable
+                  onPress={() => confirmDangerous("Удалить задачу?", x.title, () => del(x.id))}
+                  hitSlop={8}
+                  style={{ padding: 4 }}
+                  accessibilityLabel="Удалить задачу"
+                >
                   <AppIcon name="close" size={14} color={theme.danger} />
                 </Pressable>
               </Pressable>

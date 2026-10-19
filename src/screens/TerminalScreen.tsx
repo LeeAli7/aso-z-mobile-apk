@@ -22,6 +22,7 @@ import { AppIcon } from "../design-system/components/AppIcon";
 import { fonts } from "../theme/tokens";
 import { useApp } from "../store/AppStore";
 import { ensureRuntime, runCommandCapture, runtimeAvailable } from "../core/runtime";
+import { loadSecurity, redactSecrets } from "../core/security";
 
 type Line = { id: string; kind: "cmd" | "out" | "err"; text: string };
 
@@ -37,10 +38,18 @@ export function TerminalScreen({ navigation }: { navigation: any }) {
   ]);
   const [cmd, setCmd] = useState("");
   const [cwd, setCwd] = useState(DEFAULT_CWD);
+  // абсолютный путь, который реально передаём рантайму (приглашение — только его отображение)
+  const [absCwd, setAbsCwd] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState<string | null>(null);
+  // маскировка секретов в выводе команд (настройка «скрывать секреты»)
+  const [redact, setRedact] = useState(true);
   const scrollRef = useRef<ScrollView>(null);
   const inputRef = useRef<TextInput>(null);
+
+  useEffect(() => {
+    void loadSecurity().then((s) => setRedact(s.redactSecrets));
+  }, []);
 
   useEffect(() => {
     if (!runtimeAvailable()) {
@@ -67,21 +76,29 @@ export function TerminalScreen({ navigation }: { navigation: any }) {
         setLines([]);
         return;
       }
-      if (input === "pwd") {
-        push("out", cwd);
-        return;
-      }
-
       setBusy(true);
       try {
-        const res = await runCommandCapture(input);
-        if (res.output) push("out", res.output.replace(/\s+$/, ""));
+        // каталог действительно передаётся рантайму, иначе cd менял бы только вид приглашения
+        const res = await runCommandCapture(input, undefined, absCwd ?? undefined);
+        // вывод команды маскируется: `env` или `cat .env` иначе печатали ключ в чат
+        const out = res.output ? (redact ? redactSecrets(res.output) : res.output) : "";
+        if (out) push("out", out.replace(/\s+$/, ""));
         if (!res.ok && res.error) push("err", res.error);
         if (!res.ok && !res.output && !res.error) push("err", `exit ${res.code}`);
-        // простая поддержка cd: путь запоминаем, чтобы приглашение было честным
-        if (/^cd\s+/.test(input) && res.ok) {
-          const target = input.replace(/^cd\s+/, "").trim();
-          setCwd(target === "~" || target === "" ? "~" : target);
+        if (/^cd(\s|$)/.test(input) && res.ok) {
+          // узнаём у рантайма настоящий путь после перехода
+          const probe = await runCommandCapture("pwd", undefined, absCwd ?? undefined);
+          const real = (probe.output || "").trim().split("\n").pop()?.trim() ?? "";
+          const target = input.replace(/^cd\s*/, "").trim();
+          if (probe.ok && real.startsWith("/")) {
+            setAbsCwd(real);
+            setCwd(target === "" || target === "~" || target === "-" ? real : target);
+          }
+        } else if (!absCwd && res.ok) {
+          // первый запуск: подхватываем реальный каталог рантайма для приглашения
+          const probe = await runCommandCapture("pwd", undefined, undefined);
+          const real = (probe.output || "").trim().split("\n").pop()?.trim() ?? "";
+          if (probe.ok && real.startsWith("/")) setAbsCwd(real);
         }
       } catch (e: any) {
         push("err", String(e?.message ?? e));
@@ -89,7 +106,7 @@ export function TerminalScreen({ navigation }: { navigation: any }) {
         setBusy(false);
       }
     },
-    [busy, cwd, push],
+    [busy, cwd, absCwd, push],
   );
 
   const color = (kind: Line["kind"]) =>

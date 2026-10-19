@@ -15,6 +15,7 @@ import { listMcpServers, addMcpServer, removeMcpServer, toUiMcp, listWebhooks, a
 import { AppIcon } from "../design-system/components/AppIcon";
 import { useApp } from "../store/AppStore";
 import { fonts } from "../theme/tokens";
+import { confirmDangerous } from "../core/confirm";
 import { Button } from "../design-system/components/Button";
 import { DeptRow, DeptDivider, DeptBack, DeptDef } from "../components/Dept";
 
@@ -95,7 +96,12 @@ export function ConnectorsScreen({ navigation }: { navigation: any }) {
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <View style={{ paddingTop: insets.top + 6, paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: theme.border, flexDirection: "row", alignItems: "center" }}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={{ marginRight: 10 }} accessibilityLabel={t("back")}>
+        <Pressable
+          onPress={() => (dept === null ? navigation.goBack() : setDept(null))}
+          hitSlop={10}
+          style={{ marginRight: 10 }}
+          accessibilityLabel={dept === null ? t("back") : "К отделам"}
+        >
           <AppIcon name="arrow-left" size={22} color={theme.text} />
         </Pressable>
         <View>
@@ -148,7 +154,7 @@ export function ConnectorsScreen({ navigation }: { navigation: any }) {
                   <Text style={{ color: theme.text, fontSize: 13, fontWeight: "600" }}>{m.name}</Text>
                   <Text numberOfLines={1} style={{ color: theme.mute, fontSize: 10.5, fontFamily: fonts.mono }}>{m.target}</Text>
                 </View>
-                <Pressable onPress={() => delMcp(m.id)} hitSlop={8} style={{ padding: 4 }}>
+                <Pressable onPress={() => confirmDangerous("Удалить MCP-сервер?", `${m.name}\n\n${m.target}`, () => delMcp(m.id))} hitSlop={8} style={{ padding: 4 }}>
                   <AppIcon name="delete" size={17} color={theme.danger} />
                 </Pressable>
               </View>
@@ -174,7 +180,7 @@ export function ConnectorsScreen({ navigation }: { navigation: any }) {
                   <Text style={{ color: theme.text, fontSize: 13, fontWeight: "600" }}>{w.name}</Text>
                   {w.events ? <Text numberOfLines={1} style={{ color: theme.mute, fontSize: 10.5, fontFamily: fonts.mono }}>{w.events}</Text> : null}
                 </View>
-                <Pressable onPress={() => delWh(w.id)} hitSlop={8} style={{ padding: 4 }}>
+                <Pressable onPress={() => confirmDangerous("Удалить вебхук?", `${w.name}`, () => delWh(w.id))} hitSlop={8} style={{ padding: 4 }}>
                   <AppIcon name="delete" size={17} color={theme.danger} />
                 </Pressable>
               </View>

@@ -127,21 +127,55 @@ export function ProvidersScreen({ navigation }: { navigation: any }) {
         </ScrollView>
       )}
 
-      {dept !== null && dept !== "sysmodels" && (
+      {/* Свои модели — плоский список всех моделей всех провайдеров (а не дубль экрана провайдеров) */}
+      {dept === "mymodels" && (
+        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 100 }}>
+          <Text style={{ color: theme.mute, fontSize: 10, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 8 }}>
+            {t("dept_mymodels")} ({myModelsCount})
+          </Text>
+          {myModelsCount === 0 ? (
+            <Text style={{ color: theme.dim, fontSize: 12.5, textAlign: "center", marginTop: 14, lineHeight: 19 }}>
+              Своих моделей нет. Они добавляются внутри провайдера в отделе «{t("dept_myproviders")}».
+            </Text>
+          ) : (
+            customs.flatMap((p) =>
+              (p.models ?? []).map((m) => (
+                <Pressable
+                  key={p.id + m.id}
+                  onPress={() => removeModel(p, m)}
+                  style={({ pressed }) => ({
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 10,
+                    minHeight: 46,
+                    paddingHorizontal: 4,
+                    borderRadius: 12,
+                    backgroundColor: pressed ? theme.surface2 : "transparent",
+                  })}
+                  accessibilityLabel={`Удалить модель ${m.name}`}
+                >
+                  <AppIcon name="model" size={17} color={theme.text} />
+                  <View style={{ flex: 1 }}>
+                    <Text numberOfLines={1} style={{ color: theme.text, fontSize: 14 }}>{m.name}</Text>
+                    <Text numberOfLines={1} style={{ color: theme.mute, fontSize: 10.5, fontFamily: fonts.mono }}>{p.name}</Text>
+                  </View>
+                  <AppIcon name="delete" size={16} color={theme.danger} />
+                </Pressable>
+              )),
+            )
+          )}
+        </ScrollView>
+      )}
+
+      {dept !== null && dept !== "sysmodels" && dept !== "mymodels" && (
       <FlatList
         data={customs}
         keyExtractor={(p) => p.id}
         contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
         ListHeaderComponent={
-          dept === "mymodels" ? (
-            <Text style={{ color: theme.mute, fontSize: 10, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 6 }}>
-              {t("dept_mymodels")} ({myModelsCount})
-            </Text>
-          ) : (
-            <Text style={{ color: theme.mute, fontSize: 10, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 6 }}>
-              {t("dept_myproviders")} ({customs.length})
-            </Text>
-          )
+          <Text style={{ color: theme.mute, fontSize: 10, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 6 }}>
+            {t("dept_myproviders")} ({customs.length})
+          </Text>
         }
         ListEmptyComponent={
           <Text style={{ color: theme.dim, fontSize: 12.5, textAlign: "center", marginTop: 14, lineHeight: 19 }}>

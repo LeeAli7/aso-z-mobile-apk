@@ -52,7 +52,7 @@ export function VibeScreen({ navigation }: { navigation: any }) {
   const [renameText, setRenameText] = useState("");
 
   // ── файлы агента (агрегат по проектам) ──
-  const [allFiles, setAllFiles] = useState<{ project: string; entries: VibeFileEntry[] }[]>([]);
+  const [allFiles, setAllFiles] = useState<{ project: string; id: string; entries: VibeFileEntry[] }[]>([]);
   const [filesLoading, setFilesLoading] = useState(false);
 
   // ── память / задачи / автозадачи / скиллы ──
@@ -87,6 +87,7 @@ export function VibeScreen({ navigation }: { navigation: any }) {
       const agg = await Promise.all(
         list.map(async (p) => ({
           project: p.name,
+          id: p.id,
           entries: await listFiles(p.id).catch(() => []),
         })),
       );
@@ -280,7 +281,7 @@ export function VibeScreen({ navigation }: { navigation: any }) {
       {dept === "files" && (
         <FlatList
           data={allFiles}
-          keyExtractor={(a) => a.project}
+          keyExtractor={(a) => a.id}
           contentContainerStyle={{ padding: 16 }}
           ListEmptyComponent={
             <Text style={{ color: theme.dim, fontSize: 12.5, textAlign: "center", marginTop: 24 }}>
@@ -293,11 +294,17 @@ export function VibeScreen({ navigation }: { navigation: any }) {
                 {item.project.toUpperCase()} · {item.entries.length}
               </Text>
               {item.entries.map((f) => (
-                <View key={f.name} style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 10, borderRadius: 10, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface, marginBottom: 6 }}>
+                <Pressable
+                  key={f.name}
+                  onPress={() => navigation.navigate("VibeProject", { id: item.id, name: item.project })}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 10, borderRadius: 10, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface, marginBottom: 6 }}
+                  accessibilityLabel={`Открыть файл ${f.name} в проекте ${item.project}`}
+                >
                   <AppIcon name="file" size={16} color={theme.accentHi} />
                   <Text numberOfLines={1} style={{ flex: 1, color: theme.text, fontSize: 12.5, fontFamily: "monospace" }}>{f.name}</Text>
                   <Text style={{ color: theme.mute, fontSize: 10, fontFamily: "monospace" }}>{f.size} B</Text>
-                </View>
+                  <AppIcon name="chevron-right" size={14} color={theme.mute} />
+                </Pressable>
               ))}
             </View>
           )}

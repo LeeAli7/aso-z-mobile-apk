@@ -113,6 +113,7 @@ async function runSubAgent(
   };
 
   let text = "";
+  let streamError = "";
   try {
     await streamAgentChat(
       model,
@@ -121,11 +122,16 @@ async function runSubAgent(
       {
         onToken: (t: string) => { text += t; },
         onDone: () => {},
-        onError: () => {},
+        onError: (e: any) => { streamError = String(e?.message ?? e); },
       },
       signal,
     );
     // субагент не должен использовать тулы — только прямой ответ (легче и быстрее)
+    // Ошибку стрима нельзя глотать: иначе упавший субагент выглядел бы как
+    // успешно выполненный с пустым результатом, и модель начала бы выдумывать вывод.
+    if (!text.trim()) {
+      return { goal: task.goal, ok: false, text: "", error: streamError || "пустой ответ субагента" };
+    }
     return { goal: task.goal, ok: true, text: text.slice(0, 8000) };
   } catch (e: any) {
     if (signal?.aborted) return { goal: task.goal, ok: false, text: "", error: "aborted" };

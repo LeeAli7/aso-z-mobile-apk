@@ -147,7 +147,10 @@ export function nextRunAt(job: CronJob, now: number = Date.now()): number | null
   // ISO (once)
   const iso = Date.parse(s);
   if (!Number.isNaN(iso) && /^\d{4}-\d{2}-\d{2}/.test(s)) {
-    return iso > now ? iso : null;
+    // once-задача: если время прошло, а запуска ещё не было (приложение было
+    // закрыто) — она всё равно должна сработать один раз, а не потеряться.
+    if (job.lastRunAt !== null) return null;
+    return iso;
   }
 
   // '30m' — интервал в минутах
@@ -174,29 +177,34 @@ export function nextRunAt(job: CronJob, now: number = Date.now()): number | null
   // cron-5-полей: '0 9 * * *'
   const parts = s.split(/\s+/);
   if (parts.length === 5) {
+    // Ни разу не запускалась — проверяем в том числе текущую минуту, иначе
+    // «0 9 * * *» проваливается ровно в 09:00 и ждёт следующие сутки.
     const base = new Date(job.lastRunAt ?? now);
-    return cronNext(parts, base);
+    return cronNext(parts, base, job.lastRunAt === null);
   }
 
   return null;
 }
 
-function cronNext(parts: string[], from: Date): number {
+function cronNext(parts: string[], from: Date, inclusive = false): number {
   const d = new Date(from);
   d.setSeconds(0, 0);
+  if (inclusive && cronFieldsMatch(parts, d)) return d.getTime();
   for (let i = 0; i < 60 * 24 * 366; i++) {
     d.setMinutes(d.getMinutes() + 1);
-    if (
-      cronMatch(parts[0], d.getMinutes()) &&
-      cronMatch(parts[1], d.getHours()) &&
-      cronMatch(parts[2], d.getDate()) &&
-      cronMatch(parts[3], d.getMonth() + 1) &&
-      cronMatch(parts[4], d.getDay())
-    ) {
-      return d.getTime();
-    }
+    if (cronFieldsMatch(parts, d)) return d.getTime();
   }
   return Date.now() + 24 * 3600_000;
+}
+
+function cronFieldsMatch(parts: string[], d: Date): boolean {
+  return (
+    cronMatch(parts[0], d.getMinutes()) &&
+    cronMatch(parts[1], d.getHours()) &&
+    cronMatch(parts[2], d.getDate()) &&
+    cronMatch(parts[3], d.getMonth() + 1) &&
+    cronMatch(parts[4], d.getDay())
+  );
 }
 
 function cronMatch(field: string, value: number): boolean {
@@ -223,6 +231,36 @@ export async function dueJobs(now: number = Date.now()): Promise<CronJob[]> {
     // (catch-up: интервальные задачи после паузы не «догоняют» каждый тик)
     return next <= now && (j.lastRunAt === null || now - (j.lastRunAt ?? 0) >= 1000);
   });
+}
+
+/**
+ * Атомарно «забирает» задачи, которым пора запускаться: проставляет lastRunAt
+ * до выполнения и отключает once-задачи. Без этого 30-секундный тик запускал
+ * одну и ту же задачу повторно, пока предыдущий ход агента ещё не завершился.
+ */
+export async function claimDueJobs(now: number = Date.now()): Promise<CronJob[]> {
+  const jobs = await loadJobs();
+  const claimed: CronJob[] = [];
+  let changed = false;
+  for (const j of jobs) {
+    const next = nextRunAt(j, now);
+    if (next === null || next > now) continue;
+    j.lastRunAt = now;
+    if (j.once) j.enabled = false;
+    claimed.push({ ...j });
+    changed = true;
+  }
+  if (changed) await saveJobs(jobs);
+  return claimed;
+}
+
+/** Результат выполнения (lastRunAt уже проставлен в claimDueJobs). */
+export async function setJobResult(id: string, result: string): Promise<void> {
+  const jobs = await loadJobs();
+  const j = jobs.find((x) => x.id === id);
+  if (!j) return;
+  j.lastResult = result.slice(0, 500);
+  await saveJobs(jobs);
 }
 
 /** Следующие запуски для UI (форматировано). */

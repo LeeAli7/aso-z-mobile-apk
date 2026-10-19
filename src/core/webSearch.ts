@@ -7,6 +7,7 @@
  */
 import { Platform } from "react-native";
 import { config } from "./env";
+import { isBlockedUrl, loadSecurity } from "./security";
 
 export interface SearchResult {
   title: string;
@@ -74,7 +75,19 @@ export async function webSearch(query: string): Promise<{ ok: boolean; results: 
     if (results.length === 0) {
       return { ok: false, results: [], error: "поиск не вернул результатов" };
     }
-    return { ok: true, results };
+
+    // Блок-лист сайтов из настроек: фильтруем выдачу, чтобы агент не ходил
+    // по запрещённым пользователем доменам даже через поиск.
+    const sec = await loadSecurity();
+    const allowed =
+      sec.websiteBlocklist.length === 0
+        ? results
+        : results.filter((r) => !isBlockedUrl(r.url, sec.websiteBlocklist));
+
+    if (allowed.length === 0) {
+      return { ok: false, results: [], error: "все результаты скрыты блок-листом сайтов" };
+    }
+    return { ok: true, results: allowed };
   } catch (e: any) {
     return { ok: false, results: [], error: String(e?.message || e) };
   }
