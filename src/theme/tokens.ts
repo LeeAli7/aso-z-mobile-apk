@@ -1,8 +1,10 @@
 /**
- * Тема-токены в стиле Kimi (Moonshot AI).
- * Значения — из официальной дизайн-системы kimi-widget (widget_foundation.css
- * из APK): KMBlue #1783ff/#1a88ff, тёмный #121212/#1f1f1f, светлый #fff/#f5f5f5.
- * Один дизайн, две темы.
+ * Тема-токены «КРОВЬ».
+ *
+ * Система: чёрный фон, карточки #141416, «снег» — белый текст,
+ * «кровь» #FF3B30 — единственный цветной акцент и только по делу:
+ * ошибка, подтверждение, разрушительное действие.
+ * Главное действие — белая капсула с чёрным текстом, не цветная кнопка.
  */
 /** "system" резолвится в light/dark через Appearance (см. AppStore). */
 export type ThemeName = "light" | "dark" | "system";
@@ -16,6 +18,7 @@ export interface Theme {
   text: string;
   dim: string;
   mute: string;
+  /** Главное действие: в КРОВИ это белая капсула. */
   accent: string;
   accentHi: string;
   accentDim: string;
@@ -28,18 +31,18 @@ export interface Theme {
   codeBg: string;
   codeText: string;
   scrim: string;
+  /** Кровь: ошибки и разрушительные действия. */
   danger: string;
   ok: string;
-  /** Доп. цвета Kimi: предупреждение, фиолетовый (агент), оранжевый */
   warn: string;
   purple: string;
 }
 
 export const fonts = {
-  /** Основной текст (MiSansLatin — кириллица падает на системный, это ок). */
+  /** Основной текст интерфейса. */
   sansMedium: "MiSansLatin-Medium",
   sansDemi: "MiSansLatin-Demibold",
-  /** Моноширинный для кода и терминал-меток (Geist Mono — фирменный шрифт Kimi). */
+  /** Моноширинный — ID, команды, терминал. */
   mono: "GeistMono",
   monoItalic: "GeistMono-Italic",
   /** Пиксельный, для ретро-заголовков. */
@@ -47,53 +50,54 @@ export const fonts = {
 } as const;
 
 export const themes: Record<"light" | "dark", Theme> = {
+  // «КРОВЬ» — основной вид приложения.
   dark: {
     name: "dark",
-    bg: "#0d0d0d",
-    surface: "#1b1b1d",
-    surface2: "#26262a",
-    border: "rgba(255,255,255,.12)",
-    text: "rgba(255,255,255,.88)",
-    dim: "rgba(255,255,255,.56)",
-    mute: "rgba(255,255,255,.38)",
-    accent: "#1a88ff",
-    accentHi: "#4da6ff",
-    accentDim: "rgba(26,136,255,.16)",
-    onAccent: "#ffffff",
-    ripple: "rgba(255,255,255,.12)",
-    userBubble: "#1a88ff",
+    bg: "#000000",
+    surface: "#141416",
+    surface2: "#1c1c1f",
+    border: "rgba(255,255,255,.09)",
+    text: "#ffffff",
+    dim: "rgba(235,235,245,.45)",
+    mute: "rgba(235,235,245,.28)",
+    accent: "#ffffff",
+    accentHi: "#ededf0",
+    accentDim: "rgba(255,255,255,.10)",
+    onAccent: "#000000",
+    ripple: "rgba(255,255,255,.10)",
+    userBubble: "#1f1f22",
     userText: "#ffffff",
-    codeBg: "#0a0a0a",
-    codeText: "#d4d4d4",
-    scrim: "rgba(0,0,0,.45)",
-    danger: "#ff3849",
-    ok: "#16c456",
-    warn: "#ffd230",
-    purple: "#a16bff",
+    codeBg: "#0a0a0b",
+    codeText: "#e6e6ea",
+    scrim: "rgba(0,0,0,.62)",
+    danger: "#FF3B30",
+    ok: "#ffffff",
+    warn: "#8e8e93",
+    purple: "#8e8e93",
   },
+  // Светлый вариант той же системы — без цвета, с той же кровью.
   light: {
     name: "light",
     bg: "#ffffff",
-    surface: "#f5f5f5",
-    surface2: "#e8e8ec",
-    border: "rgba(0,0,0,.13)",
-    text: "rgba(0,0,0,.9)",
-    dim: "rgba(0,0,0,.6)",
-    mute: "rgba(0,0,0,.45)",
-    accent: "#1783ff",
-    accentHi: "#0066d6",
-    accentDim: "rgba(23,131,255,.1)",
+    surface: "#f5f5f7",
+    surface2: "#ececef",
+    border: "rgba(0,0,0,.10)",
+    text: "#000000",
+    dim: "rgba(0,0,0,.52)",
+    mute: "rgba(0,0,0,.34)",
+    accent: "#000000",
+    accentHi: "#1c1c1f",
+    accentDim: "rgba(0,0,0,.06)",
     onAccent: "#ffffff",
-    ripple: "rgba(0,0,0,.1)",
-    userBubble: "#1783ff",
-    userText: "#ffffff",
-    // Код-блоки всегда тёмные (как в Kimi/VS Code), независимо от темы.
-    codeBg: "#1e1e1e",
-    codeText: "#d4d4d4",
-    scrim: "rgba(0,0,0,.5)",
-    danger: "#ff3849",
-    ok: "#16c456",
-    warn: "#ff9500",
-    purple: "#985ffb",
+    ripple: "rgba(0,0,0,.08)",
+    userBubble: "#ececef",
+    userText: "#000000",
+    codeBg: "#0a0a0b",
+    codeText: "#e6e6ea",
+    scrim: "rgba(0,0,0,.45)",
+    danger: "#FF3B30",
+    ok: "#000000",
+    warn: "#8e8e93",
+    purple: "#8e8e93",
   },
 };
