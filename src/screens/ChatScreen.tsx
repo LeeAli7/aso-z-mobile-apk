@@ -174,6 +174,25 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     ? projects.find((p) => p.id === active.projectId) ?? null
     : null;
 
+  // Смена модели сессии (панель и команда /model). Объявлена ДО runSlashCommand,
+  // иначе команда обращалась бы к ещё не инициализированной переменной.
+  const switchModel = useCallback(
+    (m: ModelInfo) => {
+      if (active) {
+        dispatch({ type: "UPDATE_SESSION", sessionId: active.id, patch: { modelId: m.modelName } });
+      } else {
+        const sid = genId();
+        dispatch({ type: "ADD_SESSION", session: {
+          id: sid, name: t("chat_title"), messages: [], modelId: m.modelName,
+          createdAt: Date.now(), updatedAt: Date.now(),
+        }});
+        setActive(sid);
+      }
+      setDefaultModel(m.modelName);
+    },
+    [active, dispatch, setActive, setDefaultModel, t],
+  );
+
   const scrollBottom = () =>
     setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 60);
 
@@ -296,7 +315,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             "Команды:",
             "/new — новая сессия",
             "/help — эта справка",
-            "/model — сменить модель (настройки)",
+            "/model — список моделей",
+            "/model <имя> — сменить модель",
             "/cmd <команда> — выполнить в терминале",
             "/mem — показать память агента",
             "/mem clear — очистить память",
@@ -314,6 +334,21 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           return r.ok
             ? `$ ${rest}\n${(r.output || "(пусто)").slice(0, 3000)}`
             : `$ ${rest}\nОшибка: ${r.output?.trim() || r.error || `exit ${r.code}`}`;
+        }
+        case "/model": {
+          if (!allModels.length) return "Модели не подключены.";
+          if (!rest) {
+            const lines = allModels.map((m) => `${m.modelName === model?.modelName ? "• " : "  "}${m.displayName} — ${m.modelName}`);
+            return "Модели (• — активная):\n" + lines.join("\n") + "\n\nСменить: /model <имя или часть>";
+          }
+          const q = rest.toLowerCase();
+          const hit =
+            allModels.find((m) => m.modelName.toLowerCase() === q) ??
+            allModels.find((m) => m.displayName.toLowerCase() === q) ??
+            allModels.find((m) => m.modelName.toLowerCase().includes(q) || m.displayName.toLowerCase().includes(q));
+          if (!hit) return `Модель «${rest}» не найдена. /model — список.`;
+          switchModel(hit);
+          return `Модель: ${hit.displayName}`;
         }
         case "/mem": {
           const { memorySnapshot, clearMemory } = await import("../core/memory");
@@ -355,7 +390,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           return null; // не команда
       }
     },
-    [newSession, setActive],
+    [newSession, setActive, allModels, model, switchModel],
   );
 
   const sendText = useCallback(
@@ -929,25 +964,6 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     setRenameTarget(null);
   }, [renameTarget, renameValue, dispatch]);
 
-  const switchModel = useCallback(
-    (m: ModelInfo) => {
-      if (active) {
-        dispatch({ type: "UPDATE_SESSION", sessionId: active.id, patch: { modelId: m.modelName } });
-      } else {
-        const sid = genId();
-        dispatch({ type: "ADD_SESSION", session: {
-          id: sid, name: t("chat_title"), messages: [], modelId: m.modelName,
-          createdAt: Date.now(), updatedAt: Date.now(),
-        }});
-        setActive(sid);
-      }
-      // запоминаем выбранную модель для новых сессий (персист между запусками)
-      setDefaultModel(m.modelName);
-      setDrawerOpen(false);
-    },
-    [active, dispatch, setActive, setDefaultModel, t],
-  );
-
   const sessionList = [...state.sessions]
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .filter((s) => !search.trim() || s.name.toLowerCase().includes(search.trim().toLowerCase()));
@@ -1271,7 +1287,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         models={allModels}
         currentModelName={model?.modelName}
         modelName={modelName}
-        onSelectModel={switchModel}
+        onSelectModel={(m) => { switchModel(m); setDrawerOpen(false); }}
         onNewChat={handleNewSession}
         onNavigate={openDrawerRoute}
         sessions={sessionList}

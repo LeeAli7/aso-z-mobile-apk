@@ -1,79 +1,86 @@
-/**
- * UsageScreen — использование (UI Hermes-паритета, локальный стор).
- *
- * Суммарные токены + таблица по моделям (prompt/completion/total).
- * Движок учёта (Арес) позже заменит STATS на реальные замеры.
- *
- * NATIVE OWNER (Арес): движок usage (учёт токенов по моделям/провайдерам)
- * — заменить STATS ниже на реальные данные, UI не менять.
- */
-import React from "react";
+/** Использование: реальный учёт токенов из core/usage.ts. Стиль КРОВЬ. */
+import React, { useCallback, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";
 import { AppIcon } from "../design-system/components/AppIcon";
+import { getUsageSummary, clearUsage, ModelUsage } from "../core/usage";
 import { useApp } from "../store/AppStore";
 import { fonts } from "../theme/tokens";
 
-/** Заглушка до движка usage: структуру таблицы держим, цифры — нули. */
-const STATS: { model: string; prompt: number; completion: number }[] = [];
-
-function fmt(n: number): string {
-  return n.toLocaleString("ru-RU");
-}
+const fmt = (n: number) => n.toLocaleString("ru-RU");
 
 export function UsageScreen({ navigation }: { navigation: any }) {
-  const { theme, t } = useApp();
+  const { theme } = useApp();
   const insets = useSafeAreaInsets();
-  const total = STATS.reduce((a, s) => a + s.prompt + s.completion, 0);
-  const totalIn = STATS.reduce((a, s) => a + s.prompt, 0);
-  const totalOut = STATS.reduce((a, s) => a + s.completion, 0);
+  const [models, setModels] = useState<ModelUsage[]>([]);
+  const [total, setTotal] = useState({ promptTokens: 0, completionTokens: 0, totalTokens: 0, calls: 0 });
+
+  const load = useCallback(() => {
+    getUsageSummary()
+      .then((s) => { setModels(s.models); setTotal(s.total); })
+      .catch(() => {});
+  }, []);
+
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      <View style={{ paddingTop: insets.top + 6, paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: theme.border, flexDirection: "row", alignItems: "center" }}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={{ marginRight: 10 }} accessibilityLabel={t("back")}>
+      <View style={{ paddingTop: insets.top + 10, paddingHorizontal: 20, flexDirection: "row", alignItems: "center", gap: 12 }}>
+        <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
           <AppIcon name="arrow-left" size={22} color={theme.text} />
         </Pressable>
-        <View>
-          <Text style={{ color: theme.dim, fontSize: 11 }}>{t("usage_sub")}</Text>
-          <Text style={{ color: theme.text, fontSize: 22, fontWeight: "700", letterSpacing: -0.3 }}>{t("usage_title")}</Text>
-        </View>
+        <Text style={{ color: theme.text, fontSize: 17, fontWeight: "600" }}>Использование</Text>
       </View>
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 32 }}>
-        {/* суммарно */}
-        <View style={{ flexDirection: "row", gap: 8 }}>
-          {[
-            { label: t("usage_total"), value: total },
-            { label: t("usage_prompt"), value: totalIn },
-            { label: t("usage_completion"), value: totalOut },
-          ].map((c) => (
-            <View key={c.label} style={{ flex: 1, padding: 12, borderRadius: 14, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }}>
-              <Text style={{ color: theme.mute, fontSize: 10.5 }}>{c.label}</Text>
-              <Text style={{ color: theme.text, fontSize: 17, fontWeight: "700", fontFamily: fonts.mono, marginTop: 2 }}>{fmt(c.value)}</Text>
+
+      <ScrollView contentContainerStyle={{ paddingTop: 28, paddingBottom: insets.bottom + 40 }}>
+        <View style={{ paddingHorizontal: 20 }}>
+          <Text style={{ color: theme.text, fontSize: 40, fontWeight: "700", letterSpacing: -1.2, fontFamily: fonts.mono }}>
+            {fmt(total.totalTokens)}
+          </Text>
+          <Text style={{ color: theme.mute, fontSize: 13, marginTop: 2 }}>
+            токенов · {fmt(total.calls)} {total.calls === 1 ? "запрос" : "запросов"}
+          </Text>
+          <View style={{ flexDirection: "row", marginTop: 18, gap: 28 }}>
+            <View>
+              <Text style={{ color: theme.mute, fontSize: 11, marginBottom: 3 }}>вход</Text>
+              <Text style={{ color: theme.text, fontSize: 16, fontFamily: fonts.mono }}>{fmt(total.promptTokens)}</Text>
             </View>
-          ))}
+            <View>
+              <Text style={{ color: theme.mute, fontSize: 11, marginBottom: 3 }}>выход</Text>
+              <Text style={{ color: theme.text, fontSize: 16, fontFamily: fonts.mono }}>{fmt(total.completionTokens)}</Text>
+            </View>
+          </View>
         </View>
 
-        {/* по моделям */}
-        <Text style={{ color: theme.text, fontSize: 13, fontWeight: "600", marginTop: 16, marginBottom: 6 }}>{t("models")}</Text>
-        {STATS.length === 0 ? (
-          <View style={{ padding: 14, borderRadius: 15, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }}>
-            <Text style={{ color: theme.dim, fontSize: 12.5, lineHeight: 18 }}>{t("usage_empty")}</Text>
-          </View>
-        ) : (
-          <View style={{ borderRadius: 15, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface, overflow: "hidden" }}>
-            {STATS.map((s, i) => (
-              <View key={s.model} style={{ padding: 12, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: theme.border }}>
-                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                  <Text style={{ color: theme.text, fontSize: 13, fontWeight: "600", fontFamily: fonts.mono }}>{s.model}</Text>
-                  <Text style={{ color: theme.accentHi, fontSize: 12, fontFamily: fonts.mono }}>{fmt(s.prompt + s.completion)}</Text>
-                </View>
-                <Text style={{ color: theme.mute, fontSize: 10.5, fontFamily: fonts.mono, marginTop: 2 }}>
-                  {t("usage_prompt")}: {fmt(s.prompt)} · {t("usage_completion")}: {fmt(s.completion)}
+        <View style={{ height: 1, backgroundColor: theme.border, marginTop: 28, marginHorizontal: 20 }} />
+
+        <View style={{ paddingHorizontal: 20, paddingTop: 20 }}>
+          <Text style={{ color: theme.mute, fontSize: 12, letterSpacing: 0.4, marginBottom: 10 }}>ПО МОДЕЛЯМ</Text>
+          {models.length === 0 ? (
+            <Text style={{ color: theme.mute, fontSize: 13, lineHeight: 19 }}>
+              Пока пусто. Цифры появятся после первого ответа модели — провайдер присылает их вместе со стримом.
+            </Text>
+          ) : (
+            models.map((m) => (
+              <View key={m.modelKey} style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: theme.border }}>
+                <Text style={{ color: theme.text, fontSize: 13.5, fontFamily: fonts.mono }} numberOfLines={1}>{m.modelKey}</Text>
+                <Text style={{ color: theme.mute, fontSize: 11.5, marginTop: 3 }}>
+                  вход {fmt(m.promptTokens)} · выход {fmt(m.completionTokens)} · {fmt(m.calls)} запр.
                 </Text>
               </View>
-            ))}
-          </View>
+            ))
+          )}
+        </View>
+
+        {models.length > 0 && (
+          <Pressable
+            onPress={() => { clearUsage(); setModels([]); setTotal({ promptTokens: 0, completionTokens: 0, totalTokens: 0, calls: 0 }); }}
+            style={{ marginTop: 26, paddingHorizontal: 20 }}
+            hitSlop={8}
+          >
+            <Text style={{ color: theme.danger, fontSize: 14 }}>Сбросить счётчики</Text>
+          </Pressable>
         )}
       </ScrollView>
     </View>

@@ -7,7 +7,7 @@
  * Логика как у ТГ-бота Aso: ПРОВАЙДЕР = контейнер со списком моделей.
  */
 import React, { useCallback, useEffect, useState } from "react";
-import { FlatList, Pressable, ScrollView, Text, View } from "react-native";
+import { Alert, FlatList, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppIcon } from "../design-system/components/AppIcon";
 import { useApp } from "../store/AppStore";
@@ -58,19 +58,37 @@ export function ProvidersScreen({ navigation }: { navigation: any }) {
   const toggleExpand = (id: string) => setExpanded((prev) => (prev === id ? null : id));
 
   const removeProvider = useCallback(
-    async (p: CustomProvider) => {
-      await deleteCustomProvider(p.id);
-      showToast("ok", "Провайдер удалён");
-      refresh();
+    (p: CustomProvider) => {
+      Alert.alert("Удалить провайдера?", "Модели этого провайдера тоже пропадут. Настройки ключей будут стёрты.", [
+        { text: "Отмена", style: "cancel" },
+        {
+          text: "Удалить",
+          style: "destructive",
+          onPress: async () => {
+            await deleteCustomProvider(p.id);
+            showToast("ok", "Провайдер удалён");
+            refresh();
+          },
+        },
+      ]);
     },
     [refresh],
   );
 
   const removeModel = useCallback(
-    async (p: CustomProvider, m: CustomModel) => {
-      await deleteCustomModel(p.id, m.id);
-      showToast("ok", "Модель удалена");
-      refresh();
+    (p: CustomProvider, m: CustomModel) => {
+      Alert.alert("Удалить модель?", `${m.name} исчезнет из списка выбора.`, [
+        { text: "Отмена", style: "cancel" },
+        {
+          text: "Удалить",
+          style: "destructive",
+          onPress: async () => {
+            await deleteCustomModel(p.id, m.id);
+            showToast("ok", "Модель удалена");
+            refresh();
+          },
+        },
+      ]);
     },
     [refresh],
   );

@@ -155,9 +155,11 @@ export function nextRunAt(job: CronJob, now: number = Date.now()): number | null
   if (m) {
     const intervalMin = parseInt(m[1], 10);
     if (intervalMin <= 0) return null;
-    const last = job.lastRunAt ?? now;
-    // следующий после последнего запуска
-    return last + intervalMin * 60_000;
+    // Ещё ни разу не запускалась — запускаем на ближайшем тике. Раньше здесь
+    // подставлялось `now`, поэтому next каждый тик уезжал вперёд и задача
+    // не срабатывала никогда.
+    if (job.lastRunAt === null) return now;
+    return job.lastRunAt + intervalMin * 60_000;
   }
 
   // 'every 2h' — интервал в часах
@@ -165,8 +167,8 @@ export function nextRunAt(job: CronJob, now: number = Date.now()): number | null
   if (m) {
     const intervalH = parseInt(m[1], 10);
     if (intervalH <= 0) return null;
-    const last = job.lastRunAt ?? now;
-    return last + intervalH * 3600_000;
+    if (job.lastRunAt === null) return now;
+    return job.lastRunAt + intervalH * 3600_000;
   }
 
   // cron-5-полей: '0 9 * * *'

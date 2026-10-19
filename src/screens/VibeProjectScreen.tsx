@@ -596,7 +596,7 @@ function VibeBubble({ msg, theme }: { msg: VibeMsg; theme: any }) {
   if (msg.tool) {
     return (
       <View style={{ alignSelf: "flex-start", marginBottom: 6 }}>
-        <ToolCard tool={msg.tool} state="loading" theme={theme} />
+        <ToolCard tool={msg.tool} state={msg.streaming ? "loading" : "done"} theme={theme} />
       </View>
     );
   }

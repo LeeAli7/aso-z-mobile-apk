@@ -446,6 +446,11 @@ export function VibeScreen({ navigation }: { navigation: any }) {
       <Sheet visible={!!menuProject} onClose={() => setMenuProject(null)} title={menuProject?.name ?? ""} snapPoints={["40%"]}>
         {menuProject && (
           <View style={{ gap: 8 }}>
+            <TextField
+              value={renameText}
+              onChangeText={setRenameText}
+              placeholder="Новое имя проекта"
+            />
             <Button
               title={t("export_title")}
               variant="secondary"
