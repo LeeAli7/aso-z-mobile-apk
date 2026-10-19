@@ -1,98 +1,45 @@
 /**
- * Glass — глэссморфизм (стекло) БЕЗ нативного BlurView.
+ * Поверхности приложения в стиле КРОВЬ.
  *
- * ПОЧЕМУ НЕ BlurView: на Android expo-blur рендерится отдельным нативным
- * слоем — перехватывает тачи (TextInput не работает), ломает размеры
- * кнопок, режет иконки, в ScrollView/Sheet даёт артефакты. На web без
- * подложки blur'у нечего размывать — стекло не видно.
+ * Никакого стекла: без BlurView, без градиентов, без полупрозрачных рамок.
+ * Карточка — это карточка: фон #141416, радиус 20, тонкая непрозрачная
+ * рамка 1px. Полупрозрачные слои давали мутные полосы и бледные иконки —
+ * в чёрно-белой системе это читается как грязь, а не как материал.
  *
- * РЕШЕНИЕ: стекло рисуется примитивами — полупрозрачный фон + тонкая
- * светлая рамка + верхний блик (внутренний highlight) + мягкая тень.
- * Поверх фоновых glow-пятен (GlassBackdrop) это выглядит как матовое
- * стекло и работает одинаково на Android / iOS / web. Без нативных
- * слоёв: тачи, размеры и иконки ведут себя предсказуемо.
+ * Имена экспортов сохранены (Glass, GlassPressable, GlassTint, GlassRim,
+ * glassStyle), чтобы существующие экраны продолжали собираться.
  */
 import React from "react";
 import { StyleSheet, View, ViewStyle, Pressable } from "react-native";
-import { BlurView } from "expo-blur";
-import { LinearGradient } from "expo-linear-gradient";
 import { useApp } from "../../store/AppStore";
 
-/**
- * Стеклянные стили (фон, рамка, блик, тень) — используются всеми компонентами.
- * «Физика стекла»: светлый край сверху-слева (блик), почти прозрачный снизу-справа,
- * полупрозрачная градиентная заливка, мягкая тень — элементы читаются как матовое стекло.
- */
-export function glassStyle(theme: any, radius: number): ViewStyle {
-  const dark = theme.name === "dark";
+const RADIUS_CARD = 20;
+
+/** Поверхность карточки. */
+export function glassStyle(theme: any, radius: number = RADIUS_CARD): ViewStyle {
   return {
     borderRadius: radius,
     borderWidth: 1,
-    // световой край грани: верх/лево — полупрозрачный белый (блик), низ/право — почти прозрачный
-    borderTopColor: dark ? "rgba(255,255,255,.22)" : "rgba(255,255,255,.9)",
-    borderLeftColor: dark ? "rgba(255,255,255,.16)" : "rgba(255,255,255,.85)",
-    borderRightColor: dark ? "rgba(255,255,255,.05)" : "rgba(255,255,255,.45)",
-    borderBottomColor: dark ? "rgba(255,255,255,.03)" : "rgba(255,255,255,.35)",
-    backgroundColor: dark ? "rgba(22,22,28,.62)" : "rgba(255,255,255,.58)",
-    shadowColor: "#000",
-    shadowOpacity: dark ? 0.45 : 0.2,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 6,
+    borderColor: theme.name === "dark" ? "#1f1f22" : "#e2e2e6",
+    backgroundColor: theme.name === "dark" ? "#141416" : "#f5f5f7",
   };
 }
 
-/**
- * Подложка стекла: ТОЛЬКО едва заметная полупрозрачность (без лобовых фигур).
- * По ТЗ: фон карточки — rgba(255,255,255,0.05) для тёмной темы; размытие даёт
- * BlurView, блик по верх/левому краю — glassStyle + GlassRim. Контент всегда
- * поверх (рендерится после этих слоёв).
- */
-export function GlassTint({ dark }: { dark: boolean }) {
-  return (
-    <LinearGradient
-      colors={
-        dark
-          ? ["rgba(255,255,255,.05)", "rgba(255,255,255,.01)"]
-          : ["rgba(255,255,255,.65)", "rgba(255,255,255,.3)"]
-      }
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={StyleSheet.absoluteFill}
-      pointerEvents="none"
-    />
-  );
+/** Пустой слой: раньше здесь был градиентный блик. */
+export function GlassTint(_: { dark: boolean }) {
+  return null;
 }
 
-/**
- * Тонкая светящаяся кромка (1px, как iOS glass border): блик по контуру,
- * контент не перекрывает — рендерится ДО children (слой ниже текста).
- */
-export function GlassRim({ radius, dark }: { radius: number; dark: boolean }) {
-  return (
-    <View
-      pointerEvents="none"
-      style={{
-        position: "absolute",
-        top: 0.5,
-        left: 0.5,
-        right: 0.5,
-        bottom: 0.5,
-        borderRadius: Math.max(2, radius - 1),
-        borderWidth: 1,
-        borderColor: dark ? "rgba(255,255,255,.12)" : "rgba(255,255,255,.7)",
-        opacity: 0.8,
-      }}
-    />
-  );
+/** Пустой слой: раньше здесь была преломляющая кромка. */
+export function GlassRim(_: { radius: number; dark: boolean }) {
+  return null;
 }
 
-/** Стеклянная карточка-контейнер (некликабельная). */
+/** Карточка-контейнер (некликабельная). */
 export function Glass({
-  radius = 22,
+  radius = RADIUS_CARD,
   style,
   children,
-  blur = true,
 }: {
   radius?: number;
   style?: ViewStyle;
@@ -100,34 +47,18 @@ export function Glass({
   blur?: boolean;
 }) {
   const { theme } = useApp();
-  const dark = theme.name === "dark";
-  return (
-    <View style={[glassStyle(theme, radius), { borderRadius: radius, overflow: "hidden" }, style]}>
-      {blur && (
-        <BlurView
-          intensity={26}
-          tint={dark ? "dark" : "light"}
-          style={StyleSheet.absoluteFill}
-          pointerEvents="none"
-        />
-      )}
-      <GlassTint dark={dark} />
-      <GlassRim radius={radius} dark={dark} />
-      {children}
-    </View>
-  );
+  return <View style={[glassStyle(theme, radius), style]}>{children}</View>;
 }
 
-/** Стеклянная кликабельная кнопка-капсула (круг/пилюля). */
+/** Кликабельная поверхность. */
 export function GlassPressable({
   onPress,
-  radius = 22,
+  radius = RADIUS_CARD,
   style,
   pressedStyle,
   disabled,
   children,
   accessibilityLabel,
-  blur = true,
 }: {
   onPress?: () => void;
   radius?: number;
@@ -139,7 +70,6 @@ export function GlassPressable({
   blur?: boolean;
 }) {
   const { theme } = useApp();
-  const dark = theme.name === "dark";
   return (
     <Pressable
       onPress={onPress}
@@ -148,27 +78,11 @@ export function GlassPressable({
       accessibilityLabel={accessibilityLabel}
       style={({ pressed }) => [
         glassStyle(theme, radius),
-        {
-          borderRadius: radius,
-          alignItems: "center",
-          justifyContent: "center",
-          overflow: "hidden",
-          opacity: pressed ? 0.8 : disabled ? 0.4 : 1,
-        },
+        { opacity: pressed ? 0.7 : disabled ? 0.4 : 1 },
         style,
         pressed ? pressedStyle : null,
       ]}
     >
-      {blur && (
-        <BlurView
-          intensity={26}
-          tint={dark ? "dark" : "light"}
-          style={StyleSheet.absoluteFill}
-          pointerEvents="none"
-        />
-      )}
-      <GlassTint dark={dark} />
-      <GlassRim radius={radius} dark={dark} />
       {children}
     </Pressable>
   );

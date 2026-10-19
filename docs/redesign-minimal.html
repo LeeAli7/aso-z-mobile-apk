@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aso-z — минималистичный редизайн (макет)</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --bg:#0d0d0d; --surface:#161619; --surface2:#1e1e23;
+    --border:rgba(255,255,255,.08); --text:rgba(255,255,255,.88);
+    --dim:rgba(255,255,255,.55); --mute:rgba(255,255,255,.32);
+    --accent:#1a88ff; --bubble:#1a88ff; --danger:#ff5a5a;
+  }
+  body { background:#08080a; color:var(--text);
+    font-family:-apple-system,"Segoe UI",Roboto,Inter,Arial,sans-serif;
+    padding:32px 20px; }
+  h1 { font-size:22px; font-weight:700; letter-spacing:-.3px; }
+  .sub { color:var(--dim); font-size:13.5px; margin-top:8px; max-width:900px; line-height:1.6; }
+  .sub b { color:var(--text); }
+  .frames { display:flex; gap:28px; flex-wrap:wrap; margin-top:28px; }
+  .frame-block { display:flex; flex-direction:column; gap:10px; }
+  .frame-cap { font-size:13px; color:var(--dim); max-width:360px; line-height:1.5; }
+  .frame-cap b { color:var(--text); }
+  .phone { width:360px; height:740px; background:var(--bg); border:1px solid var(--border);
+    border-radius:36px; overflow:hidden; position:relative; display:flex; flex-direction:column; }
+  /* header: only menu + title + new-chat */
+  .hdr { display:flex; align-items:center; padding:52px 8px 6px; flex-shrink:0; }
+  .hbtn { width:44px; height:44px; border-radius:22px; display:flex; align-items:center;
+    justify-content:center; color:var(--dim); cursor:pointer; border:none; background:transparent; font-size:21px; }
+  .hbtn:hover { background:rgba(255,255,255,.06); }
+  .htitle { flex:1; text-align:center; font-size:13px; color:var(--mute); white-space:nowrap;
+    overflow:hidden; text-overflow:ellipsis; padding:0 4px; }
+  /* body */
+  .body { flex:1; overflow:hidden; position:relative; display:flex; flex-direction:column; }
+  .greet { padding:26px 22px 0; }
+  .greet h2 { font-size:24px; font-weight:700; letter-spacing:-.5px; line-height:1.3;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .greet p { color:var(--dim); font-size:13.5px; margin-top:12px; line-height:1.55; }
+  .chips { display:flex; gap:8px; padding:16px 22px 0; flex-wrap:wrap; }
+  .chip { border:1px solid var(--border); background:var(--surface); color:var(--dim);
+    font-size:12.5px; padding:9px 14px; border-radius:99px; cursor:pointer; }
+  .chip:hover { color:var(--text); border-color:rgba(255,255,255,.2); }
+  .msgs { padding:12px 16px; display:flex; flex-direction:column; gap:10px; overflow:hidden; }
+  .u { align-self:flex-end; background:var(--bubble); color:#fff; font-size:14px;
+    border-radius:20px; padding:10px 14px; max-width:86%; line-height:1.45; }
+  .a { align-self:flex-start; font-size:14px; line-height:1.6; color:var(--text); max-width:100%; }
+  .a .meta { display:flex; gap:12px; margin-top:8px; }
+  .a .meta span { color:var(--mute); font-size:12px; cursor:pointer; }
+  /* input */
+  .inputbar { padding:6px 12px 26px; flex-shrink:0; }
+  .capsule { display:flex; align-items:center; gap:8px; background:var(--surface);
+    border:1px solid var(--border); border-radius:28px; padding:8px; }
+  .abtn { width:44px; height:44px; border-radius:22px; display:flex; align-items:center;
+    justify-content:center; background:rgba(255,255,255,.07); color:var(--dim);
+    border:1px solid var(--border); font-size:20px; cursor:pointer; flex-shrink:0; }
+  .field { flex:1; color:var(--mute); font-size:14px; }
+  .send { width:44px; height:44px; border-radius:22px; display:flex; align-items:center;
+    justify-content:center; color:var(--accent); font-size:22px; cursor:pointer; flex-shrink:0; }
+  /* drawer */
+  .scrim { position:absolute; inset:0; background:rgba(0,0,0,.55); opacity:0;
+    pointer-events:none; transition:opacity .25s; z-index:10; }
+  .scrim.on { opacity:1; pointer-events:auto; }
+  .drawer { position:absolute; top:0; bottom:0; left:0; width:300px; background:#131316;
+    border-right:1px solid var(--border); z-index:11; transform:translateX(-102%);
+    transition:transform .28s cubic-bezier(.32,.72,.35,1);
+    display:flex; flex-direction:column; padding:58px 0 24px; }
+  .drawer.on { transform:translateX(0); }
+  .dsec-label { font-size:10px; letter-spacing:1.2px; text-transform:uppercase;
+    color:var(--mute); padding:14px 20px 6px; }
+  .drow { display:flex; align-items:center; gap:12px; padding:11px 20px; font-size:14px;
+    color:var(--text); cursor:pointer; }
+  .drow:hover { background:rgba(255,255,255,.04); }
+  .drow .ic { width:22px; text-align:center; color:var(--dim); font-size:16px; }
+  .drow .val { margin-left:auto; font-size:12px; color:var(--mute); max-width:130px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .drow .chev { color:var(--mute); font-size:12px; }
+  .dnew { margin:0 16px 4px; background:var(--accent); color:#fff; border:none;
+    border-radius:14px; padding:13px; font-size:14px; font-weight:600; cursor:pointer; }
+  .ddiv { height:1px; background:var(--border); margin:12px 20px 2px; }
+  .dsearch { margin:8px 16px 4px; background:var(--surface2); border:1px solid var(--border);
+    border-radius:12px; padding:10px 12px; font-size:13px; color:var(--mute); }
+  .dlist { flex:1; overflow:hidden; padding:2px 12px; }
+  .sess { border:1px solid var(--border); background:var(--surface); border-radius:14px;
+    padding:11px 12px; margin-top:8px; cursor:pointer; }
+  .sess.active { border-color:var(--accent); background:rgba(26,136,255,.1); }
+  .sess .t { font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sess .s { font-size:10.5px; color:var(--mute); margin-top:3px; }
+  .dempty { text-align:center; color:var(--mute); font-size:12.5px; line-height:1.7;
+    padding:28px 24px; }
+  .models { border-top:1px solid var(--border); margin-top:4px; }
+  .model { display:flex; align-items:center; gap:10px; padding:10px 20px 10px 42px; font-size:13px; }
+  .radio { width:16px; height:16px; border-radius:9px; border:2px solid var(--mute); flex-shrink:0; }
+  .radio.on { border-color:var(--accent); }
+  .radio.on::after { content:""; display:block; width:6px; height:6px; border-radius:4px;
+    background:var(--accent); margin:3px; }
+  .legend { max-width:1100px; margin-top:32px; border:1px solid var(--border);
+    border-radius:16px; overflow:hidden; }
+  .legend table { width:100%; border-collapse:collapse; font-size:13px; }
+  .legend th, .legend td { text-align:left; padding:10px 14px; border-bottom:1px solid var(--border);
+    vertical-align:top; line-height:1.55; }
+  .legend th { color:var(--mute); font-weight:600; font-size:11px; text-transform:uppercase;
+    letter-spacing:1px; background:rgba(255,255,255,.02); }
+  .legend tr:last-child td { border-bottom:none; }
+  .legend td:first-child { font-family:ui-monospace,Menlo,monospace; font-size:12px;
+    white-space:nowrap; color:var(--dim); }
+  .del { color:var(--danger); } .keep { color:#4ade80; }
+  .note { margin-top:18px; color:var(--mute); font-size:12.5px; max-width:900px; line-height:1.7; }
+</style>
+</head>
+<body>
+
+<h1>Aso-z — минималистичный редизайн</h1>
+<p class="sub">Принцип: при входе — <b>только чат, приветствие и две кнопки</b> (меню слева, новый чат справа).
+Вся конфигурация — <b>в боковой панели</b>: сверху настройки и модели, снизу сессии.
+Нажмите <b>кнопку меню</b> в первом телефоне — панель выезжает живьём.</p>
+
+<div class="frames">
+
+  <!-- 1. Chat empty + drawer demo -->
+  <div class="frame-block">
+    <div class="phone">
+      <div class="hdr">
+        <button class="hbtn" onclick="toggleDrawer('d1','s1)">&#9776;</button>
+        <div class="htitle">Новый чат</div>
+        <button class="hbtn">+</button>
+      </div>
+      <div class="body">
+        <div class="greet">
+          <h2>Привет!<br>Чем займёмся сегодня?</h2>
+          <p>Спроси что угодно — помогу с кодом, проектами и задачами.</p>
+        </div>
+        <div class="chips">
+          <div class="chip">Объясни код</div>
+          <div class="chip">Новый проект</div>
+          <div class="chip">Найди в интернете</div>
+        </div>
+      </div>
+      <div class="inputbar">
+        <div class="capsule">
+          <div class="abtn">+</div>
+          <div class="field">Сообщение…</div>
+          <div class="send">&#8593;</div>
+        </div>
+      </div>
+      <div class="scrim" id="s1" onclick="toggleDrawer('d1','s1')"></div>
+      <div class="drawer" id="d1">
+        <button class="dnew">+ Новый чат</button>
+        <div class="dsec-label">Настройки</div>
+        <div class="drow"><span class="ic">&#9679;</span>Модель<span class="val">Kimi K2</span><span class="chev">▾</span></div>
+        <div class="drow"><span class="ic">▤</span>Провайдеры<span class="chev">›</span></div>
+        <div class="drow"><span class="ic">◈</span>Агент<span class="val">память · навыки · задачи</span><span class="chev">›</span></div>
+        <div class="drow"><span class="ic">☷</span>Проекты<span class="val">2</span><span class="chev">›</span></div>
+        <div class="drow"><span class="ic">⚙</span>Настройки<span class="chev">›</span></div>
+        <div class="ddiv"></div>
+        <div class="dsec-label">Сессии</div>
+        <div class="dsearch">Поиск чатов…</div>
+        <div class="dlist">
+          <div class="sess active"><div class="t">Фикс проот-окружения</div><div class="s">12 сообщений · 12 сен</div></div>
+          <div class="sess"><div class="t">Парсер расписания</div><div class="s">4 сообщения · 10 сен</div></div>
+          <div class="sess"><div class="t">Идеи для дачи</div><div class="s">2 сообщения · 8 сен</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="frame-cap"><b>1 — Вход и панель.</b> Пустой чат: приветствие сверху, три чипа-подсказки (без эмодзи), плоская капсула ввода. Панель: сверху «Новый чат» + настройки/модели, снизу сессии с поиском.</div>
+  </div>
+
+  <!-- 2. Chat with messages, minimal header -->
+  <div class="frame-block">
+    <div class="phone">
+      <div class="hdr">
+        <button class="hbtn">&#9776;</button>
+        <div class="htitle">Фикс проот-окружения</div>
+        <button class="hbtn">+</button>
+      </div>
+      <div class="body">
+        <div class="msgs">
+          <div class="u">Почему падает proot на старте?</div>
+          <div class="a">Падает, потому что в окружении нет <b>/tmp</b> — proot пытается создать там временные файлы. Лечится переменной <b>PROOT_TMP_DIR</b>, указывающей на доступный каталог.
+            <div class="meta"><span>Копировать</span><span>Поделиться</span></div>
+          </div>
+          <div class="u">Покажи патч</div>
+        </div>
+      </div>
+      <div class="inputbar">
+        <div class="capsule">
+          <div class="abtn">+</div>
+          <div class="field">Сообщение…</div>
+          <div class="send">&#8593;</div>
+        </div>
+      </div>
+    </div>
+    <div class="frame-cap"><b>2 — Диалог.</b> Шапка: только меню, название сессии приглушённым, плюс. Капсул модели и конфига нет — модель видна только в панели. Пузыри и markdown не меняются.</div>
+  </div>
+
+  <!-- 3. Drawer: models expanded + empty sessions -->
+  <div class="frame-block">
+    <div class="phone">
+      <div class="hdr">
+        <button class="hbtn" onclick="toggleDrawer('d3','s3')">&#9776;</button>
+        <div class="htitle">Новый чат</div>
+        <button class="hbtn">+</button>
+      </div>
+      <div class="body">
+        <div class="greet">
+          <h2>Привет!<br>Чем займёмся сегодня?</h2>
+          <p>Спроси что угодно — помогу с кодом, проектами и задачами.</p>
+        </div>
+      </div>
+      <div class="inputbar">
+        <div class="capsule">
+          <div class="abtn">+</div>
+          <div class="field">Сообщение…</div>
+          <div class="send">&#8593;</div>
+        </div>
+      </div>
+      <div class="scrim on" id="s3" onclick="toggleDrawer('d3','s3')"></div>
+      <div class="drawer on" id="d3">
+        <button class="dnew">+ Новый чат</button>
+        <div class="dsec-label">Настройки</div>
+        <div class="drow"><span class="ic">&#9679;</span>Модель<span class="val">Kimi K2</span><span class="chev">▴</span></div>
+        <div class="models">
+          <div class="model"><span class="radio on"></span>Kimi K2</div>
+          <div class="model"><span class="radio"></span>GPT-4o mini</div>
+          <div class="model"><span class="radio"></span>Локальная модель</div>
+        </div>
+        <div class="drow"><span class="ic">▤</span>Провайдеры<span class="chev">›</span></div>
+        <div class="drow"><span class="ic">◈</span>Агент<span class="chev">›</span></div>
+        <div class="drow"><span class="ic">☷</span>Проекты<span class="chev">›</span></div>
+        <div class="drow"><span class="ic">⚙</span>Настройки<span class="chev">›</span></div>
+        <div class="ddiv"></div>
+        <div class="dsec-label">Сессии</div>
+        <div class="dempty">Пока нет чатов.<br>Нажми «+ Новый чат», чтобы начать.</div>
+      </div>
+    </div>
+    <div class="frame-cap"><b>3 — Панель: модели и пустые сессии.</b> Список моделей раскрывается инлайн (без отдельного окна). Пустое состояние сессий — одна строка вместо пустого листа.</div>
+  </div>
+
+</div>
+
+<div class="legend">
+<table>
+  <tr><th>Зона</th><th>Оставить</th><th>Удалить</th></tr>
+  <tr><td>Шапка чата</td>
+    <td><span class="keep">Меню (слева), название сессии приглушённым (центр), + (справа).</span> Прозрачный фон, список под шапкой с отступом top+64.</td>
+    <td><span class="del">Капсула модели · капсула конфига/хранилища · GlassBackdrop-свечения · стеклянные блюры кнопок.</span></td></tr>
+  <tr><td>Панель (верх)</td>
+    <td><span class="keep">Новый чат · Модель (инлайн-раскрытие) · Провайдеры · Агент · Проекты · Настройки · строка лимита.</span></td>
+    <td><span class="del">Отдельные bottom-sheet модели, сессий, StorageSheet — заменены панелью.</span></td></tr>
+  <tr><td>Панель (низ)</td>
+    <td><span class="keep">Поиск чатов · список сессий (название, счётчик, дата) · переименование/удаление по долгому тапу.</span></td>
+    <td><span class="del">Кнопка «＋» fullwidth — обычная «+ Новый чат» сверху панели.</span></td></tr>
+  <tr><td>Ввод</td>
+    <td><span class="keep">Плоская капсула: + (вложения) · поле · отправить/стоп.</span></td>
+    <td><span class="del">Кнопка микрофона без логики (вернуть, когда будет голосовой ввод) · Glass-обёртка.</span></td></tr>
+  <tr><td>Эмодзи/текст</td>
+    <td><span class="keep">Чистые текстовые лейблы, иконки MaterialIcons.</span></td>
+    <td><span class="del">«🚀» в онбординге · «＋» fullwidth · текстовые «✕/✓»-кнопки в StorageSheet/Providers.</span></td></tr>
+  <tr><td>Пустые состояния</td>
+    <td><span class="keep">Чат: приветствие сверху + 3 чипа · Сессии: «Пока нет чатов» · Поиск: «Ничего не найдено» · Модели: «Нет моделей — добавь провайдера».</span></td>
+    <td><span class="del">Пустые листы без подсказки следующего шага.</span></td></tr>
+</table>
+</div>
+
+<p class="note">Навигация: Stack остаётся, добавляется Drawer (рекомендуется @react-navigation/drawer) с единственным пунктом — ChatScreen; Провайдеры / Агент / Проекты / Настройки открываются из панели через navigation.navigate, назад — стрелкой. Логика команд, gateway, slash-команды, cron, runtime — не затрагиваются.</p>
+
+<script>
+  function toggleDrawer(d, s) {
+    document.getElementById(d).classList.toggle('on');
+    document.getElementById(s).classList.toggle('on');
+  }
+</script>
+</body>
+</html>

@@ -31,7 +31,6 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useApp } from "../../store/AppStore";
-import { radii } from "../tokens";
 
 export function Sheet({
   visible,
@@ -152,8 +151,7 @@ export function Sheet({
   const n = parseFloat(raw);
   const heightPct = Number.isFinite(n) ? Math.min(95, Math.max(25, n)) : 60;
 
-  const tint = theme.name === "dark" ? "dark" : "light";
-  const glassBorder = theme.name === "dark" ? "rgba(255,255,255,.18)" : "rgba(255,255,255,.6)";
+  const sheetBorder = theme.name === "dark" ? "#1f1f22" : "#e2e2e6";
 
   // backdrop: opacity 0→1 по мере подъёма панели
   const backdropOpacity = drop.interpolate({
@@ -181,7 +179,7 @@ export function Sheet({
           keyboardVerticalOffset={0}
           style={{ flex: 1, justifyContent: "flex-end" }}
         >
-          {/* стеклянная панель: примитивами (без BlurView — он на Android не обрезается скруглением) */}
+          {/* панель шторки: сплошная поверхность #141416, радиус 20 */}
           <Animated.View
             pointerEvents={visible ? "auto" : "none"}
             style={[
@@ -190,12 +188,12 @@ export function Sheet({
                 height: auto ? undefined : `${heightPct}%`,
                 maxHeight: auto ? `${autoMaxPct}%` : undefined,
                 marginBottom: Platform.OS === "android" ? kbH : 0,
-                backgroundColor: theme.name === "dark" ? "rgba(24,24,30,.82)" : "rgba(250,250,252,.88)",
-                borderTopLeftRadius: radii.xl,
-                borderTopRightRadius: radii.xl,
+                backgroundColor: theme.name === "dark" ? "#141416" : "#f5f5f7",
+                borderTopLeftRadius: 20,
+                borderTopRightRadius: 20,
                 borderWidth: 1,
                 borderBottomWidth: 0,
-                borderColor: glassBorder,
+                borderColor: sheetBorder,
                 paddingBottom: insets.bottom + 8,
                 transform: [{ translateY: drop }],
                 shadowColor: "#000",
@@ -219,18 +217,6 @@ export function Sheet({
                 </View>
               ) : null}
             </View>
-
-            {/* тонкий световой блик по верхней грани (iOS glass) */}
-            <View
-              pointerEvents="none"
-              style={{
-                position: "absolute",
-                top: 0.5, left: 0.5, right: 0.5,
-                height: 1,
-                backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.2)" : "rgba(255,255,255,.95)",
-                opacity: 0.7,
-              }}
-            />
 
             {/* контент — скроллится, свайп закрытия НЕ вмешивается (он на хендле) */}
             <ScrollView

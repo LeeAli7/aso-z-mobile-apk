@@ -1,19 +1,12 @@
 /**
- * DrawerLineArt — боковое меню строго по макету «Вариант B — плоский».
+ * Панель приложения (бургер) в стиле КРОВЬ.
  *
- * Иконки — AppIcon (единый движок, геометрия LineArt 1:1, strokeWidth 1.5
- * для пиксель-в-пиксель с макетом): pen/cube/group/folder/gear/search/delete.
- * Своих SVG-дубликатов в файле нет.
+ * Сверху — единственное главное действие: белая капсула «Новый чат».
+ * Ниже — отделы приложения: Проекты, Агенты, Терминал, Коннекторы,
+ * Хранилище, Настройки. Дальше поиск и список сессий.
  *
- *  - шапка: синий текст «Новый чат» + синее перо слева (без синей плашки)
- *  - пункты Hermes-паритета: Модель (куб) / Агенты (группа) / Хранилище (папка) /
- *    Коннекторы (link) / Доска (check) / Использование (trend) / Настройки (gear)
- *  - поиск: плоская строка с лупой, без рамок (border none, transparent)
- *  - сессии: плоский текстовый список, без карточек/рамок/дат,
- *    иконки правки только у активной строки
- *
- * Движок не тронут: колбэки (onNewChat/onSelectModel/onNavigate/...)
- * переиспользованы 1:1 из старого Drawer.
+ * Никакого стекла, свечений и полупрозрачных слоёв: чёрный фон,
+ * белые иконки, серый вторичный текст.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -27,19 +20,24 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { AppIcon } from "../design-system/components/AppIcon";
-import { DeptIcon } from "../components/Dept";
+import { AppIcon, AppIconName } from "../design-system/components/AppIcon";
 import { ModelInfo } from "../core/gateway";
 import { Session } from "../store/AppStore";
 import { fonts } from "../theme/tokens";
 
-const WIDTH = 300;
+const WIDTH = 320;
 const HIDE = -WIDTH - 20;
+const ROW_H = 52;
 
-/* Иконки — AppIcon (strokeWidth 1.5 = пиксель-в-пиксель с макетом B). */
-const SW = 1.5;
-
-/* ── Панель ── */
+/** Отделы приложения — по одному значку на отдел, без повторов. */
+const DEPTS: { key: string; title: string; icon: AppIconName; route: string }[] = [
+  { key: "projects", title: "Проекты", icon: "folder", route: "Vibe" },
+  { key: "agents", title: "Агенты", icon: "account", route: "Agents" },
+  { key: "terminal", title: "Терминал", icon: "terminal", route: "Terminal" },
+  { key: "connectors", title: "Коннекторы", icon: "link", route: "Connectors" },
+  { key: "storage", title: "Хранилище", icon: "box", route: "Storage" },
+  { key: "settings", title: "Настройки", icon: "settings", route: "Settings" },
+];
 
 export function DrawerLineArt({
   visible,
@@ -90,7 +88,7 @@ export function DrawerLineArt({
     setLeaving(true);
     Animated.timing(slide, {
       toValue: HIDE,
-      duration: 240,
+      duration: 220,
       easing: Easing.in(Easing.cubic),
       useNativeDriver: true,
     }).start(() => {
@@ -109,7 +107,7 @@ export function DrawerLineArt({
       requestAnimationFrame(() => {
         Animated.timing(slide, {
           toValue: 0,
-          duration: 280,
+          duration: 260,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }).start();
@@ -126,26 +124,26 @@ export function DrawerLineArt({
     extrapolate: "clamp",
   });
 
-  // плоская строка меню: иконка + текст, без рамок и фонов
-  const row = (icon: React.ReactNode, title: string, sub?: string, onPress?: () => void, active?: boolean) => (
+  const row = (icon: AppIconName, title: string, onPress: () => void, active?: boolean, sub?: string) => (
     <Pressable
+      key={title}
       onPress={onPress}
       style={({ pressed }) => ({
         flexDirection: "row",
         alignItems: "center",
-        gap: 14,
-        paddingHorizontal: 12,
-        paddingVertical: 12,
-        opacity: pressed ? 0.6 : 1,
+        gap: 16,
+        minHeight: ROW_H,
+        paddingHorizontal: 22,
+        opacity: pressed ? 0.55 : 1,
       })}
       accessibilityRole="button"
       accessibilityLabel={title}
     >
-      {icon}
+      <AppIcon name={icon} color={active ? theme.text : theme.text} size={22} />
       <View style={{ flex: 1 }}>
-        <Text style={{ color: active ? theme.accentHi : theme.text, fontSize: 14, fontWeight: "500" }}>{title}</Text>
+        <Text style={{ color: theme.text, fontSize: 17, fontWeight: "500", letterSpacing: -0.2 }}>{title}</Text>
         {sub ? (
-          <Text numberOfLines={1} style={{ color: theme.mute, fontSize: 10, marginTop: 1, fontFamily: fonts.mono }}>
+          <Text numberOfLines={1} style={{ color: theme.dim, fontSize: 11, marginTop: 2, fontFamily: fonts.mono }}>
             {sub}
           </Text>
         ) : null}
@@ -153,13 +151,10 @@ export function DrawerLineArt({
     </Pressable>
   );
 
-  const iconColor = theme.dim;
-  const accent = theme.accentHi;
-
   return (
     <Modal visible={visible || leaving} transparent animationType="none" onRequestClose={animateClose} statusBarTranslucent>
       <View style={{ flex: 1 }}>
-        <Animated.View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: theme.scrim, opacity: backdropOpacity }}>
+        <Animated.View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "#000", opacity: backdropOpacity }}>
           <Pressable style={{ flex: 1 }} onPress={animateClose} accessibilityLabel="Закрыть" />
         </Animated.View>
         <Animated.View
@@ -170,154 +165,115 @@ export function DrawerLineArt({
             left: 0,
             bottom: 0,
             width: WIDTH,
-            backgroundColor: theme.surface,
+            backgroundColor: "#000000",
             borderRightWidth: 1,
-            borderRightColor: theme.border,
-            paddingTop: insets.top + 12,
-            paddingBottom: insets.bottom + 16,
+            borderRightColor: "#1f1f22",
+            paddingTop: insets.top + 18,
+            paddingBottom: insets.bottom + 12,
             transform: [{ translateX: slide }],
-            shadowColor: "#000",
-            shadowOpacity: theme.name === "dark" ? 0.6 : 0.25,
-            shadowRadius: 24,
-            shadowOffset: { width: 8, height: 0 },
-            elevation: 20,
           }}
         >
-          <ScrollView bounces={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 12 }}>
-            {/* шапка: синий текст + синее перо, без плашки */}
+          <ScrollView bounces={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 24 }}>
+            {/* Главное действие — белая капсула. */}
             <Pressable
               onPress={onNewChat}
               style={({ pressed }) => ({
+                marginHorizontal: 22,
+                height: 50,
+                borderRadius: 25,
+                backgroundColor: pressed ? theme.accentHi : theme.accent,
                 flexDirection: "row",
                 alignItems: "center",
-                gap: 10,
-                paddingHorizontal: 12,
-                paddingVertical: 10,
-                opacity: pressed ? 0.6 : 1,
+                justifyContent: "center",
+                gap: 8,
               })}
               accessibilityRole="button"
               accessibilityLabel={t("newSession")}
             >
-              <AppIcon name="pen" color={accent} size={19} strokeWidth={SW} />
-              <Text style={{ color: accent, fontSize: 14, fontWeight: "600" }}>{t("newSession")}</Text>
+              <AppIcon name="plus" color={theme.onAccent} size={18} />
+              <Text style={{ color: theme.onAccent, fontSize: 16, fontWeight: "600" }}>{t("newSession")}</Text>
             </Pressable>
 
-            {/* пункты Hermes-паритета: модель / агенты / хранилище / коннекторы / доска / использование / настройки */}
-            <View style={{ marginTop: 4 }}>
-              {row(
-                <AppIcon name="cube" color={modelsExpanded ? accent : iconColor} size={20} strokeWidth={SW} />,
-                modelName, t("model_select"),
-                () => setModelsExpanded((v) => !v), modelsExpanded,
-              )}
-              {modelsExpanded && (
-                <View style={{ marginLeft: 8 }}>
-                  {models.map((m) => {
-                    const on = currentModelName === m.modelName;
-                    return (
-                      <Pressable
-                        key={m.modelName}
-                        onPress={() => onSelectModel(m)}
-                        style={({ pressed }) => ({
-                          flexDirection: "row",
-                          alignItems: "center",
-                          gap: 10,
-                          paddingHorizontal: 12,
-                          paddingVertical: 9,
-                          opacity: pressed ? 0.6 : 1,
-                        })}
-                      >
-                        <View style={{ width: 15, height: 15, borderRadius: 8, borderWidth: 1.5, borderColor: on ? theme.accent : theme.border, alignItems: "center", justifyContent: "center" }}>
-                          {on && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: theme.accent }} />}
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ color: on ? accent : theme.text, fontSize: 13, fontWeight: "600" }}>{m.displayName}</Text>
-                          <Text style={{ color: theme.mute, fontSize: 9, marginTop: 1, fontFamily: fonts.mono }}>
-                            {m.tier.toUpperCase()}
-                          </Text>
-                        </View>
-                      </Pressable>
-                    );
-                  })}
-                  {/* вход на Провайдеры — роут был без кнопки */}
+            <View style={{ height: 26 }} />
+
+            {DEPTS.map((d) => row(d.icon, d.title, () => onNavigate(d.route)))}
+
+            {/* Модель — вторичная строка, без отдельной иконки отдела. */}
+            <Pressable
+              onPress={() => setModelsExpanded((v) => !v)}
+              style={({ pressed }) => ({ minHeight: ROW_H, paddingHorizontal: 22, justifyContent: "center", opacity: pressed ? 0.55 : 1 })}
+              accessibilityRole="button"
+              accessibilityLabel={modelName}
+            >
+              <Text style={{ color: theme.dim, fontSize: 13 }}>{modelName}</Text>
+            </Pressable>
+            {modelsExpanded &&
+              models.map((m) => {
+                const on = currentModelName === m.modelName;
+                return (
                   <Pressable
-                    onPress={() => onNavigate("Providers")}
+                    key={m.modelName}
+                    onPress={() => onSelectModel(m)}
                     style={({ pressed }) => ({
                       flexDirection: "row",
                       alignItems: "center",
-                      gap: 10,
-                      paddingHorizontal: 12,
-                      paddingVertical: 9,
-                      opacity: pressed ? 0.6 : 1,
+                      gap: 12,
+                      paddingHorizontal: 22,
+                      paddingVertical: 10,
+                      opacity: pressed ? 0.55 : 1,
                     })}
-                    accessibilityRole="button"
-                    accessibilityLabel={t("providers")}
                   >
-                    <DeptIcon name="link" theme={theme} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ color: theme.text, fontSize: 13, fontWeight: "600" }}>{t("providers")}</Text>
-                      <Text style={{ color: theme.mute, fontSize: 9, marginTop: 1, fontFamily: fonts.mono }}>
-                        {t("add_provider").toUpperCase()}
-                      </Text>
-                    </View>
+                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: on ? theme.text : "transparent" }} />
+                    <Text style={{ flex: 1, color: on ? theme.text : theme.dim, fontSize: 15 }}>{m.displayName}</Text>
                   </Pressable>
-                </View>
-              )}
-              {row(<DeptIcon name="group" theme={theme} />, "Агенты", undefined, () => onNavigate("Agents"))}
-              {row(<DeptIcon name="folder" theme={theme} />, t("vibe_title"), undefined, () => onNavigate("Vibe"))}
-              {row(<DeptIcon name="link" theme={theme} />, t("connectors_title"), undefined, () => onNavigate("Connectors"))}
-              {row(<DeptIcon name="check" theme={theme} />, t("kanban_title"), undefined, () => onNavigate("Kanban"))}
-              {row(<DeptIcon name="trend" theme={theme} />, t("usage_title"), undefined, () => onNavigate("Usage"))}
-              {row(<DeptIcon name="gear" theme={theme} />, t("settings_title"), undefined, () => onNavigate("Settings"))}
-            </View>
+                );
+              })}
 
-            <View style={{ height: 1, backgroundColor: theme.border, opacity: 0.7, marginVertical: 10, marginHorizontal: 12 }} />
+            <View style={{ height: 1, backgroundColor: "#1f1f22", marginVertical: 14, marginHorizontal: 22 }} />
 
-            {/* поиск: плоская строка без рамок */}
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 12, paddingVertical: 8, minHeight: 44 }}>
-              <AppIcon name="search" color={theme.mute} size={20} strokeWidth={SW} />
+            {/* Поиск */}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 22, paddingVertical: 10 }}>
+              <AppIcon name="search" color={theme.dim} size={20} />
               <TextInput
                 value={search}
                 onChangeText={onSearchChange}
                 placeholder="Поиск"
-                placeholderTextColor={theme.mute}
-                style={{ flex: 1, fontSize: 14, color: theme.text, paddingVertical: 4 }}
+                placeholderTextColor={theme.dim}
+                style={{ flex: 1, fontSize: 16, color: theme.text, paddingVertical: 4 }}
               />
             </View>
 
-            {/* сессии: плоский текст, высокая плотность */}
-            <View style={{ marginTop: 2 }}>
-              {sessions.map((s) => {
-                const on = s.id === activeId;
-                return (
-                  <Pressable
-                    key={s.id}
-                    onPress={() => onSelectSession(s.id)}
-                    style={({ pressed }) => ({
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 8,
-                      paddingHorizontal: 12,
-                      paddingVertical: 9,
-                      opacity: pressed ? 0.6 : 1,
-                    })}
-                  >
-                    <Text numberOfLines={1} style={{ flex: 1, color: on ? accent : theme.text, fontSize: 13.5, fontWeight: on ? "600" : "400" }}>
-                      {s.name}
-                    </Text>
-                    {on && (
-                      <View style={{ flexDirection: "row", alignItems: "center" }}>
-                        <Pressable onPress={() => onRename(s.id)} hitSlop={10} style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }} accessibilityLabel="Переименовать">
-                          <AppIcon name="pen" color={theme.dim} size={16} strokeWidth={SW} />
-                        </Pressable>
-                        <Pressable onPress={() => onDelete(s.id)} hitSlop={10} style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }} accessibilityLabel="Удалить">
-                          <AppIcon name="delete" color={theme.dim} size={16} strokeWidth={SW} />
-                        </Pressable>
-                      </View>
-                    )}
-                  </Pressable>
-                );
-              })}
-            </View>
+            {sessions.map((s) => {
+              const on = s.id === activeId;
+              return (
+                <Pressable
+                  key={s.id}
+                  onPress={() => onSelectSession(s.id)}
+                  style={({ pressed }) => ({
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 8,
+                    minHeight: 44,
+                    paddingHorizontal: 22,
+                    opacity: pressed ? 0.55 : 1,
+                  })}
+                >
+                  <Text numberOfLines={1} style={{ flex: 1, color: on ? theme.text : theme.dim, fontSize: 15.5, fontWeight: on ? "600" : "400" }}>
+                    {s.name}
+                  </Text>
+                  {on && (
+                    <View style={{ flexDirection: "row", alignItems: "center" }}>
+                      <Pressable onPress={() => onRename(s.id)} hitSlop={8} style={{ width: 34, height: 34, alignItems: "center", justifyContent: "center" }} accessibilityLabel="Переименовать">
+                        <AppIcon name="pen" color={theme.dim} size={16} />
+                      </Pressable>
+                      <Pressable onPress={() => onDelete(s.id)} hitSlop={8} style={{ width: 34, height: 34, alignItems: "center", justifyContent: "center" }} accessibilityLabel="Удалить">
+                        <AppIcon name="delete" color={theme.danger} size={16} />
+                      </Pressable>
+                    </View>
+                  )}
+                </Pressable>
+              );
+            })}
           </ScrollView>
         </Animated.View>
       </View>

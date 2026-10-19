@@ -1,18 +1,16 @@
 /**
- * IconButton — круглая стеклянная кнопка с иконкой AppIcon.
+ * IconButton — круглая кнопка с иконкой AppIcon в стиле КРОВЬ.
  *
- * Без BlurView: стекло рисуется стилями (полупрозрачный фон + рамка + блик).
- * На Android это надёжно: тач-таргет ровно 44×44, иконка не режется,
- * тачи не перехватываются. ripple + haptic.
+ * Плотная поверхность #141416 без рамок и прозрачности: иконка белая,
+ * тач-таргет 44×44, ripple + haptic.
  */
 import React from "react";
-import { Pressable, StyleSheet } from "react-native";
+import { Pressable } from "react-native";
 import { AppIcon, AppIconName } from "./AppIcon";
 import * as Haptics from "expo-haptics";
-import { BlurView } from "expo-blur";
 import { useApp } from "../../store/AppStore";
 import { hitSlop, touchTarget } from "../tokens";
-import { GlassTint, GlassRim } from "./Glass";
+
 
 export type IconName = AppIconName;
 
@@ -36,7 +34,6 @@ export function IconButton({
   accessibilityLabel?: string;
 }) {
   const { theme } = useApp();
-  const dark = theme.name === "dark";
   return (
     <Pressable
       onPress={() => {
@@ -56,31 +53,13 @@ export function IconButton({
           borderRadius: touchTarget / 2,
           alignItems: "center",
           justifyContent: "center",
-          overflow: "hidden",
-          borderWidth: 1,
-          borderColor: dark ? "rgba(255,255,255,.20)" : "rgba(255,255,255,.75)",
-          borderTopWidth: 1.5,
-          backgroundColor: dark ? "rgba(20,20,24,.40)" : "rgba(255,255,255,.45)",
-          shadowColor: "#000",
-          shadowOpacity: dark ? 0.4 : 0.18,
-          shadowRadius: 10,
-          shadowOffset: { width: 0, height: 5 },
-          elevation: 4,
-          opacity: pressed ? 0.75 : disabled ? 0.4 : 1,
+          backgroundColor: pressed ? theme.surface2 : theme.surface,
+          opacity: disabled ? 0.4 : 1,
         },
         style,
       ]}
     >
-      <BlurView
-        intensity={26}
-        tint={dark ? "dark" : "light"}
-        style={StyleSheet.absoluteFill}
-        pointerEvents="none"
-      />
-      {/* капля-блик + преломляющая кромка (liquid glass) */}
-      <GlassTint dark={dark} />
-      <GlassRim radius={touchTarget / 2} dark={dark} />
-      <AppIcon name={name} size={size} color={color ?? theme.dim} />
+      <AppIcon name={name} size={size} color={color ?? theme.text} />
     </Pressable>
   );
 }

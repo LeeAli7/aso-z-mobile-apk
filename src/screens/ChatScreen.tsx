@@ -1027,7 +1027,10 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         >
           <IconButton name="menu" size={20} onPress={() => setDrawerOpen(true)} accessibilityLabel={t("sessions")} />
           <View pointerEvents="box-none" style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-            <Text style={{ color: theme.text, fontSize: 15, fontWeight: "600" }}>{t("chat_title")}</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, height: 34, borderRadius: 17, backgroundColor: theme.surface }}>
+              <Text numberOfLines={1} style={{ color: theme.text, fontSize: 13, fontWeight: "600", maxWidth: 150 }}>{modelName}</Text>
+              <AppIcon name="chevron-down" size={13} color={theme.dim} />
+            </View>
           </View>
           <BgIndicator theme={theme} count={bgTasks.length} onPress={() => setBgOpen(true)} />
           <IconButton name="plus" size={20} onPress={handleNewSession} accessibilityLabel={t("newSession")} />
@@ -1187,7 +1190,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               ))}
             </View>
           )}
-          {/* стеклянная капсула ввода: pill, единый padding 8 со всех сторон, gap 8, всё по центру */}
+          {/* капсула ввода: #141416, радиус 26, без стекла и градиентов */}
           <Glass
             radius={28}
             style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 8 }}
@@ -1197,12 +1200,11 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               hitSlop={6}
               style={({ pressed }) => ({
                 width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center",
-                backgroundColor: theme.name === "dark" ? "rgba(255,255,255,.09)" : "rgba(255,255,255,.6)",
-                opacity: pressed ? 0.7 : 1,
+                opacity: pressed ? 0.6 : 1,
               })}
               accessibilityLabel="Прикрепить"
             >
-              <AppIcon name="plus" size={22} color={theme.dim} />
+              <AppIcon name="plus" size={22} color={theme.text} />
             </Pressable>
             <TextInput
               value={text}
@@ -1243,16 +1245,16 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                 style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.accent, alignItems: "center", justifyContent: "center" }}
                 accessibilityLabel="Отправить"
               >
-                <AppIcon name="send" size={22} color="#fff" />
+                <AppIcon name="send" size={20} color={theme.onAccent} />
               </Pressable>
             ) : (
               <Pressable
                 onPress={toggleVoice}
                 hitSlop={6}
-                style={{ width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: recording ? theme.danger + "22" : theme.name === "dark" ? "rgba(255,255,255,.09)" : "rgba(255,255,255,.6)" }}
+                style={{ width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", opacity: recording ? 1 : 0.9 }}
                 accessibilityLabel="Голосовой ввод"
               >
-                <AppIcon name={recording ? "stop" : "mic"} size={20} color={recording ? theme.danger : theme.dim} />
+                <AppIcon name={recording ? "stop" : "mic"} size={20} color={recording ? theme.danger : theme.text} />
               </Pressable>
             )}
           </Glass>

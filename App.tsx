@@ -24,6 +24,8 @@ import { ConnectorsScreen } from "./src/screens/ConnectorsScreen";
 import { KanbanScreen } from "./src/screens/KanbanScreen";
 import { UsageScreen } from "./src/screens/UsageScreen";
 import { OnboardingScreen } from "./src/screens/OnboardingScreen";
+import { TerminalScreen } from "./src/screens/TerminalScreen";
+import { StorageScreen } from "./src/screens/StorageScreen";
 import { ToastHost, showToast } from "./src/design-system/components/Toast";
 
 /**
@@ -87,6 +89,8 @@ function RootNav() {
         <Stack.Screen name="Connectors" component={ConnectorsScreen} />
         <Stack.Screen name="Kanban" component={KanbanScreen} />
         <Stack.Screen name="Usage" component={UsageScreen} />
+        <Stack.Screen name="Terminal" component={TerminalScreen} />
+        <Stack.Screen name="Storage" component={StorageScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );
