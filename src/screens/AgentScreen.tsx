@@ -12,11 +12,11 @@ import { AppIcon, materialToApp } from "../design-system/components/AppIcon";
 import { useApp } from "../store/AppStore";
 import { DeptRow, DeptDivider, DeptBack, DeptDef } from "../components/Dept";
 
-const AGENTS = [
-  { icon: "groups", name: "Agent Swarm", desc: "Несколько агентов параллельно", tag: "Экспериментально" },
-  { icon: "chat", name: "Kimi Claw", desc: "Групповой чат с агентами", tag: null },
-  { icon: "code", name: "Кодер", desc: "Пишет и правит код в проекте", tag: "Vibe" },
-  { icon: "terminal", name: "Терминал", desc: "Выполняет команды через Termux", tag: "Vibe" },
+const AGENTS: { icon: string; name: string; desc: string; tag: string | null; route: string }[] = [
+  { icon: "groups", name: "Субагенты", desc: "Параллельные задачи: лимит и настройка", tag: "Настройка", route: "AgentSettings" },
+  { icon: "chat", name: "Обычный чат", desc: "Агент с инструментами в главном чате", tag: "Открыть", route: "Main" },
+  { icon: "code", name: "Кодер", desc: "Пишет и правит код в проекте", tag: "Проекты", route: "Vibe" },
+  { icon: "terminal", name: "Терминал", desc: "Команды в нативном рантайме", tag: "Открыть", route: "Terminal" },
 ];
 
 type DeptKey = "subagents" | "kanban" | "usage";
@@ -77,7 +77,7 @@ export function AgentScreen({ navigation }: { navigation: any }) {
             {AGENTS.map((a) => (
               <Pressable
                 key={a.name}
-                onPress={() => navigation.navigate("Kanban")}
+                onPress={() => navigation.navigate(a.route)}
                 style={({ pressed }) => ({
                   flexDirection: "row", alignItems: "center", gap: 12,
                   padding: 13, borderRadius: 14, marginBottom: 8,

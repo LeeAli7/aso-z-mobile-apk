@@ -262,6 +262,19 @@ registerTool({
   },
 });
 
+/* ── Проверка путей ──────────────────────────────────────────────────────────
+ * Пути подставляются в shell-команды, поэтому: (1) не даём символам ломать
+ * команду, (2) не пускаем агента в системные каталоги, где правки ломают
+ * рантайм. Рабочие папки пользователя (Downloads, $HOME, проект) разрешены.
+ */
+function pathProblem(p: string): string | null {
+  if (!p) return "ошибка: нужен путь";
+  if (/["`$;|&\n\r]/.test(p)) return "ошибка: в пути есть недопустимые символы";
+  const blocked = ["/data/", "/system/", "/proc/", "/dev/", "/sys/"];
+  if (blocked.some((b) => p.startsWith(b))) return "ошибка: системный путь защищён";
+  return null;
+}
+
 registerTool({
   name: "read_file",
   description:
@@ -279,7 +292,8 @@ registerTool({
   handler: async (args, ctx): Promise<string> => {
     if (!runtimeAvailable()) return "рантайм доступен только на Android";
     const p = String(args.path ?? "").trim();
-    if (!p) return "ошибка: нужен путь";
+    const bad = pathProblem(p);
+    if (bad) return bad;
     const r = await runCommandCapture(`cat "${p}" 2>&1`, ctx.projectId, ctx.cwd);
     if (!r.ok) return `ошибка чтения: ${r.error || r.output || `exit ${r.code}`}`;
     const out = r.output ?? "";
@@ -310,7 +324,8 @@ registerTool({
     if (!runtimeAvailable()) return "рантайм доступен только на Android";
     const p = String(args.path ?? "").trim();
     const content = String(args.content ?? "");
-    if (!p) return "ошибка: нужен путь";
+    const bad = pathProblem(p);
+    if (bad) return bad;
     if (content.length > 200_000) return "ошибка: файл слишком большой (лимит 200 КБ)";
     const b64 = utf8ToBase64(content);
     const r = await runCommandCapture(

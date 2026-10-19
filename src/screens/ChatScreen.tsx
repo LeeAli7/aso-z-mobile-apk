@@ -36,7 +36,6 @@ import { BgTasksSheet, BgIndicator, BgTask } from "../components/BgTasksSheet";
 import { renderMarkdown } from "../components/Markdown";
 import { ThinkingBlock } from "../components/kimi/ThinkingBlock";
 import { ToolCard } from "../components/kimi/ToolCard";
-import { StorageSheet } from "../components/kimi/StorageSheet";
 import { fonts } from "../theme/tokens";
 import {
   VibeProject,
@@ -49,6 +48,7 @@ import {
 import { openInTermux, openFolderInFileManager, projectDirPath } from "../core/termux";
 import { parseCmdBlocks, runCommandCapture, runtimeAvailable } from "../core/runtime";
 import { IconButton } from "../design-system/components/IconButton";
+import { touchTarget } from "../design-system/tokens";
 import { Glass, GlassPressable } from "../design-system/components/Glass";
 import { Sheet } from "../design-system/components/Sheet";
 import { Button } from "../design-system/components/Button";
@@ -115,7 +115,6 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   }, []);
   // ── окно хранилища (проекты + файлы + инструкции, как у Hermes) ──
   const [projects, setProjects] = useState<VibeProject[]>([]);
-  const [storageOpen, setStorageOpen] = useState(false);
   // шторка фоновых процессов (рантайм/cron/делегация) — открывается только при наличии запущенных
   const [bgOpen, setBgOpen] = useState(false);
   const [bgTasks, setBgTasks] = useState<BgTask[]>([]);
@@ -210,42 +209,10 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     } catch {}
   }, []);
 
-  const openStorageSheet = useCallback(() => {
+  useEffect(() => {
     loadProjects();
-    setStorageOpen(true);
   }, [loadProjects]);
 
-  /**
-   * Выбор проекта: находим/создаём сессию, привязанную к проекту.
-   * Каждый проект = свой вайбкод (своя история). «Без проекта» = обычный чат.
-   */
-  const selectProject = useCallback(
-    (p: VibeProject | null) => {
-      setStorageOpen(false);
-      if (!p) {
-        // отвязать: только если у сессии нет проекта — вернуть в обычный чат
-        if (active?.projectId) {
-          dispatch({ type: "UPDATE_SESSION", sessionId: active.id, patch: { projectId: null } });
-        }
-        return;
-      }
-      // уже открыта сессия этого проекта?
-      let sid = state.sessions.find((s) => s.projectId === p.id)?.id;
-      if (!sid) {
-        sid = genId();
-        dispatch({
-          type: "ADD_SESSION",
-          session: {
-            id: sid, name: p.name, messages: [], modelId: null,
-            createdAt: Date.now(), updatedAt: Date.now(), projectId: p.id,
-          },
-        });
-      }
-      setActive(sid);
-      setText("");
-    },
-    [active, dispatch, state.sessions, setActive],
-  );
 
   const copyMsg = (m: Msg) => Clipboard.setStringAsync(m.content).catch(() => {});
   const shareMsg = (m: Msg) => Share.share({ message: m.content }).catch(() => {});
@@ -1042,14 +1009,26 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           }}
         >
           <IconButton name="menu" size={20} onPress={() => setDrawerOpen(true)} accessibilityLabel={t("sessions")} />
-          <View pointerEvents="box-none" style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, height: 34, borderRadius: 17, backgroundColor: theme.surface }}>
-              <Text numberOfLines={1} style={{ color: theme.text, fontSize: 13, fontWeight: "600", maxWidth: 150 }}>{modelName}</Text>
-              <AppIcon name="chevron-down" size={13} color={theme.dim} />
-            </View>
-          </View>
+          <View pointerEvents="box-none" style={{ flex: 1 }} />
           <BgIndicator theme={theme} count={bgTasks.length} onPress={() => setBgOpen(true)} />
-          <IconButton name="plus" size={20} onPress={handleNewSession} accessibilityLabel={t("newSession")} />
+          {/* Выбор модели — справа, габариты как у бургера: высота touchTarget, капсула. */}
+          <Pressable
+            onPress={() => setDrawerOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Модель"
+            style={({ pressed }) => ({
+              height: touchTarget,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+              paddingHorizontal: 16,
+              borderRadius: touchTarget / 2,
+              backgroundColor: pressed ? theme.surface2 : theme.surface,
+            })}
+          >
+            <Text numberOfLines={1} style={{ color: theme.text, fontSize: 13.5, fontWeight: "600", maxWidth: 150 }}>{modelName}</Text>
+            <AppIcon name="chevron-down" size={13} color={theme.dim} />
+          </Pressable>
         </View>
       </View>
 
@@ -1084,7 +1063,18 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             setBgOpen(false);
           }
         }}
-        onOpen={() => setBgOpen(false)}
+        onOpen={(task) => {
+          // тап по фоновой задаче — открыть то место, где она живёт
+          setBgOpen(false);
+          if (task.kind === "stream") {
+            const sid = task.id.replace("stream:", "");
+            if (sid) setActive(sid);
+          } else if (task.kind === "cron") {
+            navigation.navigate("AgentSettings");
+          } else if (task.kind === "runtime") {
+            navigation.navigate("Terminal");
+          }
+        }}
       />
 
       {/* messages — контент скроллится ПОД плавающей шапкой */}
@@ -1212,7 +1202,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 8 }}
           >
             <Pressable
-              onPress={() => setAttachOpen(true)}
+              onPress={() => setAttachOpen((v) => !v)}
               hitSlop={6}
               style={({ pressed }) => ({
                 width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center",
@@ -1274,11 +1264,43 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               </Pressable>
             )}
           </Glass>
+
+          {/* Вложения: капсула уезжает вверх, снизу выезжает панель из трёх плиток. */}
+          {attachOpen && (
+            <View style={{ flexDirection: "row", gap: 10, marginTop: 10, marginBottom: 8 }}>
+              {[
+                { icon: "camera" as const, label: "Камера", onPress: pickCamera },
+                { icon: "image" as const, label: "Альбом", onPress: pickImage },
+                { icon: "file" as const, label: "Файл", onPress: pickFile },
+              ].map((b) => (
+                <Pressable
+                  key={b.label}
+                  onPress={() => {
+                    setAttachOpen(false);
+                    b.onPress();
+                  }}
+                  style={({ pressed }) => ({
+                    flex: 1,
+                    height: 92,
+                    borderRadius: 20,
+                    backgroundColor: pressed ? theme.surface2 : theme.surface,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 10,
+                  })}
+                  accessibilityRole="button"
+                  accessibilityLabel={b.label}
+                >
+                  <AppIcon name={b.icon} size={24} color={theme.text} />
+                  <Text style={{ color: theme.text, fontSize: 13, fontWeight: "500" }}>{b.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
         </View>
       </KeyboardAvoidingView>
 
-      {/* ── Боковое меню LineArt (макет B — плоский): перо + 5 пунктов +
-          плоский поиск и сессии. Без Хранилища (оно в Vibe/StorageSheet). */}
+      {/* Боковое меню: перо, отделы, поиск и сессии. */}
       <DrawerLineArt
         visible={drawerOpen}
         onClose={() => setDrawerOpen(false)}
@@ -1299,13 +1321,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         onDelete={deleteSessionById}
       />
 
-      {/* ── Хранилище агента (внутреннее хранилище — файлы/проекты создаёт агент) ── */}
-      <StorageSheet
-        visible={storageOpen}
-        onClose={() => setStorageOpen(false)}
-        activeProjectId={active?.projectId ?? null}
-        onSelectProject={selectProject}
-      />
+
 
       {/* ── Message actions sheet (in-app, не системный Alert) ── */}
       <Sheet visible={!!msgMenuTarget} onClose={() => setMsgMenuTarget(null)} title={msgMenuTarget?.role === "user" ? "Сообщение" : "Ответ"} snapPoints={["auto"]} autoMaxPct={55}>
@@ -1368,35 +1384,6 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       </Sheet>
 
       {/* ── Прикрепить: фото / камера / файл — компактное меню без заголовка, закрытие свайпом вниз, кнопки на всю ширину ── */}
-      <Sheet visible={attachOpen} onClose={() => setAttachOpen(false)} snapPoints={["auto"]}>
-        <View style={{ flexDirection: "row", gap: 12 }}>
-          {[
-            { icon: "image" as const, label: "Фото", onPress: pickImage },
-            { icon: "camera" as const, label: "Камера", onPress: pickCamera },
-            { icon: "file" as const, label: "Файл", onPress: pickFile },
-          ].map((b) => (
-            <GlassPressable
-              key={b.label}
-              onPress={b.onPress}
-              radius={20}
-              blur={false}
-              accessibilityLabel={b.label}
-              style={{
-                flex: 1,
-                aspectRatio: 1,
-                // фон/тень не должны вылезать за скруглённую рамку кнопки
-                shadowOpacity: 0,
-                elevation: 0,
-                borderTopWidth: 0,
-                overflow: "hidden",
-              }}
-            >
-              <AppIcon name={b.icon} size={34} color={theme.dim} />
-            </GlassPressable>
-          ))}
-        </View>
-      </Sheet>
-
       {/* ── Rename session (in-app, Alert.prompt на Android не работает) ── */}
       <Sheet visible={!!renameTarget} onClose={() => setRenameTarget(null)} title="Переименовать сессию" snapPoints={["auto"]} autoMaxPct={50}>
         {renameTarget && (

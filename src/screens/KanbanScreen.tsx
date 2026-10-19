@@ -10,28 +10,27 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { listTasks, createTask, assignTask, setTaskStatus, completeTask, deleteTask } from "../core/kanban";
 import { AppIcon } from "../design-system/components/AppIcon";
 import { useApp } from "../store/AppStore";
 import { Button } from "../design-system/components/Button";
-
-const KEY_KB = "aso_kanban_tasks";
 
 type Col = "todo" | "doing" | "done";
 interface Kb { id: string; title: string; assignee: string; col: Col }
 
 const NEXT: Record<Col, Col | null> = { todo: "doing", doing: "done", done: null };
 
+/** Доска читается из единого движка core/kanban — тот же стор, что видит агент. */
 async function readKb(): Promise<Kb[]> {
-  try {
-    const raw = await AsyncStorage.getItem(KEY_KB);
-    if (!raw) return [];
-    const v = JSON.parse(raw);
-    return Array.isArray(v) ? v : [];
-  } catch { return []; }
-}
-function genId(): string {
-  return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+  const list = await listTasks();
+  return list
+    .filter((x) => x.status !== "archived")
+    .map((x) => ({
+      id: x.id,
+      title: x.title,
+      assignee: x.assignee ?? "",
+      col: x.status === "done" ? "done" : x.status === "doing" || x.status === "blocked" ? "doing" : "todo",
+    }));
 }
 
 export function KanbanScreen({ navigation }: { navigation: any }) {
@@ -43,27 +42,29 @@ export function KanbanScreen({ navigation }: { navigation: any }) {
   const load = useCallback(async () => setTasks(await readKb()), []);
   useEffect(() => { void load(); }, [load]);
 
-  const save = useCallback(async (next: Kb[]) => {
-    setTasks(next);
-    await AsyncStorage.setItem(KEY_KB, JSON.stringify(next));
-  }, []);
-
   const add = useCallback(async () => {
     const title = draft.title.trim();
     if (!title) return;
-    await save([...tasks, { id: genId(), title, assignee: draft.assignee.trim(), col: "todo" }]);
+    const task = await createTask(title);
+    const who = draft.assignee.trim();
+    if (who) await assignTask(task.id, who);
     setDraft({ title: "", assignee: "" });
-  }, [tasks, draft, save]);
+    await load();
+  }, [draft, load]);
 
   const forward = useCallback(async (id: string) => {
-    const nx = NEXT[tasks.find((x) => x.id === id)?.col ?? "todo"];
+    const cur = tasks.find((x) => x.id === id)?.col ?? "todo";
+    const nx = NEXT[cur];
     if (!nx) return;
-    await save(tasks.map((x) => (x.id === id ? { ...x, col: nx } : x)));
-  }, [tasks, save]);
+    if (nx === "done") await completeTask(id);
+    else await setTaskStatus(id, nx);
+    await load();
+  }, [tasks, load]);
 
   const del = useCallback(async (id: string) => {
-    await save(tasks.filter((x) => x.id !== id));
-  }, [tasks, save]);
+    await deleteTask(id);
+    await load();
+  }, [load]);
 
   const input = {
     borderWidth: 1, borderColor: theme.border, borderRadius: 10,

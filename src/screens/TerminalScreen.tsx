@@ -25,7 +25,8 @@ import { ensureRuntime, runCommandCapture, runtimeAvailable } from "../core/runt
 
 type Line = { id: string; kind: "cmd" | "out" | "err"; text: string };
 
-const PROMPT = "$";
+const HOST = "aso@device";
+const promptOf = (cwd: string) => `${HOST}:${cwd}$`;
 const DEFAULT_CWD = "~";
 
 export function TerminalScreen({ navigation }: { navigation: any }) {
@@ -60,7 +61,7 @@ export function TerminalScreen({ navigation }: { navigation: any }) {
       const input = raw.trim();
       if (!input || busy) return;
       setCmd("");
-      push("cmd", `${PROMPT} ${input}`);
+      push("cmd", `${promptOf(cwd)} ${input}`);
 
       if (input === "clear") {
         setLines([]);
@@ -145,42 +146,37 @@ export function TerminalScreen({ navigation }: { navigation: any }) {
         {ready ? <Text style={{ color: theme.danger, fontSize: 12.5, fontFamily: fonts.mono }}>{ready}</Text> : null}
       </ScrollView>
 
-      {/* строка ввода: приглашение + курсор */}
-      <View
+      {/* Строка ввода настоящего терминала: приглашение и ввод в одной строке. */}
+      <Pressable
+        onPress={() => inputRef.current?.focus()}
         style={{
           flexDirection: "row",
-          alignItems: "center",
-          gap: 8,
+          alignItems: "flex-start",
           paddingHorizontal: 14,
-          paddingTop: 10,
-          paddingBottom: insets.bottom + 10,
-          borderTopWidth: StyleSheet.hairlineWidth,
-          borderTopColor: "#1f1f22",
+          paddingTop: 6,
+          paddingBottom: insets.bottom + 12,
         }}
       >
-        <Text style={{ color: "#FF3B30", fontSize: 13, fontFamily: fonts.mono }}>{PROMPT}</Text>
+        <Text style={{ color: "#ffffff", fontSize: 13, lineHeight: 20, fontFamily: fonts.mono }}>
+          {promptOf(cwd) + " "}
+        </Text>
         <TextInput
           ref={inputRef}
           value={cmd}
           onChangeText={setCmd}
           onSubmitEditing={() => void run(cmd)}
-          placeholder="команда"
-          placeholderTextColor="#5a5a5f"
           autoCapitalize="none"
           autoCorrect={false}
           spellCheck={false}
+          autoComplete="off"
           returnKeyType="send"
           blurOnSubmit={false}
-          style={{ flex: 1, color: "#ffffff", fontSize: 13, fontFamily: fonts.mono, paddingVertical: 6 }}
+          selectionColor="#ffffff"
+          autoFocus
+          cursorColor="#ffffff"
+          style={{ flex: 1, color: "#ffffff", fontSize: 13, lineHeight: 20, fontFamily: fonts.mono, padding: 0, margin: 0 }}
         />
-        <Pressable
-          onPress={() => void run(cmd)}
-          style={{ flexDirection: "row", alignItems: "center", gap: 6, height: 34, paddingHorizontal: 14, borderRadius: 17, backgroundColor: "#ffffff" }}
-          accessibilityLabel="Выполнить"
-        >
-          <Text style={{ color: "#000000", fontSize: 13, fontWeight: "600" }}>Выполнить</Text>
-        </Pressable>
-      </View>
+      </Pressable>
     </KeyboardAvoidingView>
   );
 }

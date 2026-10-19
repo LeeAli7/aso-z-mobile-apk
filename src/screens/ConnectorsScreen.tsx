@@ -11,30 +11,15 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { listMcpServers, addMcpServer, removeMcpServer, toUiMcp, listWebhooks, addWebhook, removeWebhook, toUiWebhooks } from "../core/connectors";
 import { AppIcon } from "../design-system/components/AppIcon";
 import { useApp } from "../store/AppStore";
 import { fonts } from "../theme/tokens";
 import { Button } from "../design-system/components/Button";
 import { DeptRow, DeptDivider, DeptBack, DeptDef } from "../components/Dept";
 
-const KEY_MCP = "aso_mcp_servers";
-const KEY_WH = "aso_webhooks";
-
 interface Mcp { id: string; name: string; target: string }
 interface Wh { id: string; name: string; events: string }
-
-async function readJson<T>(key: string): Promise<T[]> {
-  try {
-    const raw = await AsyncStorage.getItem(key);
-    if (!raw) return [];
-    const v = JSON.parse(raw);
-    return Array.isArray(v) ? v : [];
-  } catch { return []; }
-}
-function genId(): string {
-  return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
-}
 
 type DeptKey = "messengers" | "mcp" | "webhooks";
 
@@ -47,9 +32,11 @@ export function ConnectorsScreen({ navigation }: { navigation: any }) {
   const [mcpDraft, setMcpDraft] = useState({ name: "", target: "" });
   const [whDraft, setWhDraft] = useState({ name: "", events: "" });
 
+  // Источник правды — core/connectors: те же серверы и вебхуки видит агент.
   const load = useCallback(async () => {
-    setMcp(await readJson<Mcp>(KEY_MCP));
-    setWh(await readJson<Wh>(KEY_WH));
+    const [servers, hooks] = await Promise.all([listMcpServers(), listWebhooks()]);
+    setMcp(toUiMcp(servers).map((m) => ({ id: m.id, name: m.name, target: m.target })));
+    setWh(toUiWebhooks(hooks).map((w) => ({ id: w.id, name: w.name, events: w.events ?? "" })));
   }, []);
   useEffect(() => { void load(); }, [load]);
 
@@ -57,32 +44,39 @@ export function ConnectorsScreen({ navigation }: { navigation: any }) {
     const name = mcpDraft.name.trim();
     const target = mcpDraft.target.trim();
     if (!name || !target) return;
-    const next = [...mcp, { id: genId(), name, target }];
-    await AsyncStorage.setItem(KEY_MCP, JSON.stringify(next));
-    setMcp(next);
+    const isUrl = /^https?:\/\//i.test(target);
+    await addMcpServer({
+      name,
+      transport: isUrl ? "http" : "stdio",
+      url: isUrl ? target : undefined,
+      command: isUrl ? undefined : target,
+    });
     setMcpDraft({ name: "", target: "" });
-  }, [mcp, mcpDraft]);
+    await load();
+  }, [mcpDraft, load]);
 
   const delMcp = useCallback(async (id: string) => {
-    const next = mcp.filter((m) => m.id !== id);
-    await AsyncStorage.setItem(KEY_MCP, JSON.stringify(next));
-    setMcp(next);
-  }, [mcp]);
+    await removeMcpServer(id);
+    await load();
+  }, [load]);
 
   const addWh = useCallback(async () => {
     const name = whDraft.name.trim();
     if (!name) return;
-    const next = [...wh, { id: genId(), name, events: whDraft.events.trim() }];
-    await AsyncStorage.setItem(KEY_WH, JSON.stringify(next));
-    setWh(next);
+    await addWebhook({
+      name,
+      events: whDraft.events.trim() || "*",
+      prompt: "",
+      deliver: "origin",
+    });
     setWhDraft({ name: "", events: "" });
-  }, [wh, whDraft]);
+    await load();
+  }, [whDraft, load]);
 
   const delWh = useCallback(async (id: string) => {
-    const next = wh.filter((w) => w.id !== id);
-    await AsyncStorage.setItem(KEY_WH, JSON.stringify(next));
-    setWh(next);
-  }, [wh]);
+    await removeWebhook(id);
+    await load();
+  }, [load]);
 
   const input = {
     borderWidth: 1, borderColor: theme.border, borderRadius: 10,

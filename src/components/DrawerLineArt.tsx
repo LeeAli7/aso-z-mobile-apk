@@ -205,7 +205,7 @@ export function DrawerLineArt({
               accessibilityRole="button"
               accessibilityLabel={modelName}
             >
-              <Text style={{ color: theme.dim, fontSize: 13 }}>{modelName}</Text>
+              <Text style={{ color: theme.dim, fontSize: 13 }}>{"Модель · " + modelName}</Text>
             </Pressable>
             {modelsExpanded &&
               models.map((m) => {

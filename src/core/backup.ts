@@ -95,6 +95,29 @@ function walkFiles(dir: Directory, prefix: string, acc: Record<string, string>):
 }
 
 /** Собрать все данные в один объект. */
+/** Провайдеры без секретов: структура остаётся, apiKey вырезается. */
+function redactProviders(raw: string | null): unknown[] {
+  if (!raw) return [];
+  try {
+    const list = JSON.parse(raw);
+    if (!Array.isArray(list)) return [];
+    return list.map((p: any) => {
+      if (!p || typeof p !== "object") return p;
+      const { apiKey, ...rest } = p;
+      const models = Array.isArray(rest.models)
+        ? rest.models.map((m: any) => {
+            if (!m || typeof m !== "object") return m;
+            const { apiKey: _mk, ...mrest } = m;
+            return mrest;
+          })
+        : rest.models;
+      return { ...rest, models, hasKey: !!apiKey };
+    });
+  } catch {
+    return [];
+  }
+}
+
 export async function collectBackup(): Promise<BackupData> {
   const [
     sessionsRaw,
@@ -180,7 +203,10 @@ export async function collectBackup(): Promise<BackupData> {
     activeSessionId: activeRaw || null,
     theme: themeRaw,
     lang: langRaw,
-    customProviders: providersRaw ? JSON.parse(providersRaw) : [],
+    // Ключи API в бэкап НЕ попадают: файл уходит в Download и в системный
+    // Share, то есть доступен любому приложению с доступом к файлам. Ни
+    // провайдеров без ключей, ни ключей без провайдеров пользователю не нужно.
+    customProviders: redactProviders(providersRaw),
     vibeProjects: projects,
     vibeMessages,
     vibeFiles,
@@ -279,9 +305,26 @@ export async function importBackupFromFile(): Promise<{ ok: boolean; message: st
     if (data.lang === "ru" || data.lang === "en") {
       await AsyncStorage.setItem(KEYS_LANG, data.lang);
     }
-    // провайдеры (SecureStore)
+    // провайдеры (SecureStore) — ключи в бэкапе вырезаны, поэтому не
+    // затираем текущие: мержим по id провайдера и модели.
     if (data.customProviders) {
-      await SecureStore.setItemAsync(KEYS_PROVIDERS, JSON.stringify(data.customProviders));
+      let incoming: any[] = Array.isArray(data.customProviders) ? data.customProviders : [];
+      try {
+        const cur = JSON.parse((await SecureStore.getItemAsync(KEYS_PROVIDERS)) ?? "[]");
+        if (Array.isArray(cur)) {
+          incoming = incoming.map((p: any) => {
+            const oldP = cur.find((c: any) => c && p && c.id === p.id);
+            const models = Array.isArray(p?.models)
+              ? p.models.map((m: any) => {
+                  const oldM = oldP?.models?.find?.((x: any) => x && m && x.id === m.id);
+                  return m?.apiKey ? m : { ...m, apiKey: oldM?.apiKey ?? m?.apiKey ?? null };
+                })
+              : p?.models;
+            return { ...p, apiKey: p?.apiKey ?? oldP?.apiKey ?? null, models };
+          });
+        }
+      } catch {}
+      await SecureStore.setItemAsync(KEYS_PROVIDERS, JSON.stringify(incoming));
     }
     // агентское: память / задачи / автозадачи
     if (data.memUser) await AsyncStorage.setItem(MEM_USER, JSON.stringify(data.memUser));

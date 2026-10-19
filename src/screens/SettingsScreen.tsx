@@ -23,6 +23,7 @@ import { ThemeName, fonts } from "../theme/tokens";
 import { Lang } from "../i18n";
 import { TextField, PrimaryButton } from "../components/ui";
 import { requestSync, pollSync, fetchProfile } from "../core/sync";
+import { saveAgentConfig } from "../core/agentConfig";
 import { exportBackupToFile, importBackupFromFile } from "../core/backup";
 import { config, setApiBase } from "../core/env";
 import { showToast } from "../design-system/components/Toast";
@@ -58,7 +59,7 @@ const PREF_DEFAULTS = {
   ttsProvider: "edge",
   memoryEnabled: "1",
   redactSecrets: "1",
-  delegationMax: "3",
+  delegationMax: "2",
 };
 async function loadPrefs(): Promise<Record<string, string>> {
   const out: Record<string, string> = { ...PREF_DEFAULTS };
@@ -179,6 +180,13 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
   const setPref = useCallback((name: string, value: string) => {
     setPrefs((p) => ({ ...p, [name]: value }));
     void savePref(name, value);
+    // единый стор агента: зеркалим в agentConfig, иначе значение живёт
+    // только в legacy-ключе, а движок читает JSON и переключатель «не работает»
+    if (name === "maxTurns") void saveAgentConfig({ maxTurns: parseInt(value, 10) || 90 });
+    else if (name === "approvals") void saveAgentConfig({ approvalsMode: value as any });
+    else if (name === "compression") void saveAgentConfig({ compressionEnabled: value !== "0" });
+    else if (name === "memoryEnabled") void saveAgentConfig({ memoryEnabled: value !== "0" });
+    else if (name === "delegationMax") void saveAgentConfig({ maxConcurrentChildren: parseInt(value, 10) || 2 });
   }, []);
 
   const logout = useCallback(() => {
