@@ -153,10 +153,9 @@ function makeStyles(theme: any) {
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    borderWidth: 1,
-    borderColor: theme.border,
+    backgroundColor: "#ffffff",
   },
-  btnPrimaryText: { color: theme.onAccent, fontSize: 16, fontWeight: "700" },
+  btnPrimaryText: { color: "#000000", fontSize: 16, fontWeight: "700" },
   btnGhost: {
     minHeight: 50,
     borderRadius: 20,

@@ -27,14 +27,16 @@ export function Button({
   fullWidth?: boolean;
 }) {
   const { theme } = useApp();
+  // «КРОВЬ»: главное действие — белая капсула, красный остаётся только
+  // разрушительным и подтверждающим, поэтому primary больше не красный
   const bg =
-    variant === "primary" ? theme.accent
+    variant === "primary" ? "#ffffff"
     : variant === "danger" ? theme.danger
     : variant === "secondary" ? theme.surface
     : "transparent";
   const fg =
     variant === "primary"
-      ? theme.onAccent
+      ? "#000000"
       : variant === "danger" ? "#fff"
       : variant === "secondary" ? theme.text
       : theme.accentHi;
