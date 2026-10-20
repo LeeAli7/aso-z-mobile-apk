@@ -62,6 +62,7 @@ export const APP_ICON_NAMES = [
   "webhook",
   "message",
   "server",
+  "pin",
 ] as const;
 
 export type AppIconName = (typeof APP_ICON_NAMES)[number];

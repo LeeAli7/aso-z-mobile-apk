@@ -16,13 +16,14 @@ import { useApp } from "../../store/AppStore";
 const RADIUS_CARD = 20;
 
 /** Поверхность карточки. */
-export function glassStyle(theme: any, radius: number = RADIUS_CARD): ViewStyle {
-  return {
+export function glassStyle(theme: any, radius: number = RADIUS_CARD, border = true): ViewStyle {
+  const base: ViewStyle = {
     borderRadius: radius,
-    borderWidth: 1,
-    borderColor: theme.border,
     backgroundColor: theme.surface,
   };
+  // border=false — чистый залив без обводки (капсула ввода): рамка вокруг
+  // капсулы читалась как «второй прямоугольник» в обеих темах.
+  return border ? { ...base, borderWidth: 1, borderColor: theme.border } : base;
 }
 
 /** Пустой слой: раньше здесь был градиентный блик. */
@@ -40,14 +41,16 @@ export function Glass({
   radius = RADIUS_CARD,
   style,
   children,
+  border = true,
 }: {
   radius?: number;
   style?: ViewStyle;
   children: React.ReactNode;
   blur?: boolean;
+  border?: boolean;
 }) {
   const { theme } = useApp();
-  return <View style={[glassStyle(theme, radius), style]}>{children}</View>;
+  return <View style={[glassStyle(theme, radius, border), style]}>{children}</View>;
 }
 
 /** Кликабельная поверхность. */

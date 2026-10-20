@@ -132,7 +132,7 @@ function CodeBlock({ code, lang, theme }: { code: string; lang: string; theme: a
   const [wrapped, setWrapped] = useState(false);
   const tokens = useMemo(() => tokenize(code), [code]);
   return (
-    <View style={{ marginVertical: 6, borderRadius: 20, overflow: "hidden", borderWidth: 1, borderColor: theme.border, backgroundColor: theme.codeBg }}>
+    <View style={{ marginVertical: 6, borderRadius: 20, overflow: "hidden", backgroundColor: theme.codeBg }}>
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 10, paddingVertical: 5, backgroundColor: theme.codeBg }}>
         <Text style={{ color: theme.codeText, fontSize: 9.5, fontFamily: fonts.mono, opacity: 1 }}>{lang || "code"}</Text>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
@@ -295,7 +295,7 @@ export function RichMarkdown({ content }: { content: string }) {
         out.push(
           <View
             key={`tbl${k++}`}
-            style={{ marginVertical: 6, borderWidth: 1, borderColor: theme.border, borderRadius: 20, overflow: "hidden" }}
+            style={{ marginVertical: 6, borderRadius: 20, overflow: "hidden" }}
           >
             {/* шапка */}
             <View style={{ flexDirection: "row", backgroundColor: theme.surface2, borderBottomWidth: 1, borderBottomColor: theme.border }}>

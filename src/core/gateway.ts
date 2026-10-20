@@ -82,24 +82,9 @@ export const ASOAI_SYSTEM_PROMPT = [
 
 /** Разворачивает зашифрованный конфиг в список моделей. */
 export function loadModels(): ModelInfo[] {
-  const out: ModelInfo[] = [];
-  ENCRYPTED_PROVIDERS.forEach((prov, idx) => {
-    const baseUrl = decrypt(prov.e as unknown as string);
-    (prov.m as unknown as Array<Record<string, unknown>>).forEach((m) => {
-      out.push({
-        modelName: decrypt(String(m.n)),
-        displayName: String(m.d),
-        tier: String(m.tier),
-        premium: Boolean(m.prem),
-        caps: Array.isArray(m.caps) ? (m.caps as string[]) : [],
-        baseUrl,
-        providerIdx: idx,
-        // Жёсткая личность для всех системных моделей AsoAI
-        systemPrompt: ASOAI_SYSTEM_PROMPT,
-      });
-    });
-  });
-  return out;
+  // Встроенный (системный) каталог моделей УДАЛЁН: пользователь сам добавляет
+  // свои модели через провайдеров/прокси. Пустой список = нет «чужих» моделей.
+  return [];
 }
 
 /**

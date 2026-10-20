@@ -57,6 +57,9 @@ export function DrawerLineArt({
   onSearchChange,
   onRename,
   onDelete,
+  cronSessions = [],
+  onSessionMenu,
+  onPin,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -75,6 +78,11 @@ export function DrawerLineArt({
   onSearchChange: (v: string) => void;
   onRename: (id: string) => void;
   onDelete: (id: string) => void;
+  /** Сессии автозадач — отдельный раздел, не мешаются с ручными чатами. */
+  cronSessions?: Session[];
+  /** Долгое нажатие по сессии — мини-окно действий. */
+  onSessionMenu?: (s: Session) => void;
+  onPin?: (s: Session) => void;
 }) {
   const insets = useSafeAreaInsets();
   const slide = useRef(new Animated.Value(HIDE)).current;
@@ -207,6 +215,11 @@ export function DrawerLineArt({
             >
               <Text style={{ color: theme.dim, fontSize: 13 }}>{"Модель · " + modelName}</Text>
             </Pressable>
+            {modelsExpanded && models.length === 0 && (
+              <Text style={{ color: theme.mute, fontSize: 12.5, lineHeight: 18, paddingHorizontal: 22, paddingBottom: 10 }}>
+                Своих моделей нет. Добавьте её в Настройках → Провайдеры.
+              </Text>
+            )}
             {modelsExpanded &&
               models.map((m) => {
                 const on = currentModelName === m.modelName;
@@ -243,37 +256,45 @@ export function DrawerLineArt({
               />
             </View>
 
-            {sessions.map((s) => {
-              const on = s.id === activeId;
-              return (
-                <Pressable
-                  key={s.id}
-                  onPress={() => onSelectSession(s.id)}
-                  style={({ pressed }) => ({
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 8,
-                    minHeight: 44,
-                    paddingHorizontal: 22,
-                    opacity: pressed ? 0.55 : 1,
-                  })}
-                >
-                  <Text numberOfLines={1} style={{ flex: 1, color: on ? theme.text : theme.dim, fontSize: 15.5, fontWeight: on ? "600" : "400" }}>
-                    {s.name}
+            {[
+              { key: "chats", title: "", list: sessions },
+              { key: "cron", title: "Кроны", list: cronSessions },
+            ].map((section) => (
+              <View key={section.key}>
+                {!!section.title && !!section.list.length && (
+                  <Text style={{ color: theme.mute, fontSize: 11.5, fontWeight: "600", letterSpacing: 0.8, textTransform: "uppercase", paddingHorizontal: 22, paddingTop: 16, paddingBottom: 4 }}>
+                    {section.title}
                   </Text>
-                  {on && (
-                    <View style={{ flexDirection: "row", alignItems: "center" }}>
-                      <Pressable onPress={() => onRename(s.id)} hitSlop={8} style={{ width: 34, height: 34, alignItems: "center", justifyContent: "center" }} accessibilityLabel="Переименовать">
-                        <AppIcon name="pen" color={theme.dim} size={16} />
-                      </Pressable>
-                      <Pressable onPress={() => onDelete(s.id)} hitSlop={8} style={{ width: 34, height: 34, alignItems: "center", justifyContent: "center" }} accessibilityLabel="Удалить">
-                        <AppIcon name="delete" color={theme.danger} size={16} />
-                      </Pressable>
-                    </View>
-                  )}
-                </Pressable>
-              );
-            })}
+                )}
+                {section.list.map((s) => {
+                  const on = s.id === activeId;
+                  return (
+                    <Pressable
+                      key={s.id}
+                      onPress={() => onSelectSession(s.id)}
+                      // действия (переименовать / прикрепить / удалить) живут в
+                      // мини-окне: держим строку — и открывается окно
+                      onLongPress={() => onSessionMenu?.(s)}
+                      delayLongPress={320}
+                      style={({ pressed }) => ({
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 10,
+                        minHeight: 44,
+                        paddingHorizontal: 22,
+                        opacity: pressed ? 0.55 : 1,
+                      })}
+                    >
+                      {!!s.pinned && <AppIcon name="pin" color={theme.dim} size={14} />}
+                      {!!s.cron && <AppIcon name="clock" color={theme.mute} size={14} />}
+                      <Text numberOfLines={1} style={{ flex: 1, color: on ? theme.text : theme.dim, fontSize: 15.5, fontWeight: on ? "600" : "400" }}>
+                        {s.name}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ))}
           </ScrollView>
         </Animated.View>
       </View>

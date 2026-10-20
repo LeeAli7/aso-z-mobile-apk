@@ -103,6 +103,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   };
   const [msgMenuTarget, setMsgMenuTarget] = useState<Msg | null>(null);
   const [renameTarget, setRenameTarget] = useState<Session | null>(null);
+  // мини-окно действий с сессией (долгое нажатие в панели)
+  const [sessionMenuTarget, setSessionMenuTarget] = useState<Session | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<Session | null>(null);
   const [editTarget, setEditTarget] = useState<Msg | null>(null);
@@ -121,6 +123,9 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // слушаем Keyboard и добавляем отступ снизу вручную. Это же убирает «чёрную полосу»
   // под капсулой: капсула висит над навигационной панелью, а не на ней.
   const [kbH, setKbH] = useState(0);
+  // высота блока ввода: список снизу получает ровно такой отступ, иначе
+  // последнее сообщение уходит под капсулу
+  const [composerH, setComposerH] = useState(76);
   useEffect(() => {
     if (Platform.OS !== "android") return;
     const sh = Keyboard.addListener("keyboardDidShow", (e) => setKbH(e.endCoordinates.height));
@@ -225,7 +230,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   const active = state.sessions.find((s) => s.id === state.activeSessionId) ?? null;
   const allModels = [...state.models, ...state.customModels];
   const model = allModels.find((m) => m.modelName === active?.modelId) ?? allModels[0];
-  const modelName = model?.displayName ?? "Aso";
+  // встроенных моделей больше нет: пока своя не добавлена — «Модель», а не «Aso»
+  const modelName = model?.displayName ?? "Модель";
   // Активный vibe-проект сессии (контекст агента).
   const activeProject = active?.projectId
     ? projects.find((p) => p.id === active.projectId) ?? null
@@ -419,12 +425,17 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   );
 
   const sendText = useCallback(
-    async (raw: string) => {
+    async (raw: string, opts?: { sessionId?: string }) => {
       const content = raw.trim();
-      if (!content || isStreaming(active?.id) || !model) return;
+      // targetSession: крон-запуски идут в СВОЮ сессию, а не в открытую
+      let sid = opts?.sessionId ?? active?.id;
+      if (!content || isStreaming(sid)) return;
+      if (!model) {
+        // встроенные модели удалены: пока своя не добавлена — объясняем, что делать
+        showToast("err", "Нет модели — добавьте свою в Настройки → Провайдеры");
+        return;
+      }
 
-      // ensure session
-      let sid = active?.id;
       if (!sid) {
         sid = genId();
         dispatch({ type: "ADD_SESSION", session: {
@@ -819,7 +830,26 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           if (disposed || !model) break;
           // префикс: модель понимает, что это автозадача, и отвечает кратко
           const prompt = `[Автозадача: ${job.name}]\n${job.prompt}\n\nВыполни и дай краткий отчёт.`;
-          void sendText(prompt).then(() => {
+          // Каждый запуск — СВОЯ сессия «Крон · имя · дата». Раньше автозадача
+          // выполнялась в открытом чате: её отчёт попадал в историю, и агент на
+          // каждое следующее сообщение снова отвечал по старой автозадаче.
+          const cronId = genId();
+          const d = new Date();
+          const p2 = (n: number) => String(n).padStart(2, "0");
+          const stamp = `${p2(d.getDate())}.${p2(d.getMonth() + 1)} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+          dispatch({
+            type: "ADD_SESSION",
+            session: {
+              id: cronId,
+              name: `Крон · ${job.name} · ${stamp}`,
+              messages: [],
+              modelId: null,
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+              cron: true,
+            },
+          });
+          void sendText(prompt, { sessionId: cronId }).then(() => {
             void setJobResult(job.id, "выполнена").catch(() => {});
           });
         }
@@ -835,7 +865,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       clearInterval(iv);
       clearTimeout(first);
     };
-  }, [model, sendText, active?.id]);
+  }, [model, sendText, active?.id, dispatch]);
 
   const send = useCallback(() => {
     if (text.trim()) sendText(text);
@@ -1043,8 +1073,15 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   }, [renameTarget, renameValue, dispatch]);
 
   const sessionList = [...state.sessions]
-    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .sort((a, b) => {
+      // закреплённые — всегда сверху, дальше по времени изменения
+      if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
+      return b.updatedAt - a.updatedAt;
+    })
     .filter((s) => !search.trim() || s.name.toLowerCase().includes(search.trim().toLowerCase()));
+  // Сессии кронов живут отдельным разделом: они не смешиваются с ручными чатами.
+  const chatSessions = sessionList.filter((s) => !s.cron);
+  const cronSessions = sessionList.filter((s) => !!s.cron);
 
   // Цепочки: подряд идущие assistant-сообщения, начатые думалкой/командой —
   // накапливаются в ОДНОМ стеклянном блоке (как в QIWI). Финальный ответ агента
@@ -1143,6 +1180,13 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             <AppIcon name="chevron-down" size={13} color={theme.dim} />
           </Pressable>
         </View>
+        {/* Затухание под шапкой: 6 полос по 2 px, без блюра и градиента —
+            контент уходит под шапку и не «рвётся» резкой линией. */}
+        <View pointerEvents="none" style={{ height: 12 }}>
+          {[0.9, 0.72, 0.54, 0.36, 0.2, 0.08].map((o, i) => (
+            <View key={i} style={{ height: 2, backgroundColor: theme.bg, opacity: o }} />
+          ))}
+        </View>
       </View>
 
       {/* шторка фоновых процессов — только когда есть запущенные (рантайм/cron/делегация).
@@ -1198,7 +1242,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           ref={listRef}
           data={chainGroups}
           keyExtractor={(g) => g.id}
-          contentContainerStyle={{ padding: 16, paddingTop: insets.top + 64, paddingBottom: 24 }}
+          contentContainerStyle={{ padding: 16, paddingTop: insets.top + 64, paddingBottom: composerH + 24 }}
           onContentSizeChange={scrollBottom}
           keyboardShouldPersistTaps="handled"
           renderItem={({ item: g, index }) => {
@@ -1274,12 +1318,15 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={0}
       >
-        <View style={{ paddingHorizontal: 12, paddingTop: 6, paddingBottom: Platform.OS === "android" ? kbH + 8 : insets.bottom + 8 }}>
+        <View
+          onLayout={(e) => setComposerH(Math.round(e.nativeEvent.layout.height))}
+          style={{ paddingHorizontal: 12, paddingTop: 6, paddingBottom: Platform.OS === "android" ? kbH + Math.max(insets.bottom, 8) + 8 : insets.bottom + 8 }}
+        >
           {/* вложения — НАД капсулой: иконка ТИПА каждого вложения (та же, что в меню «Прикрепить»), крестики для удаления */}
           {attachments.length > 0 && (
             <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: 8, gap: 8 }}>
               {attachments.map((a, ai) => (
-                <View key={ai} style={{ flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface, borderRadius: 20, paddingLeft: 6, paddingRight: 4, paddingVertical: 4 }}>
+                <View key={ai} style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: theme.surface, borderRadius: 20, paddingLeft: 6, paddingRight: 4, paddingVertical: 4 }}>
                   <View style={{ width: 28, height: 28, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: theme.accentDim }}>
                     {a.kind === "file" ? (
                       <AppIcon name={fileIconName(a.name)} size={15} color={theme.accentHi} />
@@ -1298,6 +1345,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           {/* капсула ввода: #141416, радиус 26, без стекла и градиентов */}
           <Glass
             radius={25}
+            border={false}
             style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 8 }}
           >
             <Pressable
@@ -1426,7 +1474,13 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         onSelectModel={(m) => { switchModel(m); setDrawerOpen(false); }}
         onNewChat={handleNewSession}
         onNavigate={openDrawerRoute}
-        sessions={sessionList}
+        sessions={chatSessions}
+        cronSessions={cronSessions}
+        onSessionMenu={setSessionMenuTarget}
+        onPin={(s) => {
+          dispatch({ type: "UPDATE_SESSION", sessionId: s.id, patch: { pinned: !s.pinned } });
+          showToast("ok", s.pinned ? "Откреплено" : "Закреплено");
+        }}
         activeId={active?.id ?? null}
         onSelectSession={openDrawerSession}
         search={search}
@@ -1490,7 +1544,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         {detailTarget && (
           <>
             {detailTarget.tool ? (
-              <Text selectable style={{ color: theme.text, fontSize: 12.5, fontFamily: fonts.mono, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface2, borderRadius: 20, padding: 12, lineHeight: 19 }}>
+              <Text selectable style={{ color: theme.text, fontSize: 12.5, fontFamily: fonts.mono, backgroundColor: theme.surface2, borderRadius: 20, padding: 12, lineHeight: 19 }}>
                 {detailTarget.tool.trim()}
                 {detailTarget.toolOutput ? `\n\n${detailTarget.toolOutput.trim()}` : ""}
               </Text>
@@ -1532,6 +1586,69 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       </Sheet>
 
       {/* ── Прикрепить: фото / камера / файл — компактное меню без заголовка, закрытие свайпом вниз, кнопки на всю ширину ── */}
+      {/* ── Действия с сессией: мини-окно по долгому нажатию в панели ── */}
+      <Sheet visible={!!sessionMenuTarget} onClose={() => setSessionMenuTarget(null)} title={sessionMenuTarget?.name || ""} snapPoints={["auto"]} autoMaxPct={50}>
+        {sessionMenuTarget && (
+          <View style={{ marginTop: 2 }}>
+            {[
+              {
+                key: "rename",
+                icon: "pen" as const,
+                label: "Редактировать",
+                color: theme.text,
+                onPress: () => {
+                  setRenameValue(sessionMenuTarget.name);
+                  setRenameTarget(sessionMenuTarget);
+                  setSessionMenuTarget(null);
+                },
+              },
+              {
+                key: "pin",
+                icon: "pin" as const,
+                label: sessionMenuTarget.pinned ? "Открепить" : "Прикрепить",
+                color: theme.text,
+                onPress: () => {
+                  dispatch({
+                    type: "UPDATE_SESSION",
+                    sessionId: sessionMenuTarget.id,
+                    patch: { pinned: !sessionMenuTarget.pinned },
+                  });
+                  showToast("ok", sessionMenuTarget.pinned ? "Откреплено" : "Закреплено");
+                  setSessionMenuTarget(null);
+                },
+              },
+              {
+                key: "delete",
+                icon: "delete" as const,
+                label: "Удалить",
+                color: theme.danger,
+                onPress: () => {
+                  setDeleteTarget(sessionMenuTarget);
+                  setSessionMenuTarget(null);
+                },
+              },
+            ].map((row, i) => (
+              <Pressable
+                key={row.key}
+                onPress={row.onPress}
+                style={({ pressed }) => ({
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 12,
+                  minHeight: 52,
+                  opacity: pressed ? 0.55 : 1,
+                  borderTopWidth: i === 0 ? 0 : 1,
+                  borderTopColor: theme.border,
+                })}
+              >
+                <AppIcon name={row.icon} color={row.color} size={18} />
+                <Text style={{ color: row.color, fontSize: 16 }}>{row.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
+      </Sheet>
+
       {/* ── Rename session (in-app, Alert.prompt на Android не работает) ── */}
       <Sheet visible={!!renameTarget} onClose={() => setRenameTarget(null)} title="Переименовать сессию" snapPoints={["auto"]} autoMaxPct={50}>
         {renameTarget && (
