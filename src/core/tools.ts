@@ -270,8 +270,20 @@ registerTool({
 function pathProblem(p: string): string | null {
   if (!p) return "ошибка: нужен путь";
   if (/["`$;|&\n\r]/.test(p)) return "ошибка: в пути есть недопустимые символы";
+  // нормализуем: иначе "sub/../../data/x" проходил мимо блок-листа
+  const norm = "/" + p
+    .replace(/^~\/?/, "")
+    .split("/")
+    .reduce<string[]>((acc, part) => {
+      if (!part || part === ".") return acc;
+      if (part === "..") { acc.pop(); return acc; }
+      acc.push(part);
+      return acc;
+    }, [])
+    .join("/");
   const blocked = ["/data/", "/system/", "/proc/", "/dev/", "/sys/"];
-  if (blocked.some((b) => p.startsWith(b))) return "ошибка: системный путь защищён";
+  if (blocked.some((b) => norm.startsWith(b) || norm === b.slice(0, -1))) return "ошибка: системный путь защищён";
+  if (norm.includes("/../")) return "ошибка: выход за пределы каталога запрещён";
   return null;
 }
 
@@ -294,7 +306,8 @@ registerTool({
     const p = String(args.path ?? "").trim();
     const bad = pathProblem(p);
     if (bad) return bad;
-    const r = await runCommandCapture(`cat "${p}" 2>&1`, ctx.projectId, ctx.cwd);
+    // limit=8000: иначе рантайм режет файл на 4000 и обещание «до 8000» не выполнялось
+    const r = await runCommandCapture(`cat "${p}" 2>&1`, ctx.projectId, ctx.cwd, 8600);
     if (!r.ok) return `ошибка чтения: ${r.error || r.output || `exit ${r.code}`}`;
     const out = r.output ?? "";
     return out.length > 8000 ? out.slice(0, 8000) + `\n… (обрезано, всего ${out.length} симв.)` : out;
@@ -561,5 +574,54 @@ registerTool({
         return `${i + 1}. ${s.name} (${new Date(s.updatedAt).toLocaleDateString()})${last ? `\n   …${last}` : ""}`;
       })
       .join("\n");
+  },
+});
+
+/* ── MCP: подключённые серверы реально доступны агенту ───────────────
+ * До этого `aso_mcp_servers` только хранился в настройках: агент о нём
+ * не знал. Теперь можно посмотреть инструменты сервера и вызвать любой
+ * из них (Streamable HTTP, JSON-RPC 2.0). */
+registerTool({
+  name: "mcp",
+  description:
+    "Работа с MCP-серверами из раздела «Коннекторы». action=list — список серверов, " +
+    "action=tools — инструменты сервера (server_id), action=call — вызвать инструмент " +
+    "(server_id, tool, args). Поддерживаются HTTP-серверы; stdio (npx/uvx) на телефоне недоступен.",
+  parameters: {
+    type: "object",
+    properties: {
+      action: { type: "string", description: "list | tools | call" },
+      server_id: { type: "string", description: "id сервера (из action=list)" },
+      tool: { type: "string", description: "имя инструмента MCP" },
+      args: { type: "object", description: "аргументы инструмента" },
+    },
+    required: ["action"],
+  },
+  handler: async (args): Promise<string> => {
+    const { listMcpServers } = await import("./connectors");
+    const action = String(args.action ?? "list");
+    if (action === "list") {
+      const list = await listMcpServers();
+      if (!list.length) return "MCP-серверы не добавлены (Коннекторы → MCP-серверы).";
+      return list
+        .map((s) => `• ${s.name} [${s.id}] ${s.transport ?? "stdin"} ${s.enabled ? "вкл" : "выкл"} ${s.url ?? s.command ?? ""}`)
+        .join("\n");
+    }
+    const id = String(args.server_id ?? "").trim();
+    if (!id) return "ошибка: нужен server_id";
+    const { mcpTools, mcpCall } = await import("./mcp");
+    if (action === "tools") {
+      const r = await mcpTools(id);
+      if (!r.ok) return `ошибка: ${r.message}`;
+      if (!r.tools.length) return "У сервера нет инструментов.";
+      return r.tools.map((t) => `• ${t.name}${t.description ? " — " + t.description : ""}`).join("\n");
+    }
+    if (action === "call") {
+      const tool = String(args.tool ?? "").trim();
+      if (!tool) return "ошибка: нужен tool";
+      const r = await mcpCall(id, tool, (args.args as Record<string, unknown>) ?? {});
+      return r.ok ? (r.content || "готово") : `ошибка: ${r.message}`;
+    }
+    return "ошибка: action = list | tools | call";
   },
 });

@@ -102,7 +102,7 @@ export function ProvidersScreen({ navigation }: { navigation: any }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingBottom: 8, paddingTop: insets.top + 4, borderBottomWidth: 1, borderBottomColor: theme.border }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingBottom: 8, paddingTop: insets.top + 4 }}>
         <IconButton name="arrow-left" onPress={() => (dept ? setDept(null) : navigation.goBack())} accessibilityLabel="Назад" />
         <Text style={{ color: theme.text, fontSize: 16, fontWeight: "700" }}>Провайдеры и модели</Text>
       </View>
@@ -110,7 +110,7 @@ export function ProvidersScreen({ navigation }: { navigation: any }) {
       {/* корень — только список отделов */}
       {dept === null && (
         <View style={{ padding: 16 }}>
-          <View style={{ borderRadius: 15, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
+          <View style={{ borderRadius: 20, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
             {depts.map((d, i) => (
               <View key={d.key}>
                 {i > 0 && <DeptDivider theme={theme} />}
@@ -142,7 +142,9 @@ export function ProvidersScreen({ navigation }: { navigation: any }) {
               (p.models ?? []).map((m) => (
                 <Pressable
                   key={p.id + m.id}
-                  onPress={() => removeModel(p, m)}
+                  // тап по строке больше не удаляет модель: удаление — только долгим нажатием
+                  onLongPress={() => removeModel(p, m)}
+                  delayLongPress={450}
                   style={({ pressed }) => ({
                     flexDirection: "row",
                     alignItems: "center",

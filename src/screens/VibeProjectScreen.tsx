@@ -298,7 +298,7 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       {/* header */}
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingBottom: 8, paddingTop: insets.top + 4, borderBottomWidth: 1, borderBottomColor: theme.border }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingBottom: 8, paddingTop: insets.top + 4 }}>
         <IconButton name="arrow-left" onPress={() => navigation.goBack()} accessibilityLabel={t("back")} />
         <View style={{ flex: 1 }}>
           <Text style={{ color: theme.text, fontSize: 14, fontWeight: "600" }}>{projectName}</Text>
@@ -320,8 +320,8 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
           size={17}
           onPress={async () => {
             const r = await openInTermux(projectId);
-            if (!r.ok) showToast("err", r.message);
-            else showToast("ok", "Termux запущен");
+            if (r.message) showToast(r.ok ? "ok" : "err", r.message);
+            else showToast("ok", "Терминал открыт");
           }}
           accessibilityLabel="Открыть проект в Termux"
         />
@@ -384,14 +384,14 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
                 placeholderTextColor={theme.mute}
                 multiline
                 textAlignVertical="top"
-                style={{ flex: 1, backgroundColor: theme.surface2, borderRadius: 14, paddingHorizontal: 14, paddingTop: 11, paddingBottom: 11, fontSize: 14, color: theme.text, maxHeight: 100, minHeight: 44 }}
+                style={{ flex: 1, backgroundColor: theme.surface2, borderRadius: 20, paddingHorizontal: 14, paddingTop: 11, paddingBottom: 11, fontSize: 14, color: theme.text, maxHeight: 100, minHeight: 44 }}
               />
               {busy ? (
-                <Pressable onPress={stop} style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: theme.danger, alignItems: "center", justifyContent: "center" }}>
+                <Pressable onPress={stop} style={{ width: 44, height: 44, borderRadius: 20, backgroundColor: theme.danger, alignItems: "center", justifyContent: "center" }}>
                   <AppIcon name="stop" size={20} color="#fff" />
                 </Pressable>
               ) : (
-                <Pressable onPress={send} disabled={!text.trim()} style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: text.trim() ? theme.accent : theme.surface2, alignItems: "center", justifyContent: "center" }}>
+                <Pressable onPress={send} disabled={!text.trim()} style={{ width: 44, height: 44, borderRadius: 20, backgroundColor: text.trim() ? theme.accent : theme.surface2, alignItems: "center", justifyContent: "center" }}>
                   <AppIcon name="send" size={20} color={text.trim() ? theme.onAccent : theme.mute} />
                 </Pressable>
               )}
@@ -610,7 +610,7 @@ function VibeBubble({ msg, theme }: { msg: VibeMsg; theme: any }) {
   const user = msg.role === "user";
   return (
     <View style={{ alignSelf: user ? "flex-end" : "flex-start", maxWidth: "88%", marginBottom: 10 }}>
-      <View style={{ backgroundColor: user ? theme.userBubble : theme.surface, borderRadius: 14, borderTopLeftRadius: user ? 14 : 4, borderTopRightRadius: user ? 14 : 14, borderWidth: user ? 0 : 1, borderColor: user ? undefined : theme.border, paddingHorizontal: 13, paddingVertical: 9 }}>
+      <View style={{ backgroundColor: user ? theme.userBubble : theme.surface, borderRadius: 20, borderTopLeftRadius: user ? 14 : 4, borderTopRightRadius: user ? 14 : 14, borderWidth: user ? 0 : 1, borderColor: user ? undefined : theme.border, paddingHorizontal: 13, paddingVertical: 9 }}>
         {user ? (
           <Text style={{ color: theme.userText, fontSize: 14, lineHeight: 20 }}>{msg.content}</Text>
         ) : (

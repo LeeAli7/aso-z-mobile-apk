@@ -138,7 +138,7 @@ export function BgIndicator({
       hitSlop={8}
       style={{
         flexDirection: "row", alignItems: "center", gap: 6,
-        paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14,
+        paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20,
         backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
       }}
       accessibilityLabel="Фоновые процессы"

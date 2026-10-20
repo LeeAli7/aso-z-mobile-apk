@@ -439,7 +439,19 @@ export async function streamAgentChat(
 
   let messages: any[] = [...initialMessages];
   if (model.systemPrompt && !messages.some((m) => m.role === "system")) {
-    messages = [{ role: "system", content: model.systemPrompt }, ...messages];
+    // п.9 промпта перечислял инструменты статично — модель звала выключенные
+    // и получала отказ. Подставляем фактический список доступных тулов.
+    const names = (tools ?? [])
+      .map((t: any) => t?.function?.name)
+      .filter((n: any): n is string => typeof n === "string");
+    let sys = model.systemPrompt as string;
+    if (names.length) {
+      sys = sys.replace(
+        /^9\. Инструменты:.*$/m,
+        `9. Инструменты (доступны сейчас): ${names.join(", ")}. Остальные выключены в настройках — не вызывай их. Выполняй по одному; вывод придёт следующим сообщением.`,
+      );
+    }
+    messages = [{ role: "system", content: sys }, ...messages];
   }
 
   let toolsEnabled = true;

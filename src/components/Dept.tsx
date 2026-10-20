@@ -48,7 +48,7 @@ export function DeptRow({
       android_ripple={{ color: theme.ripple }}
       style={({ pressed }) => ({
         flexDirection: "row", alignItems: "center", gap: 12,
-        paddingHorizontal: 14, paddingVertical: 12,
+        paddingHorizontal: 14, paddingVertical: 13,
         backgroundColor: theme.surface, opacity: pressed ? 0.85 : 1,
       })}
       accessibilityRole="button"
@@ -57,7 +57,7 @@ export function DeptRow({
       <DeptIcon name={dept.icon} theme={theme} set={set} />
       <View style={{ flex: 1 }}>
         <Text style={{ color: theme.text, fontSize: 13.5, fontWeight: "600" }}>{dept.title}</Text>
-        {dept.sub ? <Text style={{ color: theme.mute, fontSize: 10.5, marginTop: 1 }}>{dept.sub}</Text> : null}
+        {dept.sub ? <Text style={{ color: theme.mute, fontSize: 11, lineHeight: 15, marginTop: 2 }}>{dept.sub}</Text> : null}
       </View>
       <AppIcon name="chevron-right" size={18} color={theme.mute} />
     </Pressable>

@@ -170,7 +170,7 @@ export function VibeScreen({ navigation }: { navigation: any }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      <View style={{ flexDirection: "row", alignItems: "center", paddingTop: insets.top + 6, paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: theme.border }}>
+      <View style={{ flexDirection: "row", alignItems: "center", paddingTop: insets.top + 6, paddingHorizontal: 16, paddingBottom: 10 }}>
         <IconButton name="arrow-left" size={20} onPress={() => (dept ? setDept(null) : navigation.goBack())} accessibilityLabel={t("back")} />
         <View style={{ flex: 1, marginLeft: 6 }}>
           <Text style={{ color: theme.dim, fontSize: 11 }}>{t("vibe_sub")}</Text>
@@ -191,7 +191,7 @@ export function VibeScreen({ navigation }: { navigation: any }) {
       {/* корень = проводник: проекты и файлы первыми, отделы агента — ниже внутри */}
       {dept === null && (
         <View style={{ padding: 16 }}>
-          <View style={{ borderRadius: 15, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
+          <View style={{ borderRadius: 20, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
             {explorerDepts.map((d, i) => (
               <View key={d.key}>
                 {i > 0 && <DeptDivider theme={theme} />}
@@ -202,7 +202,7 @@ export function VibeScreen({ navigation }: { navigation: any }) {
           <Text style={{ color: theme.mute, fontSize: 10, letterSpacing: 1.2, textTransform: "uppercase", marginTop: 14, marginBottom: 6, marginHorizontal: 4 }}>
             {t("grp_agent")}
           </Text>
-          <View style={{ borderRadius: 15, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
+          <View style={{ borderRadius: 20, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
             {agentDepts.map((d, i) => (
               <View key={d.key}>
                 {i > 0 && <DeptDivider theme={theme} />}
@@ -314,7 +314,7 @@ export function VibeScreen({ navigation }: { navigation: any }) {
       {/* ── Память (read + очистка) ── */}
       {dept === "memory" && (
         <View style={{ padding: 16 }}>
-          <View style={{ padding: 14, borderRadius: 15, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }}>
+          <View style={{ padding: 14, borderRadius: 20, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }}>
             <Text style={{ color: theme.dim, fontSize: 12.5, lineHeight: 19 }}>{memText.slice(0, 1500)}</Text>
             <View style={{ height: 10 }} />
             <Button

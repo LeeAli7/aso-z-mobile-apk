@@ -140,7 +140,7 @@ export type CmdResult = { ok: boolean; output: string; code: number; error?: str
  * когда быстрая команда завершалась до подписки на onExit и JS висел вечно.
  * Если вывод длинный — кладём в файл проекта и возвращаем путь (не засоряем чат).
  */
-export function runCommandCapture(cmd: string, projectId?: string, cwd?: string): Promise<CmdResult> {
+export function runCommandCapture(cmd: string, projectId?: string, cwd?: string, limit = 4000): Promise<CmdResult> {
   return new Promise(async (resolve) => {
     if (!runtimeAvailable()) {
       resolve({ ok: false, output: "", code: -1, error: "Рантайм доступен только на Android" });
@@ -182,7 +182,7 @@ export function runCommandCapture(cmd: string, projectId?: string, cwd?: string)
       }
       // Обрезка больше не молчит: иначе в терминале терялся хвост логов
       // (пользователь и модель думают, что это весь вывод).
-      const LIMIT = 4000;
+      const LIMIT = Math.max(1000, limit);
       if (text.length > LIMIT) {
         const kept = text.slice(0, LIMIT);
         resolve({

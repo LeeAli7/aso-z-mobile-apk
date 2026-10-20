@@ -22,7 +22,6 @@ import {
   View,
   type ViewStyle,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 import { AppIcon, AppIconName } from "../design-system/components/AppIcon";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -39,29 +38,12 @@ function makeStyles(theme: any) {
   return StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.bg, overflow: "hidden" },
   bg: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 } as ViewStyle,
-  glow: { position: "absolute", borderRadius: 999 },
-  glowTop: {
-    top: -120,
-    right: -110,
-    width: 600,
-    height: 380,
-    backgroundColor: theme.accentDim,
-    transform: [{ scaleX: 1.2 }],
-  },
-  glowBottom: {
-    bottom: -140,
-    left: -120,
-    width: 520,
-    height: 340,
-    backgroundColor: theme.accentDim,
-  },
   dots: {
     position: "absolute",
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    opacity: 0.5,
   },
   progress: {
     flexDirection: "row",
@@ -87,11 +69,6 @@ function makeStyles(theme: any) {
     borderRadius: 24,
     borderWidth: 1,
     borderColor: theme.accent,
-    shadowColor: "#000",
-    shadowOpacity: 0.35,
-    shadowRadius: 34,
-    shadowOffset: { width: 0, height: 14 },
-    elevation: 8,
   },
   emblemInner: {
     flex: 1,
@@ -168,7 +145,7 @@ function makeStyles(theme: any) {
 
   actions: { marginTop: 22, gap: 10 },
   btnPrimaryWrap: {
-    borderRadius: 16,
+    borderRadius: 20,
     shadowColor: theme.accent,
     shadowOpacity: 0.34,
     shadowRadius: 28,
@@ -177,7 +154,7 @@ function makeStyles(theme: any) {
   },
   btnPrimary: {
     minHeight: 54,
-    borderRadius: 16,
+    borderRadius: 20,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -188,7 +165,7 @@ function makeStyles(theme: any) {
   btnPrimaryText: { color: theme.onAccent, fontSize: 16, fontWeight: "700" },
   btnGhost: {
     minHeight: 50,
-    borderRadius: 16,
+    borderRadius: 20,
     backgroundColor: theme.surface,
     borderWidth: 1,
     borderColor: theme.border,
@@ -377,12 +354,7 @@ function Slide({
       <View style={s.slideBody}>
         {/* эмблема */}
         <Animated.View style={[s.emblemWrap, rise(0)]}>
-          <LinearGradient
-            colors={[theme.accentDim, "transparent"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={s.emblem}
-          >
+          <View style={s.emblem}>
             <View style={s.emblemInner}>
               {def.final ? (
                 <AppIcon name="check" size={46} color={theme.ok} />
@@ -390,7 +362,7 @@ function Slide({
                 <AppIcon name={def.icon} size={34} color={theme.onAccent} />
               )}
             </View>
-          </LinearGradient>
+          </View>
         </Animated.View>
 
         {/* кикер */}
@@ -443,19 +415,14 @@ function Slide({
             android_ripple={{ color: theme.ripple }}
             style={({ pressed }) => [s.btnPrimaryWrap, pressed && s.btnPressed]}
           >
-            <LinearGradient
-              colors={[theme.accentHi, theme.accent]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 0, y: 1 }}
-              style={s.btnPrimary}
-            >
+            <View style={s.btnPrimary}>
               <Text style={s.btnPrimaryText}>{def.primary.label}</Text>
               <AppIcon
                 name={def.primary.action === "done" ? "check" : "chevron-right"}
                 size={22}
                 color={theme.onAccent}
               />
-            </LinearGradient>
+            </View>
           </Pressable>
           {def.ghost && (
             <Pressable
@@ -536,10 +503,8 @@ export function OnboardingScreen({ onDone }: { onDone: () => void }) {
 
   return (
     <View style={[s.root, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 12 }]}>
-      {/* фон: едва заметные glow-пятна + точечный паттерн */}
+      {/* фон: только точечный паттерн, без свечений */}
       <View pointerEvents="none" style={s.bg}>
-        <View style={[s.glow, s.glowTop]} />
-        <View style={[s.glow, s.glowBottom]} />
         <View style={s.dots} />
       </View>
 

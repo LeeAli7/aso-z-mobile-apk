@@ -132,7 +132,7 @@ function CodeBlock({ code, lang, theme }: { code: string; lang: string; theme: a
   const [wrapped, setWrapped] = useState(false);
   const tokens = useMemo(() => tokenize(code), [code]);
   return (
-    <View style={{ marginVertical: 6, borderRadius: 16, overflow: "hidden", borderWidth: 1, borderColor: theme.border, backgroundColor: theme.codeBg }}>
+    <View style={{ marginVertical: 6, borderRadius: 20, overflow: "hidden", borderWidth: 1, borderColor: theme.border, backgroundColor: theme.codeBg }}>
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 10, paddingVertical: 5, backgroundColor: theme.surface2 }}>
         <Text style={{ color: theme.mute, fontSize: 9.5, fontFamily: fonts.mono }}>{lang || "code"}</Text>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
@@ -140,14 +140,14 @@ function CodeBlock({ code, lang, theme }: { code: string; lang: string; theme: a
             hitSlop={8}
             onPress={() => setWrapped(!wrapped)}
             accessibilityLabel={wrapped ? "Перенос выключен" : "Перенос включен"}
-            style={{ width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center" }}
+            style={{ width: 32, height: 32, borderRadius: 20, alignItems: "center", justifyContent: "center" }}
           >
             <AppIcon name="wrap" size={13} color={wrapped ? theme.dim : theme.mute} />
           </Pressable>
           <Pressable
             hitSlop={8}
             onPress={() => Clipboard.setStringAsync(code).then(() => showToast("ok", "Код скопирован"))}
-            style={{ width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center" }}
+            style={{ width: 32, height: 32, borderRadius: 20, alignItems: "center", justifyContent: "center" }}
             accessibilityLabel="Копировать код"
           >
             <AppIcon name="copy" size={13} color={theme.mute} />
@@ -295,7 +295,7 @@ export function RichMarkdown({ content }: { content: string }) {
         out.push(
           <View
             key={`tbl${k++}`}
-            style={{ marginVertical: 6, borderWidth: 1, borderColor: theme.border, borderRadius: 16, overflow: "hidden" }}
+            style={{ marginVertical: 6, borderWidth: 1, borderColor: theme.border, borderRadius: 20, overflow: "hidden" }}
           >
             {/* шапка */}
             <View style={{ flexDirection: "row", backgroundColor: theme.surface2, borderBottomWidth: 1, borderBottomColor: theme.border }}>

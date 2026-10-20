@@ -34,19 +34,18 @@ export function AgentScreen({ navigation }: { navigation: any }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      <View style={{ paddingTop: insets.top + 6, paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: theme.border, flexDirection: "row", alignItems: "center" }}>
+      <View style={{ paddingTop: insets.top + 6, paddingHorizontal: 16, paddingBottom: 10, flexDirection: "row", alignItems: "center" }}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={{ marginRight: 10 }} accessibilityLabel={t("back")}>
           <AppIcon name="arrow-left" size={22} color={theme.text} />
         </Pressable>
         <View>
-          <Text style={{ color: theme.dim, fontSize: 11 }}>AGENTS</Text>
           <Text style={{ color: theme.text, fontSize: 22, fontWeight: "700", letterSpacing: -0.3 }}>Агенты</Text>
         </View>
       </View>
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 32 }}>
         {/* корень — только список отделов */}
         {dept === null && (
-          <View style={{ borderRadius: 15, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
+          <View style={{ borderRadius: 20, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
             {depts.map((d, i) => (
               <View key={d.key}>
                 {i > 0 && <DeptDivider theme={theme} />}
@@ -80,7 +79,7 @@ export function AgentScreen({ navigation }: { navigation: any }) {
                 onPress={() => navigation.navigate(a.route)}
                 style={({ pressed }) => ({
                   flexDirection: "row", alignItems: "center", gap: 12,
-                  padding: 13, borderRadius: 14, marginBottom: 8,
+                  padding: 13, borderRadius: 20, marginBottom: 8,
                   backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
                   opacity: pressed ? 0.8 : 1,
                 })}
@@ -99,7 +98,7 @@ export function AgentScreen({ navigation }: { navigation: any }) {
               onPress={() => navigation.navigate("AgentSettings")}
               style={({ pressed }) => ({
                 flexDirection: "row", alignItems: "center", gap: 12,
-                padding: 13, borderRadius: 14, marginTop: 4,
+                padding: 13, borderRadius: 20, marginTop: 4,
                 backgroundColor: "transparent", borderWidth: 1, borderColor: theme.border,
                 opacity: pressed ? 0.8 : 1,
               })}

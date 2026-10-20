@@ -169,7 +169,7 @@ export function AgentSettingsScreen({ navigation }: { navigation: any }) {
   }, [refresh]);
 
   const c = theme;
-  const card = { borderRadius: 15, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface };
+  const card = { borderRadius: 20, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface };
   const label = { color: c.text, fontSize: 13.5, marginBottom: 8 };
 
   return (

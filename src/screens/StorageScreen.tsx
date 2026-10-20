@@ -78,7 +78,18 @@ export function StorageScreen({ navigation }: { navigation: any }) {
         const res = await runCommandCapture(`head -c ${PREVIEW_LIMIT} "${full}" 2>&1`);
         const text = res.ok ? res.output : res.error || res.output || "не читается";
         const binary = /[\u0000-\u0008\u000E-\u001F]/.test(text);
-        setPreview({ name, full, text: binary ? "двоичный файл — предпросмотр недоступен" : text, binary });
+        // обрезка больше не тихая: пользователь видит, что показано не всё
+        const cut = res.ok && text.length >= PREVIEW_LIMIT
+          ? `\n\n… показаны первые ${Math.round(PREVIEW_LIMIT / 1024)} КБ файла`
+          : "";
+        setPreview({
+          name,
+          full,
+          text: binary ? "двоичный файл — предпросмотр недоступен" : text + cut,
+          binary,
+        });
+      } catch (e: any) {
+        setPreview({ name, full, text: `не удалось прочитать: ${String(e?.message || e)}`, binary: true });
       } finally {
         setBusy(false);
       }
@@ -145,7 +156,7 @@ export function StorageScreen({ navigation }: { navigation: any }) {
       ) : (
         <ScrollView
           contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 24 }}
-          refreshControl={<RefreshControl refreshing={false} onRefresh={() => void load()} tintColor={theme.text} />}
+          refreshControl={<RefreshControl refreshing={busy} onRefresh={() => void load()} tintColor={theme.text} />}
         >
           {sections.map((s) => (
             <View key={s.path} style={{ marginTop: 18 }}>
@@ -188,7 +199,7 @@ export function StorageScreen({ navigation }: { navigation: any }) {
       )}
 
       {preview && (
-        <View style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.6)" }}>
+        <View style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, backgroundColor: theme.scrim }}>
           <Pressable style={{ flex: 1 }} onPress={() => setPreview(null)} accessibilityLabel="Закрыть" />
           <View
             style={{

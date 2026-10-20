@@ -88,14 +88,14 @@ export function ConnectorsScreen({ navigation }: { navigation: any }) {
   const tgName = state.profile?.username ? `@${state.profile.username}` : "—";
 
   const depts: (DeptDef & { key: DeptKey })[] = [
-    { key: "messengers", title: t("dept_messengers"), sub: synced ? tgName : t("not_connected"), icon: "send" },
+    { key: "messengers", title: t("dept_messengers"), sub: synced ? tgName : t("not_connected"), icon: "chat" },
     { key: "mcp", title: t("conn_mcp"), sub: `${mcp.length}`, icon: "box" },
     { key: "webhooks", title: t("conn_webhooks"), sub: `${wh.length}`, icon: "link" },
   ];
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      <View style={{ paddingTop: insets.top + 6, paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: theme.border, flexDirection: "row", alignItems: "center" }}>
+      <View style={{ paddingTop: insets.top + 6, paddingHorizontal: 16, paddingBottom: 10, flexDirection: "row", alignItems: "center" }}>
         <Pressable
           onPress={() => (dept === null ? navigation.goBack() : setDept(null))}
           hitSlop={10}
@@ -112,7 +112,7 @@ export function ConnectorsScreen({ navigation }: { navigation: any }) {
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 32 }} keyboardShouldPersistTaps="handled">
         {/* корень — только список отделов */}
         {dept === null && (
-          <View style={{ borderRadius: 15, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
+          <View style={{ borderRadius: 20, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
             {depts.map((d, i) => (
               <View key={d.key}>
                 {i > 0 && <DeptDivider theme={theme} />}
@@ -128,7 +128,7 @@ export function ConnectorsScreen({ navigation }: { navigation: any }) {
 
         {/* ── Мессенджеры ── */}
         {dept === "messengers" && (
-          <View style={{ padding: 14, borderRadius: 15, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface, gap: 10 }}>
+          <View style={{ padding: 14, borderRadius: 20, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface, gap: 10 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
               <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: synced ? theme.ok : theme.mute }} />
               <Text style={{ flex: 1, color: theme.text, fontSize: 13.5, fontWeight: "600" }}>Telegram</Text>
@@ -144,7 +144,7 @@ export function ConnectorsScreen({ navigation }: { navigation: any }) {
 
         {/* ── MCP-серверы ── */}
         {dept === "mcp" && (
-          <View style={{ padding: 14, borderRadius: 15, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }}>
+          <View style={{ padding: 14, borderRadius: 20, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }}>
             {mcp.length === 0 ? (
               <Text style={{ color: theme.dim, fontSize: 12.5, marginBottom: 8 }}>Серверов нет — добавь команду (npx/uvx) или HTTP URL.</Text>
             ) : mcp.map((m) => (
@@ -170,9 +170,11 @@ export function ConnectorsScreen({ navigation }: { navigation: any }) {
 
         {/* ── Вебхуки ── */}
         {dept === "webhooks" && (
-          <View style={{ padding: 14, borderRadius: 15, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }}>
+          <View style={{ padding: 14, borderRadius: 20, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }}>
             {wh.length === 0 ? (
-              <Text style={{ color: theme.dim, fontSize: 12.5, marginBottom: 8 }}>Подписок нет — POST от внешнего сервиса разбудит агента.</Text>
+              <Text style={{ color: theme.dim, fontSize: 12.5, marginBottom: 8 }}>
+                Подписок нет. Вебхук — это входящий адрес: запрос с него запускает агента.
+              </Text>
             ) : wh.map((w) => (
               <View key={w.id} style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 7 }}>
                 <AppIcon name="link" size={17} color={theme.accentHi} />
@@ -185,6 +187,9 @@ export function ConnectorsScreen({ navigation }: { navigation: any }) {
                 </Pressable>
               </View>
             ))}
+            <Text style={{ color: theme.mute, fontSize: 11.5, lineHeight: 16, marginTop: 6 }}>
+              Адрес подписки хранится здесь, но принимать входящие запросы с телефона нельзя — нужен сервер. Пока это журнал адресов, а не живой приём.
+            </Text>
             <View style={{ height: 1, backgroundColor: theme.border, marginVertical: 8 }} />
             <TextInput value={whDraft.name} onChangeText={(v) => setWhDraft({ ...whDraft, name: v })} placeholder={t("mcp_name_ph")} placeholderTextColor={theme.mute} autoCapitalize="none" style={input} />
             <View style={{ height: 6 }} />

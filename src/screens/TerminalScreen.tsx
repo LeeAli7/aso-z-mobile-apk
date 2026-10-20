@@ -34,7 +34,7 @@ export function TerminalScreen({ navigation }: { navigation: any }) {
   const { theme } = useApp();
   const insets = useSafeAreaInsets();
   const [lines, setLines] = useState<Line[]>([
-    { id: "hello", kind: "out", text: "Aso-z terminal · команды выполняются в рантайме устройства" },
+    { id: "hello", kind: "out", text: "Aso-z terminal" },
   ]);
   const [cmd, setCmd] = useState("");
   const [cwd, setCwd] = useState(DEFAULT_CWD);
@@ -53,7 +53,7 @@ export function TerminalScreen({ navigation }: { navigation: any }) {
 
   useEffect(() => {
     if (!runtimeAvailable()) {
-      setReady("рантайм недоступен на этой платформе");
+      setReady("рантайм недоступен на этой платформе — команд нет, это браузер/desktop");
       return;
     }
     ensureRuntime()
@@ -78,23 +78,43 @@ export function TerminalScreen({ navigation }: { navigation: any }) {
       }
       setBusy(true);
       try {
-        // каталог действительно передаётся рантайму, иначе cd менял бы только вид приглашения
+        // `cd` каждого вызова — это новый процесс, поэтому переход не сохранялся.
+        // Считаем целевой каталог сами и проверяем его существование.
+        if (/^cd(\s|$)/.test(input)) {
+          const target = input.replace(/^cd\s*/, "").trim();
+          const base = absCwd ?? "/";
+          let next: string;
+          if (!target || target === "~") {
+            next = "/";
+          } else if (target.startsWith("/")) {
+            next = target;
+          } else {
+            const parts = base.split("/").filter(Boolean);
+            for (const seg of target.split("/")) {
+              if (!seg || seg === ".") continue;
+              if (seg === "..") parts.pop();
+              else parts.push(seg);
+            }
+            next = "/" + parts.join("/");
+          }
+          const probe = await runCommandCapture(`test -d "${next}" && echo __ok__ || echo __no__`, undefined, base);
+          const okDir = (probe.output || "").includes("__ok__");
+          if (!okDir) {
+            push("err", `cd: нет такого каталога: ${target || "~"}`);
+            return;
+          }
+          setAbsCwd(next);
+          setCwd(next);
+          return;
+        }
+        // каталог действительно передаётся рантайму, иначе команда шла бы не там
         const res = await runCommandCapture(input, undefined, absCwd ?? undefined);
         // вывод команды маскируется: `env` или `cat .env` иначе печатали ключ в чат
         const out = res.output ? (redact ? redactSecrets(res.output) : res.output) : "";
         if (out) push("out", out.replace(/\s+$/, ""));
         if (!res.ok && res.error) push("err", res.error);
         if (!res.ok && !res.output && !res.error) push("err", `exit ${res.code}`);
-        if (/^cd(\s|$)/.test(input) && res.ok) {
-          // узнаём у рантайма настоящий путь после перехода
-          const probe = await runCommandCapture("pwd", undefined, absCwd ?? undefined);
-          const real = (probe.output || "").trim().split("\n").pop()?.trim() ?? "";
-          const target = input.replace(/^cd\s*/, "").trim();
-          if (probe.ok && real.startsWith("/")) {
-            setAbsCwd(real);
-            setCwd(target === "" || target === "~" || target === "-" ? real : target);
-          }
-        } else if (!absCwd && res.ok) {
+        if (!absCwd && res.ok) {
           // первый запуск: подхватываем реальный каталог рантайма для приглашения
           const probe = await runCommandCapture("pwd", undefined, undefined);
           const real = (probe.output || "").trim().split("\n").pop()?.trim() ?? "";
@@ -123,7 +143,7 @@ export function TerminalScreen({ navigation }: { navigation: any }) {
         >
           <AppIcon name="arrow-left" size={22} color="#ffffff" />
         </Pressable>
-        <Text style={{ flex: 1, color: "#ffffff", fontSize: 15, fontWeight: "600" }}>
+        <Text style={{ flex: 1, color: "#ffffff", fontSize: 13, fontFamily: fonts.mono }}>
           {cwd}
         </Text>
         <Pressable
@@ -171,7 +191,8 @@ export function TerminalScreen({ navigation }: { navigation: any }) {
           alignItems: "flex-start",
           paddingHorizontal: 14,
           paddingTop: 6,
-          paddingBottom: insets.bottom + 12,
+          // приглашение не должно упираться в край экрана/жест-бар
+          paddingBottom: insets.bottom + 20,
         }}
       >
         <Text style={{ color: "#ffffff", fontSize: 13, lineHeight: 20, fontFamily: fonts.mono }}>

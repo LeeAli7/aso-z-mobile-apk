@@ -43,7 +43,13 @@ async function load(target: MemoryTarget): Promise<MemoryEntry[]> {
 
 async function save(target: MemoryTarget, entries: MemoryEntry[]): Promise<void> {
   try {
-    await AsyncStorage.setItem(KEYS[target], JSON.stringify(entries.slice(-60)));
+    // лимит символов реально применяется: раньше константа была только в отчёте,
+    // а save молча резал список до 60 записей и выбрасывал старые факты
+    const limit = CHAR_LIMIT[target];
+    let kept = [...entries];
+    const size = (arr: MemoryEntry[]) => arr.reduce((s, e) => s + (e.text?.length ?? 0) + 8, 0);
+    while (kept.length > 1 && size(kept) > limit) kept.shift();
+    await AsyncStorage.setItem(KEYS[target], JSON.stringify(kept));
   } catch {
     // не критично
   }

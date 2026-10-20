@@ -81,7 +81,7 @@ export function KanbanScreen({ navigation }: { navigation: any }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      <View style={{ paddingTop: insets.top + 6, paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: theme.border, flexDirection: "row", alignItems: "center" }}>
+      <View style={{ paddingTop: insets.top + 6, paddingHorizontal: 16, paddingBottom: 10, flexDirection: "row", alignItems: "center" }}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={{ marginRight: 10 }} accessibilityLabel={t("back")}>
           <AppIcon name="arrow-left" size={22} color={theme.text} />
         </Pressable>
@@ -117,6 +117,21 @@ export function KanbanScreen({ navigation }: { navigation: any }) {
                   </Text>
                   {x.assignee ? <Text style={{ color: theme.mute, fontSize: 10.5, marginTop: 1 }}>{x.assignee}</Text> : null}
                 </View>
+                {x.blocked ? (
+                  <Pressable
+                    onPress={async () => {
+                      // раньше заблокированную задачу можно было только удалить
+                      const { unblockTask } = await import("../core/kanban");
+                      await unblockTask(x.id);
+                      await load();
+                    }}
+                    hitSlop={8}
+                    style={{ padding: 4 }}
+                    accessibilityLabel="Разблокировать задачу"
+                  >
+                    <AppIcon name="check-circle" size={14} color={theme.text} />
+                  </Pressable>
+                ) : null}
                 {NEXT[x.col] ? <AppIcon name="chevron-right" size={16} color={theme.mute} /> : null}
                 <Pressable
                   onPress={() => confirmDangerous("Удалить задачу?", x.title, () => del(x.id))}

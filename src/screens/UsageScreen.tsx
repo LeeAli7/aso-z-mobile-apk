@@ -64,7 +64,7 @@ export function UsageScreen({ navigation }: { navigation: any }) {
             </Text>
           ) : (
             models.map((m) => (
-              <View key={m.modelKey} style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: theme.border }}>
+              <View key={m.modelKey} style={{ paddingVertical: 12 }}>
                 <Text style={{ color: theme.text, fontSize: 13.5, fontFamily: fonts.mono }} numberOfLines={1}>{m.modelKey}</Text>
                 <Text style={{ color: theme.mute, fontSize: 11.5, marginTop: 3 }}>
                   вход {fmt(m.promptTokens)} · выход {fmt(m.completionTokens)} · {fmt(m.calls)} запр.

@@ -132,6 +132,28 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // шторка фоновых процессов (рантайм/cron/делегация) — открывается только при наличии запущенных
   const [bgOpen, setBgOpen] = useState(false);
   const [bgTasks, setBgTasks] = useState<BgTask[]>([]);
+  const [bgCount, setBgCount] = useState(0);
+
+  // Индикатор фоновых задач: раньше считал только стримы чата,
+  // а runtime/cron делегирование из реестра не попадали в цифру.
+  useEffect(() => {
+    let alive = true;
+    const upd = async () => {
+      try {
+        const { listRunning } = await import("../core/background");
+        const reg = await listRunning();
+        if (alive) setBgCount(bgTasks.length + reg.filter((t) => t.kind !== "stream").length);
+      } catch {
+        if (alive) setBgCount(bgTasks.length);
+      }
+    };
+    void upd();
+    const iv = setInterval(upd, 4000);
+    return () => {
+      alive = false;
+      clearInterval(iv);
+    };
+  }, [bgTasks.length]);
   // ── Голосовой ввод (expo-speech-recognition: Android SpeechRecognizer / iOS / web).
   // Транскрипт дописывается в поле, отправки без проверки нет.
   const [recording, setRecording] = useState(false);
@@ -733,7 +755,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         }, ctrl.signal);
       }
     },
-    [text, active, dispatch, model, setActive, scrollBottom, attachments, runSlashCommand, streamingSessions],
+    [active, dispatch, model, setActive, scrollBottom, attachments, runSlashCommand, streamingSessions],
   );
 
   // ── Cron-раннер автозадач (P2.2) ──
@@ -742,6 +764,9 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     let disposed = false;
     const tick = async () => {
       if (disposed || !model) return;
+      // модель занята стримом — не забираем задачи: иначе они помечаются
+      // выполненными, а sendText молча выходит и задача не запускается
+      if (active?.id && isStreaming(active.id)) return;
       try {
         // claim помечает задачу выполненной ДО запуска, поэтому следующий тик
         // не запустит её повторно, пока агент ещё думает
@@ -766,7 +791,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       clearInterval(iv);
       clearTimeout(first);
     };
-  }, [model, sendText]);
+  }, [model, sendText, active?.id]);
 
   const send = useCallback(() => {
     if (text.trim()) sendText(text);
@@ -880,6 +905,11 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     }
     setEditTarget(null);
     setEditValue("");
+    // без модели нельзя запускать перегенерацию: раньше чат навсегда оставался «печатает»
+    if (!model) {
+      showToast("err", "Модель не выбрана — выбери её капсулой сверху");
+      return;
+    }
     markStreaming(sid, true);
     getRun(sid).stop = false;
 
@@ -911,7 +941,6 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       history.push(await buildMsg(m, j));
     }
 
-    if (!model) return;
     const aiId = genId();
     dispatch({ type: "ADD_MSG", sessionId: sid, msg: { id: aiId, role: "assistant", content: "", streaming: true } });
 
@@ -1037,7 +1066,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         >
           <IconButton name="menu" size={20} onPress={() => setDrawerOpen(true)} accessibilityLabel={t("sessions")} />
           <View pointerEvents="box-none" style={{ flex: 1 }} />
-          <BgIndicator theme={theme} count={bgTasks.length} onPress={() => setBgOpen(true)} />
+          <BgIndicator theme={theme} count={bgCount} onPress={() => setBgOpen(true)} />
           {/* Выбор модели — справа, габариты как у бургера: высота touchTarget, капсула. */}
           <Pressable
             onPress={() => setModelPickerOpen(true)}
@@ -1070,7 +1099,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         onStop={(task) => {
           // стоп фоновой: рантайм-сессия / стрим активной сессии
           if (task.kind === "runtime") {
-            const sid = Number(task.id.replace("rt:", ""));
+            const sid = Number(task.id.replace(/^runtime:/, "").replace("rt:", ""));
             if (!Number.isNaN(sid)) {
               try {
                 const { killSession } = require("../core/runtime");
@@ -1151,16 +1180,16 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                           {/* действия для итога: копировать / поделиться */}
                           {last && m.content && !m.streaming && (
                             <View style={{ flexDirection: "row", justifyContent: "flex-start", paddingTop: 4, gap: 2 }}>
-                              <Pressable onPress={() => copyMsg(m)} hitSlop={10} accessibilityLabel="Копировать" style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center" }}>
+                              <Pressable onPress={() => copyMsg(m)} hitSlop={10} accessibilityLabel="Копировать" style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
                                 <AppIcon name="copy" size={17} color={theme.dim} />
                               </Pressable>
-                              <Pressable onPress={() => shareMsg(m)} hitSlop={10} accessibilityLabel="Поделиться" style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center" }}>
+                              <Pressable onPress={() => shareMsg(m)} hitSlop={10} accessibilityLabel="Поделиться" style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
                                 <AppIcon name="share" size={17} color={theme.dim} />
                               </Pressable>
                             </View>
                           )}
                           {!last && (
-                            <View style={{ height: 1, backgroundColor: theme.border, opacity: 0.6 }} />
+                            <View style={{ height: 1, backgroundColor: theme.border }} />
                           )}
                         </View>
                       );
@@ -1207,7 +1236,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           {attachments.length > 0 && (
             <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: 8, gap: 8 }}>
               {attachments.map((a, ai) => (
-                <View key={ai} style={{ flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface, borderRadius: 18, paddingLeft: 6, paddingRight: 4, paddingVertical: 4 }}>
+                <View key={ai} style={{ flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface, borderRadius: 20, paddingLeft: 6, paddingRight: 4, paddingVertical: 4 }}>
                   <View style={{ width: 28, height: 28, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: theme.accentDim }}>
                     {a.kind === "file" ? (
                       <AppIcon name={fileIconName(a.name)} size={15} color={theme.accentHi} />
@@ -1216,7 +1245,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                     )}
                   </View>
                   <Text numberOfLines={1} style={{ color: theme.dim, fontSize: 11, maxWidth: 110, flexShrink: 1 }}>{a.name ?? "файл"}</Text>
-                  <Pressable onPress={() => setAttachments((prev) => prev.filter((_, i) => i !== ai))} hitSlop={8} accessibilityLabel="Убрать вложение" style={{ width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: theme.surface2 }}>
+                  <Pressable onPress={() => setAttachments((prev) => prev.filter((_, i) => i !== ai))} hitSlop={8} accessibilityLabel="Убрать вложение" style={{ width: 28, height: 28, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: theme.surface2 }}>
                     <AppIcon name="close" size={14} color={theme.mute} />
                   </Pressable>
                 </View>
@@ -1225,7 +1254,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           )}
           {/* капсула ввода: #141416, радиус 26, без стекла и градиентов */}
           <Glass
-            radius={28}
+            radius={25}
             style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 8 }}
           >
             <Pressable
@@ -1284,7 +1313,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               <Pressable
                 onPress={toggleVoice}
                 hitSlop={6}
-                style={{ width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", opacity: recording ? 1 : 0.9 }}
+                style={{ width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" }}
                 accessibilityLabel="Голосовой ввод"
               >
                 <AppIcon name={recording ? "stop" : "mic"} size={20} color={recording ? theme.danger : theme.text} />
@@ -1403,7 +1432,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         {detailTarget && (
           <>
             {detailTarget.tool ? (
-              <Text selectable style={{ color: theme.text, fontSize: 12.5, fontFamily: fonts.mono, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface2, borderRadius: 16, padding: 12, lineHeight: 19 }}>
+              <Text selectable style={{ color: theme.text, fontSize: 12.5, fontFamily: fonts.mono, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface2, borderRadius: 20, padding: 12, lineHeight: 19 }}>
                 {detailTarget.tool.trim()}
                 {detailTarget.toolOutput ? `\n\n${detailTarget.toolOutput.trim()}` : ""}
               </Text>
@@ -1555,11 +1584,11 @@ function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions,
                 {list.map((a, i) =>
                   a.kind === "file" ? (
                     <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                      <AppIcon name={fileIconName(a.name)} size={16} color="rgba(255,255,255,.9)" />
+                      <AppIcon name={fileIconName(a.name)} size={16} color={theme.text} />
                       <Text numberOfLines={1} style={{ color: theme.userText, fontSize: 12, flexShrink: 1 }}>{a.name}</Text>
                     </View>
                   ) : (
-                    <Image key={i} source={{ uri: a.uri }} style={{ width: 200, height: 200, borderRadius: 14, marginBottom: 6 }} resizeMode="cover" />
+                    <Image key={i} source={{ uri: a.uri }} style={{ width: 200, height: 200, borderRadius: 20, marginBottom: 6 }} resizeMode="cover" />
                   ),
                 )}
               </View>
@@ -1587,15 +1616,15 @@ function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions,
       {/* действия: ТОЛЬКО в самом конце цепочки агента (или у юзера) — голые иконки, без коробок */}
             {showActions && !msg.streaming && (
               <View style={{ flexDirection: "row", justifyContent: user ? "flex-end" : "flex-start", marginTop: 8, gap: 2 }}>
-                <Pressable onPress={onCopy} hitSlop={10} accessibilityLabel="Копировать" style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center" }}>
+                <Pressable onPress={onCopy} hitSlop={10} accessibilityLabel="Копировать" style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
                   <AppIcon name="copy" size={17} color={theme.dim} />
                 </Pressable>
-                <Pressable onPress={onShare} hitSlop={10} accessibilityLabel="Поделиться" style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center" }}>
+                <Pressable onPress={onShare} hitSlop={10} accessibilityLabel="Поделиться" style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
                   <AppIcon name="share" size={17} color={theme.dim} />
                 </Pressable>
                 {/* «Изменить» — только иконка, без текста (значок сам объясняет) */}
                 {user && onEdit && (
-                  <Pressable onPress={onEdit} hitSlop={10} accessibilityLabel="Изменить сообщение" style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center" }}>
+                  <Pressable onPress={onEdit} hitSlop={10} accessibilityLabel="Изменить сообщение" style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
                     <AppIcon name="edit" size={17} color={theme.dim} />
                   </Pressable>
                 )}

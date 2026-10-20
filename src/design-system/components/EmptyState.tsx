@@ -30,7 +30,7 @@ export function EmptyState({
         style={{
           width: 56,
           height: 56,
-          borderRadius: 16,
+          borderRadius: 20,
           backgroundColor: theme.accentDim,
           alignItems: "center",
           justifyContent: "center",

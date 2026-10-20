@@ -29,6 +29,7 @@ export const TOOLSETS: ToolsetDef[] = [
   { name: "web", description: "Веб-поиск", tools: T("web_search"), defaultOn: true },
   { name: "delegation", description: "Субагенты", tools: T("delegate_task"), defaultOn: true },
   { name: "session_search", description: "Поиск по прошлым диалогам", tools: T("session_search"), defaultOn: false },
+  { name: "mcp", description: "MCP-серверы: инструменты и вызовы", tools: T("mcp"), defaultOn: true },
 ];
 
 async function loadOverrides(): Promise<Record<string, boolean>> {

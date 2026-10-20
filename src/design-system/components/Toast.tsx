@@ -23,7 +23,7 @@ function ToastBody({ kind, text }: { kind: Kind; text: string }) {
         backgroundColor: theme.surface,
         borderWidth: 1,
         borderColor: theme.border,
-        borderRadius: 14,
+        borderRadius: 20,
         paddingHorizontal: 14,
         paddingVertical: 12,
         maxWidth: "92%",

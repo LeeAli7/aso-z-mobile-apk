@@ -196,11 +196,6 @@ export function Sheet({
                 borderColor: sheetBorder,
                 paddingBottom: insets.bottom + 8,
                 transform: [{ translateY: drop }],
-                shadowColor: "#000",
-                shadowOpacity: theme.name === "dark" ? 0.6 : 0.25,
-                shadowRadius: 24,
-                shadowOffset: { width: 0, height: -8 },
-                elevation: 20,
               },
             ]}
           >

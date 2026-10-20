@@ -380,3 +380,30 @@ export async function importBackupFromFile(): Promise<{ ok: boolean; message: st
     return { ok: false, message: String(e?.message || e) };
   }
 }
+
+/**
+ * Полная очистка данных устройства.
+ * Раньше экран настроек тёр только 5 ключей из ~20 — память, задачи,
+ * cron, kanban, MCP, вебхуки, usage и настройки оставались жить.
+ */
+export async function wipeAllData(): Promise<void> {
+  const keys = [
+    KEYS_SESSIONS, KEYS_ACTIVE, KEYS_THEME, KEYS_LANG, VIBE_PROJECTS,
+    MEM_USER, MEM_MEMORY, TODO_KEY, CRON_KEY, AGENT_CONFIG_KEY, TOOLSETS_KEY,
+    VOICE_KEY, KANBAN_KEY, MCP_KEY, WEBHOOK_KEY, USAGE_KEY,
+    CURATOR_PINNED, CURATOR_LAST, SECURITY_KEY, "aso_onboarding_done",
+  ];
+  for (const k of keys) { try { await AsyncStorage.removeItem(k); } catch {} }
+  try {
+    const all = await AsyncStorage.getAllKeys();
+    const extra = all.filter((k) => k.startsWith(VIBE_MSGS_PREFIX));
+    for (const k of extra) { try { await AsyncStorage.removeItem(k); } catch {} }
+  } catch {}
+  for (const k of [KEYS_PROVIDERS, "aso_token", "aso_device"]) {
+    try { await SecureStore.deleteItemAsync(k); } catch {}
+  }
+  try {
+    const vibe = new Directory(Paths.document, "vibe");
+    if (vibe.exists) vibe.delete();
+  } catch {}
+}

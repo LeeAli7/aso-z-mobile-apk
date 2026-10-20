@@ -26,7 +26,7 @@ import { requestSync, pollSync, fetchProfile } from "../core/sync";
 import { saveAgentConfig } from "../core/agentConfig";
 import { saveVoiceConfig } from "../core/voice";
 import { DEFAULT_SECURITY_CONFIG, loadSecurity, saveSecurity, SecurityConfig } from "../core/security";
-import { exportBackupToFile, importBackupFromFile } from "../core/backup";
+import { exportBackupToFile, importBackupFromFile, wipeAllData } from "../core/backup";
 import { config, setApiBase } from "../core/env";
 import { showToast } from "../design-system/components/Toast";
 import { Button } from "../design-system/components/Button";
@@ -63,6 +63,17 @@ const PREF_DEFAULTS = {
   redactSecrets: "1",
   delegationMax: "2",
 };
+// версия берётся из сборки, а не захардкожена (в app.json было 1.5.3 при тексте 1.5.0)
+const APP_VERSION: string = (() => {
+  try {
+    const c = require("expo-constants");
+    const v = c?.default?.expoConfig?.version || c?.expoConfig?.version;
+    return typeof v === "string" && v ? v : "1.5.3";
+  } catch {
+    return "1.5.3";
+  }
+})();
+
 async function loadPrefs(): Promise<Record<string, string>> {
   const out: Record<string, string> = { ...PREF_DEFAULTS };
   try {
@@ -70,6 +81,14 @@ async function loadPrefs(): Promise<Record<string, string>> {
       const v = await AsyncStorage.getItem((PREFS as any)[name]);
       if (v !== null && v !== undefined) out[name] = v;
     }
+  } catch {}
+  // Экран показывал дефолты, даже если движок голоса хранит другое:
+  // источник правды для STT — core/voice, а не локальный PREF.
+  try {
+    const { loadVoiceConfig } = await import("../core/voice");
+    const vc = await loadVoiceConfig();
+    out.voiceInput = vc.sttEnabled ? "1" : "0";
+    out.sttLang = vc.sttLang;
   } catch {}
   return out;
 }
@@ -213,11 +232,19 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
       { text: t("cancel"), style: "cancel" },
       {
         text: t("delete"), style: "destructive",
-        onPress: () => {
+        onPress: async () => {
           dispatch({ type: "SET_TOKEN", token: null });
           dispatch({ type: "SET_PROFILE", profile: null });
           dispatch({ type: "SET_SYNC", status: "idle", syncing: false });
           setStatus("idle");
+          // раньше токен оставался в хранилище и после перезапуска логин возвращался
+          try {
+            await AsyncStorage.removeItem("aso_token");
+            await AsyncStorage.removeItem("aso_profile");
+          } catch {
+            /* хранилище недоступно — не критично */
+          }
+          showToast("ok", "Вы вышли из аккаунта");
         },
       },
     ]);
@@ -231,16 +258,22 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
 
   const importData = useCallback(async () => {
     const res = await importBackupFromFile();
-    if (res.ok) {
-      showToast("ok", res.message);
-      // перечитываем всё из хранилища — максимально просто: полный рестарт состояния
-      setTimeout(() => {
-        if (globalThis.location) globalThis.location.reload();
-      }, 800);
-    } else {
+    if (!res.ok) {
       showToast("err", res.message);
+      return;
     }
-  }, []);
+    // Раньше здесь был reload только для web: на Android состояние оставалось
+    // старым, а debounce-сейв AppStore через 400 мс перезаписывал импорт.
+    // Теперь перечитываем сессии из хранилища и кладём в стор сразу.
+    try {
+      const { loadSessions } = await import("../core/sessions");
+      const sessions = await loadSessions();
+      dispatch({ type: "SET_SESSIONS", sessions: sessions as any });
+      const activeId = await AsyncStorage.getItem("aso_active");
+      dispatch({ type: "SET_ACTIVE", sessionId: activeId });
+    } catch {}
+    showToast("ok", res.message);
+  }, [dispatch]);
 
   const wipeAll = useCallback(() => {
     Alert.alert("Очистить всё", "Удалятся все сессии, чаты, проекты и файлы. Это нельзя отменить.", [
@@ -249,13 +282,9 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
         text: "Очистить", style: "destructive",
         onPress: async () => {
           try {
-            for (const k of KEYS_TMP) await AsyncStorage.removeItem(k);
-            await SecureStore.deleteItemAsync(KEYS_TOKEN);
-            await SecureStore.deleteItemAsync(KEYS_DEVICE);
-            await SecureStore.deleteItemAsync("aso_custom_providers");
-            const { Directory, Paths } = require("expo-file-system");
-            const vibe = new Directory(Paths.document, "vibe");
-            if (vibe.exists) vibe.delete();
+            // единая полная очистка: сессии, память, задачи, cron, kanban,
+            // MCP, вебхуки, usage, настройки, провайдеры, файлы проектов
+            await wipeAllData();
             dispatch({ type: "SET_SESSIONS", sessions: [] });
             dispatch({ type: "SET_ACTIVE", sessionId: null });
             dispatch({ type: "SET_TOKEN", token: null });
@@ -282,13 +311,20 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
     { key: "security", title: t("grp_security"), sub: prefs.redactSecrets === "1" ? t("connected") : t("not_connected"), icon: "check-circle" },
     { key: "delegation", title: t("grp_delegation"), sub: `max ${prefs.delegationMax}`, icon: "group" },
     { key: "data", title: t("grp_data"), sub: t("subscription"), icon: "box" },
-    { key: "about", title: "О приложении", sub: "1.5.0", icon: "info" },
+    { key: "about", title: "О приложении", sub: APP_VERSION, icon: "info" },
   ];
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      <View style={{ flexDirection: "row", alignItems: "center", paddingTop: insets.top + 6, paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: theme.border }}>
-        <IconButton name="arrow-left" size={20} onPress={() => (dept ? setDept(null) : navigation.goBack())} accessibilityLabel={t("back")} />
+      <View style={{ flexDirection: "row", alignItems: "center", paddingTop: insets.top + 6, paddingHorizontal: 16, paddingBottom: 10 }}>
+        <Pressable
+          onPress={() => (dept ? setDept(null) : navigation.goBack())}
+          hitSlop={8}
+          style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center", marginLeft: -10 }}
+          accessibilityLabel={t("back")}
+        >
+          <AppIcon name="arrow-left" size={22} color={theme.text} />
+        </Pressable>
         <View style={{ flex: 1, marginLeft: 6 }}>
           <Text style={{ color: theme.dim, fontSize: 11 }}>{t("settings_sub")}</Text>
           <Text style={{ color: theme.text, fontSize: 24, fontWeight: "700", letterSpacing: -0.3 }}>{t("settings_title")}</Text>
@@ -298,7 +334,7 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 24 }} keyboardShouldPersistTaps="handled">
         {/* корень — только список отделов со стрелками */}
         {dept === null && (
-          <View style={{ borderRadius: 15, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
+          <View style={{ borderRadius: 20, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
             {depts.map((d, i) => (
               <View key={d.key}>
                 {i > 0 && <DeptDivider theme={theme} />}
@@ -315,7 +351,7 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
         {/* ── Аккаунт и синхронизация ── */}
         {dept === "account" && (
           <>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderRadius: 15, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderRadius: 20, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }}>
               <View style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: theme.accent, alignItems: "center", justifyContent: "center" }}>
                 <Text style={{ color: theme.onAccent, fontSize: 16, fontWeight: "700" }}>{state.profile?.username?.slice(0, 2).toUpperCase() || "A"}</Text>
               </View>
@@ -328,12 +364,12 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
                 </Text>
               </View>
               {state.profile?.premium && (
-                <Text style={{ color: theme.warn, fontSize: 9, letterSpacing: 1, borderWidth: 1, borderColor: theme.warn + "66", paddingHorizontal: 7, paddingVertical: 3, borderRadius: 5 }}>PREMIUM</Text>
+                <Text style={{ color: theme.warn, fontSize: 9, letterSpacing: 1, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 5 }}>PREMIUM</Text>
               )}
             </View>
 
             {state.profile && (
-              <View style={{ marginTop: 12, padding: 14, borderRadius: 15, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }}>
+              <View style={{ marginTop: 12, padding: 14, borderRadius: 20, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
                   <Text style={{ color: theme.dim, fontSize: 12 }}>{t("daily_limit")}</Text>
                   <Text style={{ color: theme.text, fontSize: 12, fontFamily: fonts.mono }}>
@@ -346,7 +382,7 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
               </View>
             )}
 
-            <View style={{ marginTop: 12, padding: 14, borderRadius: 15, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }}>
+            <View style={{ marginTop: 12, padding: 14, borderRadius: 20, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }}>
               {isSynced ? (
                 <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -365,7 +401,7 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
                   <PrimaryButton title={t("sync_send")} onPress={doSync} disabled={syncing || !username.trim()} />
                   {status === "pending" && (
                     <View style={{ marginTop: 10, gap: 8 }}>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 9, borderRadius: 10, borderWidth: 1, borderColor: theme.warn + "55", backgroundColor: theme.warn + "12" }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 9, borderRadius: 10, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface2 }}>
                         <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: theme.warn }} />
                         <Text style={{ color: theme.warn, fontSize: 11 }}>{t("sync_pending")}</Text>
                       </View>
@@ -383,7 +419,7 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
 
         {/* ── Агент (Hermes: max_turns, approvals, compression) ── */}
         {dept === "agent" && (
-          <View style={{ borderRadius: 15, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
+          <View style={{ borderRadius: 20, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
             <View style={{ padding: 14, backgroundColor: theme.surface }}>
               <Text style={{ color: theme.text, fontSize: 13.5, marginBottom: 8 }}>{t("agent_max_turns")}: {prefs.maxTurns}</Text>
               <View style={{ flexDirection: "row", gap: 8 }}>
@@ -424,7 +460,7 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
 
         {/* ── Внешний вид ── */}
         {dept === "appearance" && (
-          <View style={{ borderRadius: 15, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
+          <View style={{ borderRadius: 20, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
             <View style={{ padding: 14, backgroundColor: theme.surface }}>
               <Text style={{ color: theme.text, fontSize: 13.5, marginBottom: 8 }}>Тема</Text>
               <View style={{ flexDirection: "row", gap: 8 }}>
@@ -446,7 +482,7 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
 
         {/* ── Голос (Hermes stt/tts) ── */}
         {dept === "voice" && (
-          <View style={{ borderRadius: 15, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
+          <View style={{ borderRadius: 20, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
             <View style={{ paddingHorizontal: 14, paddingVertical: 10, backgroundColor: theme.surface, flexDirection: "row", alignItems: "center" }}>
               <Text style={{ color: theme.text, fontSize: 13.5, flex: 1 }}>{t("stt_enabled")}</Text>
               <Switch
@@ -469,7 +505,7 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
 
         {/* ── Память ── */}
         {dept === "memory" && (
-          <View style={{ borderRadius: 15, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
+          <View style={{ borderRadius: 20, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
             <View style={{ paddingHorizontal: 14, paddingVertical: 10, backgroundColor: theme.surface, flexDirection: "row", alignItems: "center" }}>
               <Text style={{ color: theme.text, fontSize: 13.5, flex: 1 }}>{t("memory_enabled")}</Text>
               <Switch
@@ -487,7 +523,7 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
 
         {/* ── Безопасность ── */}
         {dept === "security" && (
-          <View style={{ borderRadius: 15, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
+          <View style={{ borderRadius: 20, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
             <View style={{ paddingHorizontal: 14, paddingVertical: 10, backgroundColor: theme.surface, flexDirection: "row", alignItems: "center" }}>
               <Text style={{ color: theme.text, fontSize: 13.5, flex: 1 }}>{t("redact_secrets")}</Text>
               <Switch
@@ -531,7 +567,7 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
 
         {/* ── Делегация ── */}
         {dept === "delegation" && (
-          <View style={{ borderRadius: 15, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
+          <View style={{ borderRadius: 20, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
             <View style={{ padding: 14, backgroundColor: theme.surface }}>
               <Text style={{ color: theme.text, fontSize: 13.5, marginBottom: 8 }}>{t("delegation_max")}: {prefs.delegationMax}</Text>
               <View style={{ flexDirection: "row", gap: 8 }}>
@@ -547,7 +583,7 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
 
         {/* ── Данные ── */}
         {dept === "data" && (
-          <View style={{ borderRadius: 15, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
+          <View style={{ borderRadius: 20, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
             <Row label="Экспорт данных" onPress={exportData} value="" theme={theme} />
             <DeptDivider theme={theme} />
             <Row label="Импорт данных" onPress={importData} value="" theme={theme} />
@@ -565,10 +601,10 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
 
         {/* ── О приложении ── */}
         {dept === "about" && (
-          <View style={{ borderRadius: 15, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface, padding: 14 }}>
+          <View style={{ borderRadius: 20, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface, padding: 14 }}>
             <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
               <Text style={{ color: theme.text, fontSize: 13.5 }}>Версия</Text>
-              <Text style={{ color: theme.dim, fontSize: 13, fontFamily: fonts.mono }}>1.5.0</Text>
+              <Text style={{ color: theme.dim, fontSize: 13, fontFamily: fonts.mono }}>{APP_VERSION}</Text>
             </View>
             <View style={{ height: 8 }} />
             <Text style={{ color: theme.dim, fontSize: 12.5, lineHeight: 18 }}>
