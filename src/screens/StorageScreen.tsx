@@ -128,8 +128,8 @@ export function StorageScreen({ navigation }: { navigation: any }) {
         >
           <AppIcon name="arrow-left" size={22} color={theme.text} />
         </Pressable>
-        <Text numberOfLines={1} style={{ flex: 1, color: theme.text, fontSize: 15, fontFamily: fonts.mono }}>
-          {path}
+        <Text numberOfLines={1} style={{ flex: 1, color: theme.text, fontSize: 22, fontWeight: "700" }}>
+          Хранилище
         </Text>
         <Pressable
           onPress={() => void Clipboard.setStringAsync(path)}

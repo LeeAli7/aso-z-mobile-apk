@@ -173,8 +173,7 @@ export function VibeScreen({ navigation }: { navigation: any }) {
       <View style={{ flexDirection: "row", alignItems: "center", paddingTop: insets.top + 6, paddingHorizontal: 16, paddingBottom: 10 }}>
         <IconButton name="arrow-left" size={20} onPress={() => (dept ? setDept(null) : navigation.goBack())} accessibilityLabel={t("back")} />
         <View style={{ flex: 1, marginLeft: 6 }}>
-          <Text style={{ color: theme.dim, fontSize: 11 }}>{t("vibe_sub")}</Text>
-          <Text style={{ color: theme.text, fontSize: 24, fontWeight: "700", letterSpacing: -0.3 }}>{t("vibe_title")}</Text>
+          <Text style={{ color: theme.text, fontSize: 22, fontWeight: "700", letterSpacing: -0.3 }}>{t("vibe_title")}</Text>
         </View>
         {/* ручное создание — вторично, через меню */}
         {dept === "projects" && (

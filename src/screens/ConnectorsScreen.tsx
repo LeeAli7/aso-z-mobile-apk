@@ -105,7 +105,6 @@ export function ConnectorsScreen({ navigation }: { navigation: any }) {
           <AppIcon name="arrow-left" size={22} color={theme.text} />
         </Pressable>
         <View>
-          <Text style={{ color: theme.dim, fontSize: 11 }}>{t("connectors_sub")}</Text>
           <Text style={{ color: theme.text, fontSize: 22, fontWeight: "700", letterSpacing: -0.3 }}>{t("connectors_title")}</Text>
         </View>
       </View>
