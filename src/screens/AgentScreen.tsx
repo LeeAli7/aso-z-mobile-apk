@@ -39,7 +39,9 @@ export function AgentScreen({ navigation }: { navigation: any }) {
           <AppIcon name="arrow-left" size={22} color={theme.text} />
         </Pressable>
         <View>
-          <Text style={{ color: theme.text, fontSize: 22, fontWeight: "700", letterSpacing: -0.3 }}>Агенты</Text>
+          <Text numberOfLines={1} style={{ color: theme.text, fontSize: 22, fontWeight: "700", letterSpacing: -0.3 }}>
+            {dept ? depts.find((d) => d.key === dept)?.title ?? "Агенты" : "Агенты"}
+          </Text>
         </View>
       </View>
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 32 }}>
