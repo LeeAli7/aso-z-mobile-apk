@@ -47,7 +47,7 @@ export default function Toggle({
             width: 18,
             height: 18,
             borderRadius: 9,
-            backgroundColor: value ? "#000" : theme.mute,
+            backgroundColor: value ? theme.onAccent : theme.mute,
           }}
         />
       </View>

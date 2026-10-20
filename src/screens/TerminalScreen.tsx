@@ -20,6 +20,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppIcon } from "../design-system/components/AppIcon";
 import { fonts } from "../theme/tokens";
+import { StatusBar } from "expo-status-bar";
 import { useApp } from "../store/AppStore";
 import { ensureRuntime, runCommandCapture, runtimeAvailable } from "../core/runtime";
 import { loadSecurity, redactSecrets } from "../core/security";
@@ -129,11 +130,17 @@ export function TerminalScreen({ navigation }: { navigation: any }) {
     [busy, cwd, absCwd, push],
   );
 
+  // Терминал всегда тёмный (как PuTTY/Termux), поэтому цвета берём из
+  // codeBg/codeText — они тёмные в обеих темах. Раньше в светлой теме
+  // использовался theme.text (#000) на чёрном фоне → пустой чёрный экран.
+  const termBg = theme.codeBg ?? "#0a0a0b";
+  const termFg = theme.codeText ?? "#e6e6ea";
   const color = (kind: Line["kind"]) =>
-    kind === "err" ? theme.danger : kind === "cmd" ? theme.text : theme.name === "dark" ? "#d7d7dc" : "#1c1c1f";
+    kind === "err" ? theme.danger : kind === "cmd" ? termFg : termFg;
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: "#000000" }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: termBg }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <StatusBar style="light" />
       <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 8, paddingTop: insets.top + 6, paddingBottom: 6 }}>
         <Pressable
           onPress={() => navigation.goBack()}
@@ -141,9 +148,9 @@ export function TerminalScreen({ navigation }: { navigation: any }) {
           style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}
           accessibilityLabel="Назад"
         >
-          <AppIcon name="arrow-left" size={22} color="#ffffff" />
+          <AppIcon name="arrow-left" size={22} color={termFg} />
         </Pressable>
-        <Text style={{ flex: 1, color: "#ffffff", fontSize: 13, fontFamily: fonts.mono }}>
+        <Text style={{ flex: 1, color: termFg, fontSize: 13, fontFamily: fonts.mono }}>
           {cwd}
         </Text>
         <Pressable
@@ -152,7 +159,7 @@ export function TerminalScreen({ navigation }: { navigation: any }) {
           style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}
           accessibilityLabel="Очистить"
         >
-          <AppIcon name="delete" size={19} color="#8e8e93" />
+          <AppIcon name="delete" size={19} color={theme.dim} />
         </Pressable>
       </View>
 
@@ -178,7 +185,7 @@ export function TerminalScreen({ navigation }: { navigation: any }) {
           </Text>
         ))}
         {busy ? (
-          <Text style={{ color: "#8e8e93", fontSize: 12.5, fontFamily: fonts.mono }}>…</Text>
+          <Text style={{ color: theme.dim, fontSize: 12.5, fontFamily: fonts.mono }}>…</Text>
         ) : null}
         {ready ? <Text style={{ color: theme.danger, fontSize: 12.5, fontFamily: fonts.mono }}>{ready}</Text> : null}
 
@@ -193,7 +200,7 @@ export function TerminalScreen({ navigation }: { navigation: any }) {
             paddingBottom: insets.bottom + 24,
           }}
         >
-          <Text style={{ color: "#ffffff", fontSize: 13, lineHeight: 20, fontFamily: fonts.mono }}>
+          <Text style={{ color: termFg, fontSize: 13, lineHeight: 20, fontFamily: fonts.mono }}>
             {promptOf(cwd) + " "}
           </Text>
           <TextInput
@@ -207,10 +214,10 @@ export function TerminalScreen({ navigation }: { navigation: any }) {
             autoComplete="off"
             returnKeyType="send"
             blurOnSubmit={false}
-            selectionColor="#ffffff"
+            selectionColor={termFg}
             autoFocus
-            cursorColor="#ffffff"
-            style={{ flex: 1, color: "#ffffff", fontSize: 13, lineHeight: 20, fontFamily: fonts.mono, padding: 0, margin: 0 }}
+            cursorColor={termFg}
+            style={{ flex: 1, color: termFg, fontSize: 13, lineHeight: 20, fontFamily: fonts.mono, padding: 0, margin: 0 }}
           />
         </Pressable>
       </ScrollView>

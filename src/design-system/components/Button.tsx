@@ -30,13 +30,13 @@ export function Button({
   // «КРОВЬ»: главное действие — белая капсула, красный остаётся только
   // разрушительным и подтверждающим, поэтому primary больше не красный
   const bg =
-    variant === "primary" ? "#ffffff"
+    variant === "primary" ? theme.accent
     // разрушительное действие — голый красный текст, без залитой капсулы
     : variant === "secondary" ? theme.surface
     : "transparent";
   const fg =
     variant === "primary"
-      ? "#000000"
+      ? theme.onAccent
       : variant === "danger" ? theme.danger
       : variant === "secondary" ? theme.text
       : theme.accentHi;

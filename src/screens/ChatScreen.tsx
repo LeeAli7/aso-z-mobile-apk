@@ -158,9 +158,22 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // Транскрипт дописывается в поле, отправки без проверки нет.
   const [recording, setRecording] = useState(false);
   const recStarting = useRef(false);
+  // Текст, который был в поле до старта записи. Android присылает interim-результат
+  // ЦЕЛИКОМ на каждое обновление; дописывание «prev + txt» давало слова по 2-3 раза.
+  const sttBase = useRef("");
+  // true ровно на время программной записи текста из STT: ручной ввод пользователя
+  // в это окно не должен считаться частью распознанной фразы.
+  const sttWriting = useRef(false);
   useSpeechRecognitionEvent("result", (e: any) => {
-    const txt = e?.results?.[0]?.transcript;
-    if (txt) setText((prev) => (prev ? prev + " " + txt : txt));
+    const txt = String(e?.results?.[0]?.transcript ?? "").trim();
+    if (!txt) return;
+    const base = sttBase.current.trim();
+    const merged = base ? base + " " + txt : txt;
+    sttWriting.current = true;
+    setText(merged);
+    // сбрасываем флаг на следующем тике: onChangeText от пользователя уже после
+    setTimeout(() => { sttWriting.current = false; }, 0);
+    if (e?.isFinal) sttBase.current = merged;
   });
   useSpeechRecognitionEvent("error", () => {
     recStarting.current = false;
@@ -197,6 +210,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       } catch {}
       const lang = state.lang === "en" ? "en-US" : "ru-RU";
       try {
+        sttBase.current = text.trim();
         ExpoSpeechRecognitionModule.start({ lang, interimResults: true, continuous: false } as any);
         setRecording(true);
       } catch (e: any) {
@@ -204,7 +218,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         recStarting.current = false;
       }
     } catch {}
-  }, [recording, state.lang]);
+  }, [recording, state.lang, text]);
   const listRef = useRef<FlatList<any>>(null);
 
   const active = state.sessions.find((s) => s.id === state.activeSessionId) ?? null;
@@ -615,7 +629,10 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           if (a.command) label += " " + String(a.command);
         } catch {}
         if (thinkId) { closeMsg(thinkId); thinkId = null; } // думалка закрыта — следующая будет НОВЫМ блоком (t6)
+        // Текст, закрытый перед tool-вызовом, уже показан отдельным пузырём —
+        // сбрасываем накопление, иначе он дублируется в финальном ответе.
         if (textId) { closeMsg(textId); textId = null; textAcc = ""; }
+        acc = "";
         const tid = genId();
         toolIds.push(tid);
         dispatch({
@@ -637,7 +654,25 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       // Финал: FILE-запись (проекты, plain-путь), [CMD:] фолбэк, закрытие стриминга.
       const finalize = async (clean: string) => {
         markStreaming(sid, false);
-        if (getRun(sid).stop && !clean) return; // отменено пользователем — не трогаем
+        if (getRun(sid).stop && !clean) {
+          // Отмена пользователем: раньше думалка и пузырь оставались в состоянии
+          // стриминга навсегда — «Думаю» крутилось и кнопки не возвращались.
+          if (thinkId) { closeMsg(thinkId); thinkId = null; }
+          if (textId) {
+            dispatch({
+              type: "UPDATE_MSG", sessionId: sid, msgId: textId,
+              patch: { content: textAcc || acc || "", streaming: false },
+            });
+            textId = null;
+          }
+          for (const tid of toolIds) {
+            dispatch({
+              type: "UPDATE_MSG", sessionId: sid, msgId: tid,
+              patch: { toolState: "done", toolOutput: "(остановлено)" },
+            });
+          }
+          return;
+        }
         let finalText = clean || acc || (getRun(sid).stop ? "" : "(пусто)");
         if (proj && toolIds.length === 0) {
           const blocks = parseFileBlocks(finalText || acc);
@@ -690,6 +725,14 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         markStreaming(sid, false);
         if (getRun(sid).stop) return; // abort по Стоп — не показываем ошибку
         closeMsg(thinkId);
+        thinkId = null;
+        // висящие карточки инструментов не должны пульсировать после ошибки
+        for (const tid of toolIds) {
+          dispatch({
+            type: "UPDATE_MSG", sessionId: sid, msgId: tid,
+            patch: { toolState: "error" },
+          });
+        }
         if (textId) {
           dispatch({
             type: "UPDATE_MSG", sessionId: sid, msgId: textId,
@@ -801,16 +844,23 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   const retryMsg = useCallback(
     (m: Msg) => {
       if (!active || !m.role) return;
-      const idx = active.messages.findIndex((x) => x.id === m.id);
+      const messages = active.messages;
+      const idx = messages.findIndex((x) => x.id === m.id);
       for (let j = idx - 1; j >= 0; j--) {
-        const prev = active.messages[j];
+        const prev = messages[j];
         if (prev.role === "user") {
+          // Убираем неудачный ответ и всё после вопроса: иначе в историю уходит
+          // дубль (старый ответ + новый запрос) и модель путается.
+          for (const tail of messages.slice(j + 1)) {
+            dispatch({ type: "DELETE_MSG", sessionId: active.id, msgId: tail.id });
+          }
+          dispatch({ type: "UPDATE_SESSION", sessionId: active.id, patch: { agentHistory: [] } });
           sendText(prev.content);
           return;
         }
       }
     },
-    [active, sendText],
+    [active, sendText, dispatch],
   );
 
   const msgMenu = useCallback(
@@ -824,6 +874,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     (m: Msg) => {
       if (active) {
         dispatch({ type: "DELETE_MSG", sessionId: active.id, msgId: m.id });
+        dispatch({ type: "UPDATE_SESSION", sessionId: active.id, patch: { agentHistory: [] } });
         showToast("ok", "Сообщение удалено");
       }
       setMsgMenuTarget(null);
@@ -903,6 +954,9 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     for (const m of active.messages.slice(idx + 1)) {
       dispatch({ type: "DELETE_MSG", sessionId: sid, msgId: m.id });
     }
+    // Пересобранная история не совпадает с сохранённой tool-историей прошлого хода —
+    // сбрасываем её, иначе агент получает противоречивый контекст.
+    dispatch({ type: "UPDATE_SESSION", sessionId: sid, patch: { agentHistory: [] } });
     setEditTarget(null);
     setEditValue("");
     // без модели нельзя запускать перегенерацию: раньше чат навсегда оставался «печатает»
@@ -1016,7 +1070,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         };
         for (const m of chain) {
           if (m.content && !m.tool) {
-            if (m.thinking) buf.push({ ...m, content: "" });
+            // Раздумья этого сообщения рисуются внутри Bubble — над текстом.
+            // В стекло их НЕ дублируем: раньше выходило два «Думаю» подряд.
             pushBuf();
             groups.push({ id: m.id, kind: "single", msg: m });
           } else {
@@ -1061,7 +1116,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           pointerEvents="box-none"
           style={{
             flexDirection: "row", alignItems: "center",
-            paddingHorizontal: 10, paddingTop: insets.top + 6,
+            backgroundColor: theme.bg,
+            paddingHorizontal: 10, paddingTop: insets.top + 6, paddingBottom: 6,
           }}
         >
           <IconButton name="menu" size={20} onPress={() => setDrawerOpen(true)} accessibilityLabel={t("sessions")} />
@@ -1143,67 +1199,53 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           keyExtractor={(g) => g.id}
           contentContainerStyle={{ padding: 16, paddingTop: insets.top + 64, paddingBottom: 24 }}
           onContentSizeChange={scrollBottom}
+          keyboardShouldPersistTaps="handled"
           renderItem={({ item: g, index }) => {
             if (g.kind === "chain") {
               // единый блок: раздумья + команды накапливаются внутри (как в QIWI)
               const onDetail = (m: Msg) => setDetailTarget(m);
               // ВАЖНО: хронологический порядок сообщений как есть — думалка → команда →
               // думалка → команда (никакой перегруппировки: всё должно быть на своих местах)
+              // Один блок «Думаю» на всю цепочку: раньше на каждую реплику
+              // выводился свой блок подряд — выглядело как «Думаю, Думаю, Думаю».
+              const chainText = g.msgs
+                .filter((m) => m.thinking)
+                .map((m) => String(m.thinking))
+                .join("\n\n");
+              const chainTools = g.msgs.filter((m) => m.tool);
+              const anyStreaming = g.msgs.some((m) => m.streaming);
+              const firstThink = g.msgs.find((m) => m.thinking);
               return (
                 <View style={{ width: "94%", alignSelf: "flex-start", marginBottom: 10 }}>
-                  <Glass radius={20} blur={false} style={{ overflow: "hidden", width: "100%", paddingTop: 8, paddingBottom: 8, paddingLeft: 12, paddingRight: 12 }}>
-                    {g.msgs.map((m, i) => {
-                      const last = i === g.msgs.length - 1;
-                      return (
-                        <View key={m.id}>
-                          {m.thinking ? (
-                            <ThinkingBlock
-                              text={m.thinking}
-                              status={m.streaming ? "thinking" : "done"}
-                              theme={theme}
-                              onOpen={() => onDetail(m)}
-                              bare
-                            />
-                          ) : null}
-                          {m.tool ? (
-                            <ToolCard
-                              tool={m.tool}
-                              state={m.toolState ?? "loading"}
-                              output={m.toolOutput}
-                              theme={theme}
-                              onOpen={() => onDetail(m)}
-                              bare
-                            />
-                          ) : null}
-                          {/* финал в стекле НЕ рендерим: flush() выносит любой content
-                              отдельным Bubble после раздумий. Здесь только думалки и команды. */}
-                          {/* действия для итога: копировать / поделиться */}
-                          {last && m.content && !m.streaming && (
-                            <View style={{ flexDirection: "row", justifyContent: "flex-start", paddingTop: 4, gap: 2 }}>
-                              <Pressable onPress={() => copyMsg(m)} hitSlop={10} accessibilityLabel="Копировать" style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
-                                <AppIcon name="copy" size={17} color={theme.dim} />
-                              </Pressable>
-                              <Pressable onPress={() => shareMsg(m)} hitSlop={10} accessibilityLabel="Поделиться" style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
-                                <AppIcon name="share" size={17} color={theme.dim} />
-                              </Pressable>
-                            </View>
-                          )}
-                          {!last && (
-                            <View style={{ height: 1, backgroundColor: theme.border }} />
-                          )}
-                        </View>
-                      );
-                    })}
+                  <Glass radius={20} blur={false} style={{ overflow: "hidden", width: "100%", paddingTop: 10, paddingBottom: 10, paddingLeft: 12, paddingRight: 12 }}>
+                    {chainText ? (
+                      <ThinkingBlock
+                        text={chainText}
+                        status={anyStreaming ? "thinking" : "done"}
+                        theme={theme}
+                        onOpen={() => firstThink && onDetail(firstThink)}
+                        bare
+                      />
+                    ) : null}
+                    {chainTools.map((m) => (
+                      <ToolCard
+                        key={m.id}
+                        tool={String(m.tool)}
+                        state={m.toolState ?? "loading"}
+                        output={m.toolOutput}
+                        theme={theme}
+                        onOpen={() => onDetail(m)}
+                        bare
+                      />
+                    ))}
                   </Glass>
                 </View>
               );
             }
             const msg = g.msg;
-            const next = chainGroups[index + 1];
-            const showActions =
-              msg.role === "user"
-                ? true
-                : !msg.tool && (!next || next.kind === "single" && next.msg.role === "user");
+            // Действия — только у последнего сообщения чата: раньше панель висела
+            // под каждой репликой и читалась как часть ответа агента.
+            const showActions = index === chainGroups.length - 1 && !msg.tool;
             return (
               <Bubble
                 msg={msg}
@@ -1231,7 +1273,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={0}
       >
-        <View style={{ paddingHorizontal: 12, paddingTop: 6, paddingBottom: Platform.OS === "android" ? kbH + insets.bottom + 8 : insets.bottom + 8 }}>
+        <View style={{ paddingHorizontal: 12, paddingTop: 6, paddingBottom: Platform.OS === "android" ? kbH + 8 : insets.bottom + 8 }}>
           {/* вложения — НАД капсулой: иконка ТИПА каждого вложения (та же, что в меню «Прикрепить»), крестики для удаления */}
           {attachments.length > 0 && (
             <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: 8, gap: 8 }}>
@@ -1270,7 +1312,13 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             </Pressable>
             <TextInput
               value={text}
-              onChangeText={setText}
+              onFocus={scrollBottom}
+              onChangeText={(v) => {
+                // если пользователь правит текст руками во время диктовки —
+                // дальше распознанное дописывается к НОВОМУ тексту, а не затирает его
+                if (!sttWriting.current) sttBase.current = v;
+                setText(v);
+              }}
               placeholder={t("message_placeholder")}
               placeholderTextColor={theme.mute}
               multiline
@@ -1286,7 +1334,16 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                   : { minHeight: 44, maxHeight: 76, paddingVertical: 0, lineHeight: 20 }),
               }}
             />
-            {isStreaming(active?.id) ? (
+            {recording ? (
+              <Pressable
+                onPress={toggleVoice}
+                hitSlop={6}
+                style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.danger, alignItems: "center", justifyContent: "center" }}
+                accessibilityLabel="Остановить запись"
+              >
+                <AppIcon name="stop" size={18} color="#fff" />
+              </Pressable>
+            ) : isStreaming(active?.id) ? (
               <Pressable
                 onPress={() => {
                   const s = active?.id;
@@ -1316,7 +1373,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                 style={{ width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" }}
                 accessibilityLabel="Голосовой ввод"
               >
-                <AppIcon name={recording ? "stop" : "mic"} size={20} color={recording ? theme.danger : theme.text} />
+                <AppIcon name={recording ? "stop" : "mic"} size={22} strokeWidth={2.2} color={recording ? theme.danger : theme.text} />
               </Pressable>
             )}
           </Glass>
@@ -1609,6 +1666,11 @@ function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions,
               onOpen={() => onOpenDetail?.(msg)}
             />
           ) : null}
+          {msg.error ? (
+            <View style={{ marginTop: 6, padding: 12, borderRadius: 20, borderWidth: 1, borderColor: theme.danger }}>
+              <Text style={{ color: theme.danger, fontSize: 13 }}>{msg.error}</Text>
+            </View>
+          ) : null}
           {renderMarkdown(msg.content, theme)}
         </View>
       )}
@@ -1616,15 +1678,15 @@ function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions,
       {/* действия: ТОЛЬКО в самом конце цепочки агента (или у юзера) — голые иконки, без коробок */}
             {showActions && !msg.streaming && (
               <View style={{ flexDirection: "row", justifyContent: user ? "flex-end" : "flex-start", marginTop: 8, gap: 2 }}>
-                <Pressable onPress={onCopy} hitSlop={10} accessibilityLabel="Копировать" style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
+                <Pressable onPress={onCopy} accessibilityLabel="Копировать" style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
                   <AppIcon name="copy" size={17} color={theme.dim} />
                 </Pressable>
-                <Pressable onPress={onShare} hitSlop={10} accessibilityLabel="Поделиться" style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
+                <Pressable onPress={onShare} accessibilityLabel="Поделиться" style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
                   <AppIcon name="share" size={17} color={theme.dim} />
                 </Pressable>
                 {/* «Изменить» — только иконка, без текста (значок сам объясняет) */}
                 {user && onEdit && (
-                  <Pressable onPress={onEdit} hitSlop={10} accessibilityLabel="Изменить сообщение" style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
+                  <Pressable onPress={onEdit} accessibilityLabel="Изменить сообщение" style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
                     <AppIcon name="edit" size={17} color={theme.dim} />
                   </Pressable>
                 )}

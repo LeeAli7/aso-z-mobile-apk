@@ -20,8 +20,8 @@ export function glassStyle(theme: any, radius: number = RADIUS_CARD): ViewStyle 
   return {
     borderRadius: radius,
     borderWidth: 1,
-    borderColor: theme.name === "dark" ? "#1f1f22" : "#e2e2e6",
-    backgroundColor: theme.name === "dark" ? "#141416" : "#f5f5f7",
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
   };
 }
 

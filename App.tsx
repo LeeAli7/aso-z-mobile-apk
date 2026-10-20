@@ -136,7 +136,6 @@ function OnboardingGate() {
   if (state === "onboarding") {
     return (
       <>
-        <StatusBar style="light" />
         <OnboardingScreen onDone={() => setState("done")} />
       </>
     );

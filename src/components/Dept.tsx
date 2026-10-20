@@ -65,7 +65,9 @@ export function DeptRow({
 }
 
 export function DeptDivider({ theme }: { theme: any }) {
-  return <View style={{ height: 1, backgroundColor: theme.border, marginHorizontal: 14 }} />;
+  // Линия с отступом с ОБЕИХ сторон: раньше она упиралась в правый край
+  // скруглённой карточки и выглядела обрубленной.
+  return <View style={{ height: 1, backgroundColor: theme.border, marginLeft: 46, marginRight: 14 }} />;
 }
 
 export function DeptBack({ theme, label, onPress }: { theme: any; label: string; onPress: () => void }) {

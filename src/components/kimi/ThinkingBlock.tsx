@@ -24,7 +24,7 @@ export function ThinkingBlock({ text, status, onSkip, onOpen, theme, bare }: Pro
   const canOpen = !!text && !isThinking;
 
   return (
-    <View style={[styles.wrap, bare ? styles.wrapBare : null, { borderLeftColor: theme.name === "dark" ? "#2c2c30" : "#d8d8dc" }]}>
+    <View style={[styles.wrap, bare ? styles.wrapBare : null, { borderLeftColor: theme.border }]}>
       <Pressable
         onPress={() => canOpen && onOpen?.()}
         disabled={!canOpen}

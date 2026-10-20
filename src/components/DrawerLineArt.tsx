@@ -154,7 +154,7 @@ export function DrawerLineArt({
   return (
     <Modal visible={visible || leaving} transparent animationType="none" onRequestClose={animateClose} statusBarTranslucent>
       <View style={{ flex: 1 }}>
-        <Animated.View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "#000", opacity: backdropOpacity }}>
+        <Animated.View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: theme.scrim, opacity: backdropOpacity.interpolate({ inputRange: [0, 1], outputRange: [0, theme.name === "dark" ? 0.72 : 0.28] }) }}>
           <Pressable style={{ flex: 1 }} onPress={animateClose} accessibilityLabel="Закрыть" />
         </Animated.View>
         <Animated.View
@@ -165,9 +165,9 @@ export function DrawerLineArt({
             left: 0,
             bottom: 0,
             width: WIDTH,
-            backgroundColor: "#000000",
+            backgroundColor: theme.bg,
             borderRightWidth: 1,
-            borderRightColor: "#1f1f22",
+            borderRightColor: theme.border,
             paddingTop: insets.top + 18,
             paddingBottom: insets.bottom + 12,
             transform: [{ translateX: slide }],
@@ -229,7 +229,7 @@ export function DrawerLineArt({
                 );
               })}
 
-            <View style={{ height: 1, backgroundColor: "#1f1f22", marginVertical: 14, marginHorizontal: 22 }} />
+            <View style={{ height: 1, backgroundColor: theme.border, marginVertical: 14, marginHorizontal: 22 }} />
 
             {/* Поиск */}
             <View style={{ flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 22, paddingVertical: 10 }}>

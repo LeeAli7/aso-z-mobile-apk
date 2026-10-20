@@ -296,7 +296,7 @@ export function Toggle({ value, onChange }: { value: boolean; onChange: (v: bool
           width: 18,
           height: 18,
           borderRadius: 99,
-          backgroundColor: "#fff",
+          backgroundColor: theme.onAccent,
           alignSelf: value ? "flex-end" : "flex-start",
         }}
       />

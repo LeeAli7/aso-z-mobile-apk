@@ -26,6 +26,7 @@ import { AppIcon, AppIconName } from "../design-system/components/AppIcon";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Glass } from "../design-system/components/Glass";
+import { StatusBar } from "expo-status-bar";
 import { useApp } from "../store/AppStore";
 import { openStorageSettings, openBatterySettings, openNotificationSettings } from "../../modules/aso-runtime/src";
 
@@ -153,9 +154,9 @@ function makeStyles(theme: any) {
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    backgroundColor: "#ffffff",
+    backgroundColor: theme.accent,
   },
-  btnPrimaryText: { color: "#000000", fontSize: 16, fontWeight: "700" },
+  btnPrimaryText: { color: theme.onAccent, fontSize: 16, fontWeight: "700" },
   btnGhost: {
     minHeight: 50,
     borderRadius: 20,
@@ -352,7 +353,7 @@ function Slide({
               {def.final ? (
                 <AppIcon name="check" size={46} color={theme.ok} />
               ) : (
-                <AppIcon name={def.icon} size={34} color={theme.onAccent} />
+                <AppIcon name={def.icon} size={34} color={theme.accent} />
               )}
             </View>
           </View>
@@ -496,6 +497,7 @@ export function OnboardingScreen({ onDone }: { onDone: () => void }) {
 
   return (
     <View style={[s.root, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 12 }]}>
+      <StatusBar style={theme.name === "dark" ? "light" : "dark"} />
       {/* фон: только точечный паттерн, без свечений */}
       <View pointerEvents="none" style={s.bg}>
         <View style={s.dots} />

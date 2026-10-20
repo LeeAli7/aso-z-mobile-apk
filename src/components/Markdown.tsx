@@ -133,8 +133,8 @@ function CodeBlock({ code, lang, theme }: { code: string; lang: string; theme: a
   const tokens = useMemo(() => tokenize(code), [code]);
   return (
     <View style={{ marginVertical: 6, borderRadius: 20, overflow: "hidden", borderWidth: 1, borderColor: theme.border, backgroundColor: theme.codeBg }}>
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 10, paddingVertical: 5, backgroundColor: theme.surface2 }}>
-        <Text style={{ color: theme.mute, fontSize: 9.5, fontFamily: fonts.mono }}>{lang || "code"}</Text>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 10, paddingVertical: 5, backgroundColor: theme.codeBg }}>
+        <Text style={{ color: theme.codeText, fontSize: 9.5, fontFamily: fonts.mono, opacity: 1 }}>{lang || "code"}</Text>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
           <Pressable
             hitSlop={8}
@@ -142,7 +142,7 @@ function CodeBlock({ code, lang, theme }: { code: string; lang: string; theme: a
             accessibilityLabel={wrapped ? "Перенос выключен" : "Перенос включен"}
             style={{ width: 32, height: 32, borderRadius: 20, alignItems: "center", justifyContent: "center" }}
           >
-            <AppIcon name="wrap" size={13} color={wrapped ? theme.dim : theme.mute} />
+            <AppIcon name="wrap" size={13} color={wrapped ? theme.codeText : theme.dim} />
           </Pressable>
           <Pressable
             hitSlop={8}
@@ -150,7 +150,7 @@ function CodeBlock({ code, lang, theme }: { code: string; lang: string; theme: a
             style={{ width: 32, height: 32, borderRadius: 20, alignItems: "center", justifyContent: "center" }}
             accessibilityLabel="Копировать код"
           >
-            <AppIcon name="copy" size={13} color={theme.mute} />
+            <AppIcon name="copy" size={13} color={theme.codeText} />
           </Pressable>
         </View>
       </View>

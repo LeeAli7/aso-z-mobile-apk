@@ -151,7 +151,7 @@ export function Sheet({
   const n = parseFloat(raw);
   const heightPct = Number.isFinite(n) ? Math.min(95, Math.max(25, n)) : 60;
 
-  const sheetBorder = theme.name === "dark" ? "#1f1f22" : "#e2e2e6";
+  const sheetBorder = theme.border;
 
   // backdrop: opacity 0→1 по мере подъёма панели
   const backdropOpacity = drop.interpolate({
@@ -188,7 +188,7 @@ export function Sheet({
                 height: auto ? undefined : `${heightPct}%`,
                 maxHeight: auto ? `${autoMaxPct}%` : undefined,
                 marginBottom: Platform.OS === "android" ? kbH : 0,
-                backgroundColor: theme.name === "dark" ? "#141416" : "#f5f5f7",
+                backgroundColor: theme.surface,
                 borderTopLeftRadius: 20,
                 borderTopRightRadius: 20,
                 borderWidth: 1,

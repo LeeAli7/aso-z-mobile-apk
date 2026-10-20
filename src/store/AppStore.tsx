@@ -339,7 +339,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ).catch(() => {});
         AsyncStorage.setItem(KEYS.active, state.activeSessionId ?? "").catch(() => {});
       } catch {}
-    }, 400);
+    }, 1200);
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
@@ -353,6 +353,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    // Писать сохранёнку можно только ПОСЛЕ чтения сохранёнки. Иначе дефолт
+    // (dark/ru) успевает перетереть localStorage раньше, чем bootstrap его
+    // прочитает — и выбранная светлая тема откатывалась при каждом запуске.
+    if (!state.ready) return;
     try {
       AsyncStorage.setItem(KEYS.theme, state.theme).catch(() => {});
       AsyncStorage.setItem(KEYS.lang, state.lang).catch(() => {});
@@ -360,7 +364,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         AsyncStorage.setItem(KEYS.defaultModel, state.defaultModelId).catch(() => {});
       }
     } catch {}
-  }, [state.theme, state.lang, state.defaultModelId]);
+  }, [state.theme, state.lang, state.defaultModelId, state.ready]);
 
   useEffect(() => {
     const s = stateRef.current;
