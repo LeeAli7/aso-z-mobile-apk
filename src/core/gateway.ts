@@ -383,9 +383,12 @@ const MAX_CONTEXT_CHARS = 60_000;
 const KEEP_HEAD = 4;
 const KEEP_TAIL = 22;
 
-export function compressContext(messages: any[]): any[] {
+export function compressContext(messages: any[], ratio = 1): any[] {
+  // порог сжатия задаётся в настройках (compressionThreshold 0.1–0.95 от лимита),
+  // раньше он игнорировался и ползунок ни на что не влиял
+  const maxChars = Math.max(6_000, Math.round(MAX_CONTEXT_CHARS * Math.min(1, Math.max(0.1, ratio))));
   const total = messages.reduce((s, m) => s + (typeof m.content === "string" ? m.content.length : 200), 0);
-  if (total <= MAX_CONTEXT_CHARS) return messages;
+  if (total <= maxChars) return messages;
   if (messages.length <= KEEP_HEAD + KEEP_TAIL + 4) return messages;
 
   const head = messages.slice(0, KEEP_HEAD);
@@ -400,7 +403,7 @@ export function compressContext(messages: any[]): any[] {
 
   const next = [...head, ...pruned, ...tail];
   const nextTotal = next.reduce((s, m) => s + (typeof m.content === "string" ? m.content.length : 200), 0);
-  if (nextTotal <= MAX_CONTEXT_CHARS) return next;
+  if (nextTotal <= maxChars) return next;
 
   // всё ещё много — режем хвост активных сообщений
   return [...head, ...pruned.slice(-16), ...tail.slice(-18)].slice(-40);
@@ -447,16 +450,18 @@ export async function streamAgentChat(
   // Лимит ходов и компрессия из конфига агента (Hermes: agent.max_turns, compression).
   let maxIter = MAX_AGENT_ITERATIONS;
   let compressionOn = true;
+  let compressionRatio = 1;
   try {
     const { loadAgentConfig } = await import("./agentConfig");
     const cfg = await loadAgentConfig();
     // maxTurns Hermes = всего ходов; итерации тулов — десятая часть, минимум 8
     maxIter = Math.max(8, Math.min(90, Math.ceil(cfg.maxTurns / 10)));
     compressionOn = cfg.compressionEnabled;
+    compressionRatio = cfg.compressionThreshold;
   } catch {}
 
   for (let iter = 0; iter < maxIter; iter++) {
-    if (compressionOn) messages = compressContext(messages);
+    if (compressionOn) messages = compressContext(messages, compressionRatio);
     let r: AgentRequestResult;
     try {
       r = await agentRequest(model, messages, toolsEnabled ? tools : [], ctrl.signal);

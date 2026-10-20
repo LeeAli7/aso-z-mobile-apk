@@ -20,6 +20,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppIcon } from "../design-system/components/AppIcon";
 import { Sheet } from "../design-system/components/Sheet";
 import { loadJobs, CronJob } from "../core/cron";
+import { listRunning, stopBg } from "../core/background";
 
 export interface BgTask {
   id: string;
@@ -47,17 +48,48 @@ export function BgTasksSheet({
 }) {
   const insets = useSafeAreaInsets();
   const [jobs, setJobs] = useState<CronJob[]>([]);
+  // реальный реестр фоновых задач (не локальная заглушка экрана)
+  const [reg, setReg] = useState<BgTask[]>([]);
+  const refresh = useCallback(() => {
+    void loadJobs().then(setJobs).catch(() => {});
+    void listRunning()
+      .then((list) =>
+        setReg(
+          list
+            .filter((x) => x.kind !== "cron")
+            .map((x) => ({
+              id: x.id,
+              kind: x.kind as BgTask["kind"],
+              title: x.label,
+              sub: x.kind === "runtime" ? "терминал" : x.kind === "delegate" ? "субагенты" : "стрим",
+            })),
+        ),
+      )
+      .catch(() => {});
+  }, []);
   useEffect(() => {
     if (!visible) return;
-    void loadJobs().then(setJobs).catch(() => {});
-  }, [visible]);
+    refresh();
+  }, [visible, refresh]);
   const enabled = jobs.filter((j) => j.enabled);
-  const all: BgTask[] = [...tasks];
+  const all: BgTask[] = [...reg];
+  for (const task of tasks) {
+    if (!all.some((x) => x.id === task.id)) all.push(task);
+  }
   for (const j of enabled) {
     if (!all.some((x) => x.id === "cron:" + j.id)) {
       all.push({ id: "cron:" + j.id, kind: "cron", title: j.name, sub: j.schedule });
     }
   }
+  const stopTask = useCallback(
+    async (task: BgTask) => {
+      // cron → пауза задачи, runtime/delegate/stream → abort через реестр
+      await stopBg(task.kind === "delegation" ? "delegate" : (task.kind as any), task.id).catch(() => false);
+      onStop?.(task);
+      refresh();
+    },
+    [onStop, refresh],
+  );
   return (
     <Sheet visible={visible} onClose={onClose} title={t("bg_title") ?? "Фоновые процессы"} snapPoints={["50%"]}>
       {all.length === 0 ? (
@@ -78,11 +110,9 @@ export function BgTasksSheet({
                 <AppIcon name="eye" size={17} color={theme.accentHi} />
               </Pressable>
             ) : null}
-            {onStop ? (
-              <Pressable onPress={() => onStop(task)} hitSlop={8} style={{ padding: 6 }}>
-                <AppIcon name="stop" size={15} color={theme.danger} />
-              </Pressable>
-            ) : null}
+            <Pressable onPress={() => void stopTask(task)} hitSlop={8} style={{ padding: 6 }} accessibilityLabel="Остановить задачу">
+              <AppIcon name="stop" size={15} color={theme.danger} />
+            </Pressable>
           </View>
         ))
       )}

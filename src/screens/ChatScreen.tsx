@@ -28,7 +28,7 @@ import { AppIcon, AppIconName } from "../design-system/components/AppIcon";
 import { useApp, genId, Msg, Session } from "../store/AppStore";
 import { ModelInfo, streamChat, streamAgentChat, ChatMessage, ChatPart, AgentToolCall } from "../core/gateway";
 import { buildAttachmentParts } from "../core/attachments";
-import { getToolDefs } from "../core/tools";
+import { getToolDefsGated } from "../core/tools";
 import { claimDueJobs, setJobResult } from "../core/cron";
 import { runSelfReview } from "../core/selfImprove";
 import { DrawerLineArt } from "../components/DrawerLineArt";
@@ -668,7 +668,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       // ── Путь А (Android): настоящий function calling — модель вызывает run_command,
       // результат возвращается модели, цикл до финального ответа.
       // ── Путь Б (web/dev или провайдер без tools): обычный стрим + текстовые [CMD:].
-      const toolDefs = getToolDefs();
+      // гейт тулсетов: выключенные в настройках инструменты модель больше не видит
+      const toolDefs = await getToolDefsGated();
       if (runtimeAvailable() && toolDefs.length > 0) {
         await streamAgentChat(
           model,
