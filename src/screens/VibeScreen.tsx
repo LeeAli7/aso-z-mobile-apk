@@ -314,20 +314,24 @@ export function VibeScreen({ navigation }: { navigation: any }) {
         <View style={{ padding: 16 }}>
           <View style={{ padding: 14, borderRadius: 20, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }}>
             <Text style={{ color: theme.dim, fontSize: 12.5, lineHeight: 19 }}>{memText.slice(0, 1500)}</Text>
-            <View style={{ height: 10 }} />
-            <Button
-              title={t("delete")}
-              variant="danger"
-              onPress={() => {
-                Alert.alert(t("grp_memory"), t("cancel"), [
-                  { text: t("cancel"), style: "cancel" },
-                  {
-                    text: t("delete"), style: "destructive",
-                    onPress: async () => { await clearMemory(); setMemText("Память пуста."); },
-                  },
-                ]);
-              }}
-            />
+            {memText.trim() && memText !== "Память пуста." ? (
+              <>
+                <View style={{ height: 10 }} />
+                <Button
+                  title={t("delete")}
+                  variant="danger"
+                  onPress={() => {
+                    Alert.alert(t("grp_memory"), t("cancel"), [
+                      { text: t("cancel"), style: "cancel" },
+                      {
+                        text: t("delete"), style: "destructive",
+                        onPress: async () => { await clearMemory(); setMemText("Память пуста."); },
+                      },
+                    ]);
+                  }}
+                />
+              </>
+            ) : null}
           </View>
         </View>
       )}

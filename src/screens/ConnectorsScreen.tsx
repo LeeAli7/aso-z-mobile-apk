@@ -129,12 +129,12 @@ export function ConnectorsScreen({ navigation }: { navigation: any }) {
             <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
               <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: synced ? theme.ok : theme.mute }} />
               <Text style={{ flex: 1, color: theme.text, fontSize: 13.5, fontWeight: "600" }}>Telegram</Text>
-              <Text style={{ color: synced ? theme.ok : theme.mute, fontSize: 11.5 }}>{synced ? `${t("connected")} · ${tgName}` : t("not_connected")}</Text>
+              <Text style={{ color: synced ? theme.ok : theme.dim, fontSize: 11.5 }}>{synced ? `${t("connected")} · ${tgName}` : t("not_connected")}</Text>
             </View>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
               <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.mute }} />
               <Text style={{ flex: 1, color: theme.text, fontSize: 13.5, fontWeight: "600" }}>Discord</Text>
-              <Text style={{ color: theme.mute, fontSize: 11.5 }}>{t("soon")}</Text>
+              <Text style={{ color: theme.dim, fontSize: 11.5 }}>{t("soon")}</Text>
             </View>
           </View>
         )}

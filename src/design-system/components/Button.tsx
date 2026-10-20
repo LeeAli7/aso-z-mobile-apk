@@ -31,13 +31,13 @@ export function Button({
   // разрушительным и подтверждающим, поэтому primary больше не красный
   const bg =
     variant === "primary" ? "#ffffff"
-    : variant === "danger" ? theme.danger
+    // разрушительное действие — голый красный текст, без залитой капсулы
     : variant === "secondary" ? theme.surface
     : "transparent";
   const fg =
     variant === "primary"
       ? "#000000"
-      : variant === "danger" ? "#fff"
+      : variant === "danger" ? theme.danger
       : variant === "secondary" ? theme.text
       : theme.accentHi;
   const borderColor = variant === "secondary" || variant === "ghost" ? theme.border : "transparent";
