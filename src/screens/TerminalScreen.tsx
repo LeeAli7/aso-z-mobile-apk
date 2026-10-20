@@ -181,40 +181,40 @@ export function TerminalScreen({ navigation }: { navigation: any }) {
           <Text style={{ color: "#8e8e93", fontSize: 12.5, fontFamily: fonts.mono }}>…</Text>
         ) : null}
         {ready ? <Text style={{ color: theme.danger, fontSize: 12.5, fontFamily: fonts.mono }}>{ready}</Text> : null}
+
+        {/* Строка ввода настоящего терминала: приглашение и ввод в одной строке. */}
+        <Pressable
+          onPress={() => inputRef.current?.focus()}
+          style={{
+            flexDirection: "row",
+            alignItems: "flex-start",
+            paddingTop: 2,
+            // приглашение не должно упираться в край экрана/жест-бар
+            paddingBottom: insets.bottom + 24,
+          }}
+        >
+          <Text style={{ color: "#ffffff", fontSize: 13, lineHeight: 20, fontFamily: fonts.mono }}>
+            {promptOf(cwd) + " "}
+          </Text>
+          <TextInput
+            ref={inputRef}
+            value={cmd}
+            onChangeText={setCmd}
+            onSubmitEditing={() => void run(cmd)}
+            autoCapitalize="none"
+            autoCorrect={false}
+            spellCheck={false}
+            autoComplete="off"
+            returnKeyType="send"
+            blurOnSubmit={false}
+            selectionColor="#ffffff"
+            autoFocus
+            cursorColor="#ffffff"
+            style={{ flex: 1, color: "#ffffff", fontSize: 13, lineHeight: 20, fontFamily: fonts.mono, padding: 0, margin: 0 }}
+          />
+        </Pressable>
       </ScrollView>
 
-      {/* Строка ввода настоящего терминала: приглашение и ввод в одной строке. */}
-      <Pressable
-        onPress={() => inputRef.current?.focus()}
-        style={{
-          flexDirection: "row",
-          alignItems: "flex-start",
-          paddingHorizontal: 14,
-          paddingTop: 6,
-          // приглашение не должно упираться в край экрана/жест-бар
-          paddingBottom: insets.bottom + 20,
-        }}
-      >
-        <Text style={{ color: "#ffffff", fontSize: 13, lineHeight: 20, fontFamily: fonts.mono }}>
-          {promptOf(cwd) + " "}
-        </Text>
-        <TextInput
-          ref={inputRef}
-          value={cmd}
-          onChangeText={setCmd}
-          onSubmitEditing={() => void run(cmd)}
-          autoCapitalize="none"
-          autoCorrect={false}
-          spellCheck={false}
-          autoComplete="off"
-          returnKeyType="send"
-          blurOnSubmit={false}
-          selectionColor="#ffffff"
-          autoFocus
-          cursorColor="#ffffff"
-          style={{ flex: 1, color: "#ffffff", fontSize: 13, lineHeight: 20, fontFamily: fonts.mono, padding: 0, margin: 0 }}
-        />
-      </Pressable>
     </KeyboardAvoidingView>
   );
 }
