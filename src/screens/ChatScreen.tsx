@@ -1609,6 +1609,11 @@ function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions,
   if (msg.streaming && !msg.content && !msg.thinking && !msg.tool) {
     return null;
   }
+  // Пустая карточка (ни текста, ни раздумий, ни инструмента) — не рисуем:
+  // думалка, из которой взяли ответ, гасится в gateway и остаётся пустой.
+  if (!msg.content && !msg.thinking && !msg.tool && !msg.error) {
+    return null;
+  }
   if (msg.error && !msg.content) {
     return (
       <View style={containerStyle}>
