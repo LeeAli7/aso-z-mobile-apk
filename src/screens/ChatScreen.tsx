@@ -173,7 +173,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     setText(merged);
     // сбрасываем флаг на следующем тике: onChangeText от пользователя уже после
     setTimeout(() => { sttWriting.current = false; }, 0);
-    if (e?.isFinal) sttBase.current = merged;
+    // base НЕ фиксируем на isFinal: Android присылает кумулятивный транскрипт,
+    // и «промежуточный финал + финал» давал проговорённые слова по 2-3 раза.
   });
   useSpeechRecognitionEvent("error", () => {
     recStarting.current = false;
