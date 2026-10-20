@@ -144,17 +144,11 @@ function makeStyles(theme: any) {
   settingsChev: { color: theme.mute, fontSize: 16 },
 
   actions: { marginTop: 22, gap: 10 },
-  btnPrimaryWrap: {
-    borderRadius: 20,
-    shadowColor: theme.accent,
-    shadowOpacity: 0.34,
-    shadowRadius: 28,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 10,
-  },
+  // свечение вокруг капсулы — вне стиля «КРОВЬ»: только плоская белая капсула
+  btnPrimaryWrap: { borderRadius: 25 },
   btnPrimary: {
     minHeight: 54,
-    borderRadius: 20,
+    borderRadius: 25,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
