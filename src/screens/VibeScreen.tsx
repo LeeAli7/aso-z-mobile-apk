@@ -173,7 +173,11 @@ export function VibeScreen({ navigation }: { navigation: any }) {
       <View style={{ flexDirection: "row", alignItems: "center", paddingTop: insets.top + 6, paddingHorizontal: 16, paddingBottom: 10 }}>
         <IconButton name="arrow-left" size={20} onPress={() => (dept ? setDept(null) : navigation.goBack())} accessibilityLabel={t("back")} />
         <View style={{ flex: 1, marginLeft: 6 }}>
-          <Text style={{ color: theme.text, fontSize: 22, fontWeight: "700", letterSpacing: -0.3 }}>{t("vibe_title")}</Text>
+          <Text numberOfLines={1} style={{ color: theme.text, fontSize: 22, fontWeight: "700", letterSpacing: -0.3 }}>
+            {dept
+              ? [...explorerDepts, ...agentDepts].find((d) => d.key === dept)?.title ?? t("vibe_title")
+              : t("vibe_title")}
+          </Text>
         </View>
         {/* ручное создание — вторично, через меню */}
         {dept === "projects" && (
@@ -212,11 +216,6 @@ export function VibeScreen({ navigation }: { navigation: any }) {
         </View>
       )}
 
-      {dept !== null && (
-        <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
-          <DeptBack theme={theme} label={t("back")} onPress={() => setDept(null)} />
-        </View>
-      )}
 
       {/* ── Проекты (существующий список, без изменений логики) ── */}
       {dept === "projects" && (

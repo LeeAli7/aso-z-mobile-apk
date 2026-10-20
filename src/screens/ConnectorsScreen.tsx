@@ -105,7 +105,9 @@ export function ConnectorsScreen({ navigation }: { navigation: any }) {
           <AppIcon name="arrow-left" size={22} color={theme.text} />
         </Pressable>
         <View>
-          <Text style={{ color: theme.text, fontSize: 22, fontWeight: "700", letterSpacing: -0.3 }}>{t("connectors_title")}</Text>
+          <Text numberOfLines={1} style={{ color: theme.text, fontSize: 22, fontWeight: "700", letterSpacing: -0.3 }}>
+            {dept ? depts.find((d) => d.key === dept)?.title ?? t("connectors_title") : t("connectors_title")}
+          </Text>
         </View>
       </View>
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 32 }} keyboardShouldPersistTaps="handled">
@@ -119,10 +121,6 @@ export function ConnectorsScreen({ navigation }: { navigation: any }) {
               </View>
             ))}
           </View>
-        )}
-
-        {dept !== null && (
-          <DeptBack theme={theme} label={t("back")} onPress={() => setDept(null)} />
         )}
 
         {/* ── Мессенджеры ── */}

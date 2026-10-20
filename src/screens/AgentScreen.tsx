@@ -63,10 +63,6 @@ export function AgentScreen({ navigation }: { navigation: any }) {
           </View>
         )}
 
-        {dept !== null && (
-          <DeptBack theme={theme} label={t("back")} onPress={() => setDept(null)} />
-        )}
-
         {/* ── Субагенты ── */}
         {dept === "subagents" && (
           <>

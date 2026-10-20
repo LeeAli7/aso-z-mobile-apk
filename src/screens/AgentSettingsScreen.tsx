@@ -8,7 +8,7 @@
  *  - Автозадачи: cron-джобы (создать/пауза/удалить, следующий запуск).
  */
 import React, { useCallback, useEffect, useState } from "react";
-import { Alert, Pressable, ScrollView, Switch, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppIcon, AppIconName, materialToApp } from "../design-system/components/AppIcon";
 import { useApp } from "../store/AppStore";
@@ -17,6 +17,7 @@ import { globalStore } from "../store/globalStore";
 import { showToast } from "../design-system/components/Toast";
 import { Button } from "../design-system/components/Button";
 import { Chip } from "../design-system/components/Chip";
+import Toggle from "../design-system/components/Toggle";
 import { loadTodos, runTodoOps, TodoItem, clearTodos } from "../core/todo";
 import { listSkills, viewSkill, saveSkill, deleteSkill } from "../core/skills";
 import { memorySnapshot, clearMemory } from "../core/memory";
@@ -314,13 +315,11 @@ export function AgentSettingsScreen({ navigation }: { navigation: any }) {
           ) : (
             jobs.map((j) => (
               <View key={j.id} style={{ paddingVertical: 8, flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Switch
-                  value={j.enabled}
-                  onValueChange={(v) => handleToggleJob(j.id, v)}
-                  trackColor={{ false: c.surface2, true: c.accent }}
-                  thumbColor={j.enabled ? "#fff" : c.mute}
-                  style={{ transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }}
-                />
+                <Toggle
+                value={j.enabled}
+                onChange={(v) => handleToggleJob(j.id, v)}
+                theme={c}
+              />
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: c.text, fontSize: 13, fontWeight: "600" }}>{j.name}</Text>
                   <Text style={{ color: c.dim, fontSize: 11, fontFamily: fonts.mono }}>{j.schedule} · {j.prompt.slice(0, 50)}{j.prompt.length > 50 ? "…" : ""}</Text>

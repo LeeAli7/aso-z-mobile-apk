@@ -12,7 +12,7 @@
  * заменить PREFS/loadPrefs/savePref на вызовы движка, UI не менять.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Pressable, ScrollView, Switch, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppIcon } from "../design-system/components/AppIcon";
 import { DeptRow, DeptDivider, DeptBack, DeptDef } from "../components/Dept";
@@ -20,6 +20,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 import { useApp } from "../store/AppStore";
 import { ThemeName, fonts } from "../theme/tokens";
+import Toggle from "../design-system/components/Toggle";
 import { Lang } from "../i18n";
 import { TextField, PrimaryButton } from "../components/ui";
 import { requestSync, pollSync, fetchProfile } from "../core/sync";
@@ -326,7 +327,9 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
           <AppIcon name="arrow-left" size={22} color={theme.text} />
         </Pressable>
         <View style={{ flex: 1, marginLeft: 6 }}>
-          <Text style={{ color: theme.text, fontSize: 22, fontWeight: "700", letterSpacing: -0.3 }}>{t("settings_title")}</Text>
+          <Text style={{ color: theme.text, fontSize: 22, fontWeight: "700", letterSpacing: -0.3 }}>
+            {dept ? depts.find((d) => d.key === dept)?.title ?? t("settings_title") : t("settings_title")}
+          </Text>
         </View>
       </View>
 
@@ -341,10 +344,6 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
               </View>
             ))}
           </View>
-        )}
-
-        {dept !== null && (
-          <DeptBack theme={theme} label={t("back")} onPress={() => setDept(null)} />
         )}
 
         {/* ── Аккаунт и синхронизация ── */}
@@ -444,12 +443,10 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
             <DeptDivider theme={theme} />
             <View style={{ paddingHorizontal: 14, paddingVertical: 10, backgroundColor: theme.surface, flexDirection: "row", alignItems: "center" }}>
               <Text style={{ color: theme.text, fontSize: 13.5, flex: 1 }}>{t("compression")}</Text>
-              <Switch
+              <Toggle
                 value={prefs.compression === "1"}
-                onValueChange={(v) => setPref("compression", v ? "1" : "0")}
-                trackColor={{ false: theme.surface2, true: theme.accent }}
-                thumbColor={prefs.compression === "1" ? "#fff" : theme.mute}
-                style={{ transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }}
+                onChange={(v) => setPref("compression", v ? "1" : "0")}
+                theme={theme}
               />
             </View>
             <DeptDivider theme={theme} />
@@ -484,12 +481,10 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
           <View style={{ borderRadius: 20, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
             <View style={{ paddingHorizontal: 14, paddingVertical: 10, backgroundColor: theme.surface, flexDirection: "row", alignItems: "center" }}>
               <Text style={{ color: theme.text, fontSize: 13.5, flex: 1 }}>{t("stt_enabled")}</Text>
-              <Switch
+              <Toggle
                 value={prefs.sttEnabled === "1"}
-                onValueChange={(v) => setPref("sttEnabled", v ? "1" : "0")}
-                trackColor={{ false: theme.surface2, true: theme.accent }}
-                thumbColor={prefs.sttEnabled === "1" ? "#fff" : theme.mute}
-                style={{ transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }}
+                onChange={(v) => setPref("sttEnabled", v ? "1" : "0")}
+                theme={theme}
               />
             </View>
             <DeptDivider theme={theme} />
@@ -507,12 +502,10 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
           <View style={{ borderRadius: 20, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
             <View style={{ paddingHorizontal: 14, paddingVertical: 10, backgroundColor: theme.surface, flexDirection: "row", alignItems: "center" }}>
               <Text style={{ color: theme.text, fontSize: 13.5, flex: 1 }}>{t("memory_enabled")}</Text>
-              <Switch
+              <Toggle
                 value={prefs.memoryEnabled === "1"}
-                onValueChange={(v) => setPref("memoryEnabled", v ? "1" : "0")}
-                trackColor={{ false: theme.surface2, true: theme.accent }}
-                thumbColor={prefs.memoryEnabled === "1" ? "#fff" : theme.mute}
-                style={{ transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }}
+                onChange={(v) => setPref("memoryEnabled", v ? "1" : "0")}
+                theme={theme}
               />
             </View>
             <DeptDivider theme={theme} />
@@ -525,23 +518,19 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
           <View style={{ borderRadius: 20, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
             <View style={{ paddingHorizontal: 14, paddingVertical: 10, backgroundColor: theme.surface, flexDirection: "row", alignItems: "center" }}>
               <Text style={{ color: theme.text, fontSize: 13.5, flex: 1 }}>{t("redact_secrets")}</Text>
-              <Switch
+              <Toggle
                 value={prefs.redactSecrets === "1"}
-                onValueChange={(v) => setPref("redactSecrets", v ? "1" : "0")}
-                trackColor={{ false: theme.surface2, true: theme.accent }}
-                thumbColor={prefs.redactSecrets === "1" ? "#fff" : theme.mute}
-                style={{ transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }}
+                onChange={(v) => setPref("redactSecrets", v ? "1" : "0")}
+                theme={theme}
               />
             </View>
             <DeptDivider theme={theme} />
             <View style={{ paddingHorizontal: 14, paddingVertical: 10, backgroundColor: theme.surface, flexDirection: "row", alignItems: "center" }}>
               <Text style={{ color: theme.text, fontSize: 13.5, flex: 1 }}>Подтверждать опасные действия</Text>
-              <Switch
+              <Toggle
                 value={security.confirmDangerous}
-                onValueChange={(v) => void setSecurity({ confirmDangerous: v })}
-                trackColor={{ false: theme.surface2, true: theme.accent }}
-                thumbColor={security.confirmDangerous ? "#fff" : theme.mute}
-                style={{ transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }}
+                onChange={(v) => void setSecurity({ confirmDangerous: v })}
+                theme={theme}
               />
             </View>
             <DeptDivider theme={theme} />
