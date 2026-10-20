@@ -29,6 +29,7 @@ import { useApp, genId, Msg, Session } from "../store/AppStore";
 import { ModelInfo, streamChat, streamAgentChat, ChatMessage, ChatPart, AgentToolCall } from "../core/gateway";
 import { buildAttachmentParts } from "../core/attachments";
 import { getToolDefsGated } from "../core/tools";
+import { registerBg, unregisterBg } from "../core/background";
 import { claimDueJobs, setJobResult } from "../core/cron";
 import { runSelfReview } from "../core/selfImprove";
 import { DrawerLineArt } from "../components/DrawerLineArt";
@@ -87,6 +88,18 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       if (on) return [...rest, { id: "stream:" + sid, kind: "stream", title: "Ответ агента" } as BgTask];
       return rest;
     });
+    // единый реестр фоновых: индикатор и кнопка «стоп» видят стрим из движка
+    if (on) {
+      registerBg("stream", "stream:" + sid, "Ответ агента", () => {
+        const r = runStateRef.current[sid];
+        if (r) {
+          r.stop = true;
+          try { r.ctrl?.abort(); } catch {}
+        }
+      });
+    } else {
+      unregisterBg("stream:" + sid);
+    }
   };
   const [msgMenuTarget, setMsgMenuTarget] = useState<Msg | null>(null);
   const [renameTarget, setRenameTarget] = useState<Session | null>(null);
