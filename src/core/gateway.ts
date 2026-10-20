@@ -291,8 +291,17 @@ export async function streamChat(
         }
       } catch {}
     }
-    if (!resText && !full && thinking) resText = extractFromThinking(thinking);
-    if (!resText) resText = thinking && !full ? extractFromThinking(thinking) : full;
+    if (!resText) {
+      if (!full && thinking) {
+        resText = extractFromThinking(thinking);
+        // Ответ вытащен из размышлений: гасим думалку, иначе ТОТ ЖЕ абзац
+        // показывается дважды — в блоке «Думаю» и в пузыре ответа.
+        thinking = "";
+        callbacks.onThinking?.("");
+      } else {
+        resText = full;
+      }
+    }
 
     // ── РЕТРАЙ при пустом ответе ──
     // Провайдер иногда молчит (пустое облачко). Если ответ не пришёл —

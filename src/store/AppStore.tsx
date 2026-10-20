@@ -333,10 +333,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     saveTimer.current = setTimeout(() => {
       try {
         // держим до 200 сессий, новые идут в начале массива → обрезаем хвост
-        AsyncStorage.setItem(
-          KEYS.sessions,
-          JSON.stringify(state.sessions.slice(0, 200)),
-        ).catch(() => {});
+        // streaming-флаги в сохранёнку НЕ пишем: после перезапуска сообщение
+        // навсегда оставалось «печатает» и блокировало ввод в сессии.
+        const clean = state.sessions.slice(0, 200).map((s) =>
+          s.messages.some((m) => m.streaming)
+            ? { ...s, messages: s.messages.map((m) => (m.streaming ? { ...m, streaming: false } : m)) }
+            : s,
+        );
+        AsyncStorage.setItem(KEYS.sessions, JSON.stringify(clean)).catch(() => {});
         AsyncStorage.setItem(KEYS.active, state.activeSessionId ?? "").catch(() => {});
       } catch {}
     }, 1200);
@@ -348,7 +352,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const saveState = useCallback(() => {
     const s = stateRef.current;
     try {
-      AsyncStorage.setItem(KEYS.sessions, JSON.stringify(s.sessions.slice(0, 200))).catch(() => {});
+      const clean = s.sessions.slice(0, 200).map((x) =>
+        x.messages.some((m) => m.streaming)
+          ? { ...x, messages: x.messages.map((m) => (m.streaming ? { ...m, streaming: false } : m)) }
+          : x,
+      );
+      AsyncStorage.setItem(KEYS.sessions, JSON.stringify(clean)).catch(() => {});
     } catch {}
   }, []);
 
