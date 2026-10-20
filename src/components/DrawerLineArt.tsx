@@ -213,7 +213,7 @@ export function DrawerLineArt({
               accessibilityRole="button"
               accessibilityLabel={modelName}
             >
-              <Text style={{ color: theme.dim, fontSize: 13 }}>{"Модель · " + modelName}</Text>
+              <Text style={{ color: theme.dim, fontSize: 13 }}>{models.length ? "Модель · " + modelName : "Модель не выбрана"}</Text>
             </Pressable>
             {modelsExpanded && models.length === 0 && (
               <Text style={{ color: theme.mute, fontSize: 12.5, lineHeight: 18, paddingHorizontal: 22, paddingBottom: 10 }}>
