@@ -9,7 +9,7 @@
  * memory (память), todo (задачи), skill_view/skill_manage (навыки),
  * web_search (поиск), session_search (прошлые диалоги), delegate_task (субагенты).
  */
-import { runCommandCapture, runtimeAvailable } from "./runtime";
+import { isLongRunningCommand, runCommandBackground, runCommandCapture, runtimeAvailable } from "./runtime";
 import { runMemoryOps, memorySnapshot, MemoryOp } from "./memory";
 import { runTodoOps, TodoOp } from "./todo";
 import { listSkills, viewSkill, saveSkill, deleteSkill } from "./skills";
@@ -199,7 +199,11 @@ registerTool({
     "Сначала проверь доступный менеджер: `command -v apt || command -v apk`. " +
     "Python-пакеты — `pip install <пакет>` (при отсутствии pip: `apt install python-pip` или `apk add py3-pip`). " +
     "Используй, когда нужно: проверить файлы/систему, установить пакет, собрать или запустить что-то, " +
-    "прочитать результат выполнения. Команды выполняются по одной; дожидайся вывода.",
+    "прочитать результат выполнения. Команды выполняются по одной; дожидайся вывода. " +
+    "Долгие процессы (дев-сервер, локальный холст, vite/next/http.server, watch-режим) НЕ жди: они не завершаются. " +
+    "Для них передавай background=true — процесс поднимется в фоне, вернутся pid и первые строки вывода (порт/адрес). " +
+    "Обычная команда ограничена тайм-аутом (по умолчанию 120 с, можно изменить через timeout_ms); " +
+    "если команда не уложилась — она останавливается и возвращается честная ошибка, а не вечное ожидание.",
   parameters: {
     type: "object",
     properties: {
@@ -211,6 +215,14 @@ registerTool({
         type: "string",
         description: "Рабочая директория (необязательно, по умолчанию HOME)",
       },
+      background: {
+        type: "boolean",
+        description: "true — запустить как долгий процесс (сервер/холст/watch) и не ждать завершения",
+      },
+      timeout_ms: {
+        type: "number",
+        description: "Тайм-аут выполнения в миллисекундах (по умолчанию 120000, максимум 600000)",
+      },
     },
     required: ["command"],
   },
@@ -218,12 +230,46 @@ registerTool({
     const cmd = String(args.command ?? "").trim();
     if (!cmd) return "ошибка: пустая команда";
     if (!runtimeAvailable()) return "рантайм доступен только на Android";
-    const r = await runCommandCapture(cmd, ctx.projectId, args.cwd ? String(args.cwd) : ctx.cwd);
+    const cwdArg = args.cwd ? String(args.cwd) : ctx.cwd;
+
+    // Долгие процессы: сервер/холст/watch никогда не завершаются сами.
+    // Раньше такая команда держала чат в ожидании до сетевого тайм-аута и
+    // «падала с ошибкой», хотя сервер был уже поднят. Теперь — в фон.
+    const wantBg = args.background === true || isLongRunningCommand(cmd);
+    if (wantBg) {
+      const bg = await runCommandBackground(cmd, cwdArg);
+      if (!bg.ok) {
+        const detail = bg.output?.trim() || bg.error || "нет вывода";
+        return `Не удалось запустить в фоне\n$ ${cmd}\n${detail.slice(0, 3000)}`;
+      }
+      const lines = bg.output
+        ? `\nВывод (первые строки):\n${bg.output.slice(-2000)}`
+        : "\nВывод пока пуст — процесс только стартовал.";
+      return (
+        `Процесс запущен в фоне и НЕ блокирует чат.\n` +
+        `$ ${cmd}\n` +
+        `pid: ${bg.pid ?? "?"}, сессия: ${bg.sessionId}\n` +
+        (bg.ready ? "Готовность: сервер сообщил адрес/порт.\n" : "Готовность: пока не сообщил порт (возможен запуск).\n") +
+        lines
+      );
+    }
+
+    const timeout = Math.min(600_000, Math.max(5_000, Number(args.timeout_ms) || 120_000));
+    const r = await runCommandCapture(cmd, ctx.projectId, cwdArg, 4000, timeout);
     if (r.ok) {
       const out = r.output?.trim();
       return out
         ? `Вывод команды: exit 0\n$ ${cmd}\n${out.slice(0, 6000)}`
         : `Команда выполнена (exit 0). Вывод пуст.\n$ ${cmd}`;
+    }
+    if (r.timedOut) {
+      const partial = r.output?.trim();
+      return (
+        `Команда остановлена по тайм-ауту (${Math.round(timeout / 1000)} с) — похоже, это долгий процесс.\n` +
+        `$ ${cmd}\n` +
+        (partial ? `Что успело вывестись:\n${partial.slice(-2000)}\n` : "") +
+        `Повтори с background=true, чтобы запустить её в фоне и не блокировать чат.`
+      );
     }
     const detail = r.output?.trim() || r.error || `exit ${r.code}`;
     return `Команда не выполнена (exit ${r.code ?? -1})\n$ ${cmd}\n${detail.slice(0, 3000)}`;

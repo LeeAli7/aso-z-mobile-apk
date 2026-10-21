@@ -131,7 +131,7 @@ export function stripCmdBlocks(text: string): string {
   return text.replace(/\[CMD:\s*[^\n\]]+\]\s*/g, "").trim();
 }
 
-export type CmdResult = { ok: boolean; output: string; code: number; error?: string };
+export type CmdResult = { ok: boolean; output: string; code: number; error?: string; timedOut?: boolean };
 
 /**
  * Выполнить команду и дождаться завершения, собрав весь вывод.
@@ -140,7 +140,13 @@ export type CmdResult = { ok: boolean; output: string; code: number; error?: str
  * когда быстрая команда завершалась до подписки на onExit и JS висел вечно.
  * Если вывод длинный — кладём в файл проекта и возвращаем путь (не засоряем чат).
  */
-export function runCommandCapture(cmd: string, projectId?: string, cwd?: string, limit = 4000): Promise<CmdResult> {
+export function runCommandCapture(
+  cmd: string,
+  projectId?: string,
+  cwd?: string,
+  limit = 4000,
+  timeoutMs = 120_000,
+): Promise<CmdResult> {
   return new Promise(async (resolve) => {
     if (!runtimeAvailable()) {
       resolve({ ok: false, output: "", code: -1, error: "Рантайм доступен только на Android" });
@@ -153,7 +159,27 @@ export function runCommandCapture(cmd: string, projectId?: string, cwd?: string,
       return;
     }
     try {
-      const r = await rtExecCapture(cmd, cwd);
+      // Тайм-аут ОБЯЗАТЕЛЕН: без него долгий процесс (дев-сервер, холст,
+      // watch-режим) держал promise вечно, чат висел в ожидании и потом падал
+      // по сетевому таймауту, хотя сам сервер уже поднялся.
+      // Дублируем защиту на стороне JS: даже если нативный код не ответит
+      // (старая сборка модуля), промис разрешится по тайм-ауту.
+      const r: any = await Promise.race([
+        rtExecCapture(cmd, cwd, timeoutMs),
+        new Promise((res) =>
+          setTimeout(
+            () =>
+              res({
+                ok: false,
+                output: "",
+                code: -2,
+                timedOut: true,
+                error: `нет ответа за ${Math.round((timeoutMs + 15_000) / 1000)} с — процесс не завершился`,
+              }),
+            timeoutMs + 15_000,
+          ),
+        ),
+      ]);
       if (!r.ok) {
         // Реальная диагностика вместо догадки «SELinux». В toybox-режиме команды
         // идут через системный /system/bin/sh, поэтому любой сбой тула выглядит
@@ -167,7 +193,7 @@ export function runCommandCapture(cmd: string, projectId?: string, cwd?: string,
             `Продиагностируй причину: uname -m; ls $PREFIX/bin | head; echo $PREFIX $LD_LIBRARY_PATH; ` +
             `bincheck <бинарник> — и сообщи фактическую ошибку, а не «система блокирует».`;
         }
-        resolve({ ok: false, output: r.output || "", code: r.code, error });
+        resolve({ ok: false, output: r.output || "", code: r.code, error, timedOut: !!r.timedOut });
         return;
       }
       const text = r.output || "";
@@ -197,4 +223,107 @@ export function runCommandCapture(cmd: string, projectId?: string, cwd?: string,
       resolve({ ok: false, output: "", code: -1, error: String(e?.message || e) });
     }
   });
+}
+
+
+/**
+ * Похоже ли на долгоживущий процесс (сервер/демон/watch)?
+ * Такие команды НЕЛЬЗЯ ждать до завершения — они не завершаются никогда:
+ * нужно запускать их в фоне и отдавать модель/пользователю pid + первые строки.
+ */
+export function isLongRunningCommand(cmd: string): boolean {
+  const c = (cmd || "").toLowerCase();
+  if (!c.trim()) return false;
+  if (/(^|\s)--watch(\s|$)|(^|\s)watch\s|nodemon|pm2\s+(start|dev)/.test(c)) return true;
+  if (/\b(npm|pnpm|yarn|bun)\s+(run\s+)?(dev|start|serve|watch)\b/.test(c)) return true;
+  if (/\b(vite|next\s+dev|nuxt\s+dev|expo\s+start|react-scripts\s+start|ng\s+serve|webpack-dev-server|live-server|http-server|serve\s+-s)\b/.test(c)) return true;
+  if (/python3?\s+-m\s+http\.server/.test(c)) return true;
+  if (/\b(flask\s+run|uvicorn|gunicorn|fastapi\s+run|streamlit\s+run|jupyter\s+(notebook|lab))\b/.test(c)) return true;
+  if (/\b(php\s+-S|rails\s+s|django-admin\s+runserver|docker\s+(run(?!\s+-{1,2}rm)|compose\s+up))\b/.test(c)) return true;
+  // `node server.js`, `python app.py` — только если в конце нет `&` и нет явного одноразового действия
+  if (/(^|[;&|]\s*)(node|python3?|ruby|java)\s+[^;&|]*\.(js|mjs|cjs|py|rb|jar)(\s|$)/.test(c)) return true;
+  return false;
+}
+
+export type BgStartResult = {
+  ok: boolean;
+  sessionId: number;
+  pid?: number;
+  ready: boolean;
+  output: string;
+  error?: string;
+};
+
+/**
+ * Запустить долгий процесс в фоне и подождать готовности (порт/«listening»).
+ * Возвращается быстро: чат не висит, сервер продолжает работать, его вывод
+ * виден в панели фоновых процессов и его можно остановить.
+ */
+export async function runCommandBackground(cmd: string, cwd?: string, waitMs = 12_000): Promise<BgStartResult> {
+  if (!runtimeAvailable()) {
+    return { ok: false, sessionId: -1, ready: false, output: "", error: "Рантайм доступен только на Android" };
+  }
+  const rt = await ensureRuntime();
+  if (!rt.ok) {
+    return { ok: false, sessionId: -1, ready: false, output: "", error: `рантайм не готов: ${rt.message}` };
+  }
+  let buf = "";
+  let ready = false;
+  let exitCode: number | null = null;
+  let handle: RuntimeHandle;
+  try {
+    handle = await runCommand(cmd, cwd);
+  } catch (e: any) {
+    return { ok: false, sessionId: -1, ready: false, output: "", error: String(e?.message || e) };
+  }
+  if (!handle || handle.sessionId < 0) {
+    return {
+      ok: false,
+      sessionId: handle?.sessionId ?? -1,
+      ready: false,
+      output: "",
+      error: handle?.error || "не удалось запустить процесс",
+    };
+  }
+  const sid = handle.sessionId;
+  const READY_RE = /(listening|running on|started server|server running|local: http|127\.0\.0\.1|localhost|0\.0\.0\.0|preview|serving at|uvicorn running|compiled successfully|Serving HTTP|ready in)/i;
+  await new Promise<void>((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      try {
+        try { unsub?.remove?.(); } catch {}
+        try { unsubExit?.remove?.(); } catch {}
+      } catch {}
+      resolve();
+    };
+    const unsub = subscribeOutput((sessionId: number, data: string) => {
+      if (sessionId !== sid) return;
+      buf += data;
+      if (buf.length > 8000) buf = buf.slice(-8000);
+      if (READY_RE.test(buf)) {
+        ready = true;
+        finish();
+      }
+    });
+    const unsubExit = subscribeExit((sessionId: number, code: number) => {
+      if (sessionId !== sid) return;
+      exitCode = code;
+      finish();
+    });
+    setTimeout(finish, waitMs);
+  });
+  const clean = buf.trim().slice(-3000);
+  if (exitCode !== null && exitCode !== 0) {
+    return {
+      ok: false,
+      sessionId: sid,
+      pid: handle.pid,
+      ready: false,
+      output: clean,
+      error: `процесс завершился с кодом ${exitCode}`,
+    };
+  }
+  return { ok: true, sessionId: sid, pid: handle.pid, ready, output: clean };
 }

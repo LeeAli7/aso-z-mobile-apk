@@ -29,13 +29,19 @@ export async function webSearch(query: string): Promise<{ ok: boolean; results: 
   }
 
   try {
+    // Тайм-аут поиска: без него запрос висел до сетевого тайм-аута ОС
+    // (или вообще не завершался), и тул «ждал вечно».
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 30_000);
     const resp = await fetch(url, {
+      signal: ctrl.signal,
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36",
         Accept: "text/html",
       },
     });
+    clearTimeout(timer);
     if (!resp.ok) return { ok: false, results: [], error: `HTTP ${resp.status}` };
     const html = await resp.text();
 

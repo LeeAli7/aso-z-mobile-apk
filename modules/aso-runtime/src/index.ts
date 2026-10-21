@@ -27,7 +27,7 @@ export interface AsoRuntimeNative {
   install(): Promise<{ ok: boolean; prefix?: string; error?: string }>;
   exec(cmd: string, cwd?: string): Promise<ExecResult>;
   kill(sessionId: number): Promise<boolean>;
-  execCapture(cmd: string, cwd?: string): Promise<{ ok: boolean; output: string; code: number; error?: string }>;
+  execCapture(cmd: string, cwd?: string, timeoutMs?: number): Promise<{ ok: boolean; output: string; code: number; error?: string; timedOut?: boolean }>;
   hasStorageAccess?(): Promise<boolean>;
   openStorageSettings?(): Promise<boolean>;
   openBatterySettings?(): Promise<boolean>;
@@ -82,8 +82,12 @@ export function kill(sessionId: number): Promise<boolean> {
 }
 
 /** Команда одним вызовом: вывод + код завершения. Без событий (нет гонки onExit). */
-export function execCapture(cmd: string, cwd?: string): Promise<{ ok: boolean; output: string; code: number; error?: string }> {
-  return requireNative().execCapture(cmd, cwd);
+export function execCapture(
+  cmd: string,
+  cwd?: string,
+  timeoutMs?: number,
+): Promise<{ ok: boolean; output: string; code: number; error?: string; timedOut?: boolean }> {
+  return requireNative().execCapture(cmd, cwd, timeoutMs);
 }
 
 /** Есть ли доступ «Все файлы» / запись в хранилище (Android). */

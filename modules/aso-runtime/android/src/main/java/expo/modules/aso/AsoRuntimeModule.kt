@@ -170,31 +170,62 @@ class AsoRuntimeModule : Module() {
 
         // execCapture — команда одним вызовом: запуск + сбор вывода + ожидание завершения.
         // Без событий: JS не может потерять onExit (гонка) — результат приходит в promise.
-        AsyncFunction("execCapture") { cmd: String, cwd: String?, promise: expo.modules.kotlin.Promise ->
+        AsyncFunction("execCapture") { cmd: String, cwd: String?, timeoutMs: Double?, promise: expo.modules.kotlin.Promise ->
             GlobalScope.launch(Dispatchers.IO) {
                 try {
                     require(bootstrapMarker().exists()) { "bootstrap not installed" }
                     AsoRuntimeService.start(context())
                     val proc = startProcess(cmd, cwd)
-                    val reader = proc.inputStream.bufferedReader()
                     val sb = StringBuilder()
-                    val buf = CharArray(4096)
-                    while (true) {
-                        val n = reader.read(buf)
-                        if (n <= 0) break
-                        if (sb.length < 64 * 1024) {
-                            sb.append(buf, 0, n)
-                            if (sb.length > 64 * 1024) { // оставляем маркер обрезки
-                                sb.setLength(64 * 1024)
-                                sb.append("\n[вывод обрезан: >64 КБ]\n")
+                    // Вывод читаем в отдельном потоке: иначе длинный процесс,
+                    // который ничего не печатает (сервер), блокировал чтение
+                    // и promise висел вечно — приложение «думало», что команда
+                    // ещё идёт, и падало по таймауту сети.
+                    val readerThread = Thread {
+                        try {
+                            val reader = proc.inputStream.bufferedReader()
+                            val buf = CharArray(4096)
+                            while (true) {
+                                val n = reader.read(buf)
+                                if (n <= 0) break
+                                synchronized(sb) {
+                                    if (sb.length < 64 * 1024) {
+                                        sb.append(buf, 0, n)
+                                        if (sb.length > 64 * 1024) {
+                                            sb.setLength(64 * 1024)
+                                            sb.append("\n[вывод обрезан: >64 КБ]\n")
+                                        }
+                                    }
+                                }
                             }
+                        } catch (_: Exception) {
                         }
                     }
-                    val code = proc.waitFor()
-                    val out = sb.toString()
+                    readerThread.isDaemon = true
+                    readerThread.start()
+
+                    val limitMs = if (timeoutMs != null && timeoutMs > 0) timeoutMs.toLong() else 120_000L
+                    val finished = proc.waitFor(limitMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+                    val out = synchronized(sb) { sb.toString() }
+                    if (!finished) {
+                        // Долгий процесс: не убиваем молча — сообщаем честно.
+                        // Серверы/демоны должны запускаться в фоне (startCommand).
+                        try { proc.destroy() } catch (_: Exception) {}
+                        if (proc.isAlive) { try { proc.destroyForcibly() } catch (_: Exception) {} }
+                        Log.w(tag, "exec timeout ${limitMs}ms cmd=$cmd")
+                        promise.resolve(
+                            mapOf(
+                                "ok" to false,
+                                "output" to out,
+                                "code" to -2,
+                                "timedOut" to true,
+                                "error" to "команда не завершилась за ${limitMs / 1000} с — похоже, это долгий процесс (сервер/демон). Запускай такие в фоне: run_command с background=true.",
+                            )
+                        )
+                        return@launch
+                    }
+                    val code = proc.exitValue()
                     if (code != 0) {
-                        // Логируем КОНКРЕТИКУ: bash всегда пишет причину в вывод
-                        // («Permission denied» / «Exec format error» / «cannot execute»).
                         Log.w(tag, "exec exit=$code cmd=$cmd out=${out.trim().takeLast(300)}")
                     }
                     promise.resolve(

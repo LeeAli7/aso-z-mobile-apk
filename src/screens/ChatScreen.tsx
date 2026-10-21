@@ -1262,7 +1262,10 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               const firstThink = g.msgs.find((m) => m.thinking);
               return (
                 <View style={{ width: "94%", alignSelf: "flex-start", marginBottom: 10 }}>
-                  <Glass radius={20} blur={false} style={{ overflow: "hidden", width: "100%", paddingTop: 10, paddingBottom: 10, paddingLeft: 12, paddingRight: 12 }}>
+                  {/* Никакой карточки-рамки: цепочка «Думаю + инструменты» живёт
+                      прямо на фоне чата. Раньше это был Glass с заливкой и
+                      обводкой — прямоугольник перекрывал задний фон рядом с капсулой. */}
+                  <View style={{ width: "100%", paddingLeft: 4, paddingRight: 4 }}>
                     {chainText ? (
                       <ThinkingBlock
                         text={chainText}
@@ -1283,7 +1286,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                         bare
                       />
                     ))}
-                  </Glass>
+                  </View>
                 </View>
               );
             }
