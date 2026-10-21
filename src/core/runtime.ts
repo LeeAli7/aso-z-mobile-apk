@@ -327,3 +327,27 @@ export async function runCommandBackground(cmd: string, cwd?: string, waitMs = 1
   }
   return { ok: true, sessionId: sid, pid: handle.pid, ready, output: clean };
 }
+
+/**
+ * Катастрофические команды: их блокируем ДО запуска.
+ * Обычные `rm -rf node_modules`, `apt remove` и т.п. не трогаем — блокируем
+ * только то, что стирает систему/домашний каталог целиком.
+ */
+export function checkDangerousCommand(cmd: string): string | null {
+  const c = (cmd || "").trim();
+  if (!c) return null;
+  const rules: Array<{ re: RegExp; why: string }> = [
+    { re: /rm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+|--recursive\s+|--force\s+)*\/\s*($|[;&|])/, why: "удаление корня файловой системы" },
+    { re: /rm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)+(~|\$HOME|\/root|\/home)(\/\s*|\s*$|[;&|])/, why: "удаление домашнего каталога целиком" },
+    { re: /\bmkfs(\.|\s)|mke2fs\b/, why: "форматирование раздела" },
+    { re: /\bdd\b[^\n]*\bof=\/dev\/(block|mmcblk|sd|nvme)/, why: "запись на блочное устройство" },
+    { re: /:\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/, why: "fork-бомба" },
+    { re: /\bchmod\s+-R\s+777\s+\/(\s|$)/, why: "снятие прав на весь корень" },
+    { re: /\b(reboot|shutdown|halt|poweroff)\b/, why: "перезагрузка/выключение устройства" },
+  ];
+  for (const r of rules) {
+    if (r.re.test(c)) return r.why;
+  }
+  return null;
+}
+

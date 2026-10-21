@@ -9,7 +9,7 @@
  * memory (память), todo (задачи), skill_view/skill_manage (навыки),
  * web_search (поиск), session_search (прошлые диалоги), delegate_task (субагенты).
  */
-import { isLongRunningCommand, runCommandBackground, runCommandCapture, runtimeAvailable } from "./runtime";
+import { checkDangerousCommand, isLongRunningCommand, runCommandBackground, runCommandCapture, runtimeAvailable } from "./runtime";
 import { runMemoryOps, memorySnapshot, MemoryOp } from "./memory";
 import { runTodoOps, TodoOp } from "./todo";
 import { listSkills, viewSkill, saveSkill, deleteSkill } from "./skills";
@@ -230,6 +230,12 @@ registerTool({
     const cmd = String(args.command ?? "").trim();
     if (!cmd) return "ошибка: пустая команда";
     if (!runtimeAvailable()) return "рантайм доступен только на Android";
+    // Катастрофические команды не запускаем вообще (не диалог, а отказ):
+    // агент не должен уметь форматировать диск или стирать корень.
+    const danger = checkDangerousCommand(cmd);
+    if (danger) {
+      return `Команда заблокирована: ${danger}.\n$ ${cmd}\nЕсли это действительно нужно — выполни вручную в терминале приложения.`;
+    }
     const cwdArg = args.cwd ? String(args.cwd) : ctx.cwd;
 
     // Долгие процессы: сервер/холст/watch никогда не завершаются сами.
