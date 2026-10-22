@@ -32,7 +32,9 @@ const KEYS = {
   memory: "aso_mem_memory",
 };
 
-const CHAR_LIMIT = { user: 2200, memory: 2200 } as const;
+// Лимиты подняты: при 2200 на раздел агент упирался в потолок уже через
+// несколько записей, а вытеснение мы убрали — писа́ть становилось некуда.
+const CHAR_LIMIT = { user: 4000, memory: 8000 } as const;
 
 function genId(): string {
   return "m" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
