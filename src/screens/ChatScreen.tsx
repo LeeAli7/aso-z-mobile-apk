@@ -19,7 +19,7 @@ import {
   Text,
   TextInput,
   View,
-} from "react-native";
+  AppState } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
@@ -135,7 +135,13 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     if (Platform.OS !== "android") return;
     const sh = Keyboard.addListener("keyboardDidShow", (e) => setKbH(e.endCoordinates.height));
     const hd = Keyboard.addListener("keyboardDidHide", () => setKbH(0));
-    return () => { sh.remove(); hd.remove(); };
+    // Бывает, что клавиатуру закрыли без события (уход в фон, смена экрана,
+    // свайп по клавиатуре на некоторых прошивках) — kbH «залипал», и капсула
+    // висела в середине экрана. Возвращаясь в приложение, сбрасываем высоту.
+    const sub = AppState.addEventListener("change", (st) => {
+      if (st === "active") setKbH(0);
+    });
+    return () => { sh.remove(); hd.remove(); sub.remove(); };
   }, []);
   // ── окно хранилища (проекты + файлы + инструкции, как у Hermes) ──
   const [projects, setProjects] = useState<VibeProject[]>([]);
