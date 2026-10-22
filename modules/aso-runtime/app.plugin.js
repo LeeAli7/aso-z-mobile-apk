@@ -12,7 +12,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const { withDangerousMod, withAndroidManifest, withMainActivity, AndroidConfig } = require("@expo/config-plugins");
+const { withDangerousMod, withAndroidManifest, withMainActivity, withAndroidStyles, AndroidConfig } = require("@expo/config-plugins");
 
 const FOREGROUND_PERMISSIONS = [
   "android.permission.FOREGROUND_SERVICE",
@@ -109,6 +109,39 @@ module.exports = function asoRuntimePlugin(config) {
       );
       cfg.modResults.contents = src;
     }
+    return cfg;
+  });
+
+  // 4) НАТИВНАЯ ПАНЕЛЬ ЗАГОЛОВКА.
+  // Activity создаётся с темой сплэша (Theme.App.SplashScreen), и если у неё
+  // не выставлен windowNoTitle, Android строит окно с системной плашкой, где
+  // слева написано название приложения («Aso-z»). Эта плашка перекрывает наши
+  // плавающие кнопки в шапке чата — поэтому запрещаем заголовок явно в обеих
+  // темах, независимо от того, какая из них применилась при создании окна.
+  config = withAndroidStyles(config, (cfg) => {
+    const res = cfg.modResults.resources || (cfg.modResults.resources = {});
+    const styles = res.style || (res.style = []);
+    const NO_BAR = {
+      "android:windowNoTitle": "true",
+      "android:windowActionBar": "false",
+      windowNoTitle: "true",
+      windowActionBar: "false",
+    };
+    const apply = (name) => {
+      let st = styles.find((s) => s.$ && s.$["name"] === name);
+      if (!st) {
+        st = { $: { name }, item: [] };
+        styles.push(st);
+      }
+      st.item = st.item || [];
+      for (const [k, v] of Object.entries(NO_BAR)) {
+        const ex = st.item.find((i) => i.$ && i.$["name"] === k);
+        if (ex) ex._ = v;
+        else st.item.push({ $: { name: k }, _: v });
+      }
+    };
+    apply("AppTheme");
+    apply("Theme.App.SplashScreen");
     return cfg;
   });
 

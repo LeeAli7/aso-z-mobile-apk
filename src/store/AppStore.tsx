@@ -11,7 +11,6 @@ import React, {
   useReducer,
   useRef,
 } from "react";
-import { useColorScheme } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
@@ -254,13 +253,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  const scheme = useColorScheme();
-  // резолвим 'system' в фактическую тему
-  const theme = useMemo(() => {
-    const resolved: "light" | "dark" =
-      state.theme === "system" ? (scheme === "dark" ? "dark" : "light") : state.theme;
-    return themes[resolved] ?? themes.dark;
-  }, [state.theme, scheme]);
+  // «КРОВЬ» — одна тема: чёрный фон, белый текст, красный точечно.
+  // Раньше 'system' следовал за системой телефона: при светлой теме весь
+  // интерфейс становился белым и кнопки шапки сливались с фоном.
+  const theme = themes.dark;
 
   // ── bootstrap ──
   useEffect(() => {

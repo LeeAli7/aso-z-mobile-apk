@@ -19,7 +19,7 @@ import { DeptRow, DeptDivider, DeptBack, DeptDef } from "../components/Dept";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 import { useApp } from "../store/AppStore";
-import { ThemeName, fonts } from "../theme/tokens";
+import { fonts } from "../theme/tokens";
 import Toggle from "../design-system/components/Toggle";
 import { Lang } from "../i18n";
 import { TextField, PrimaryButton } from "../components/ui";
@@ -193,7 +193,6 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [state.token, state.profile, dispatch]);
 
-  const setTheme = (th: ThemeName) => dispatch({ type: "SET_THEME", theme: th });
   const setLang = (l: Lang) => dispatch({ type: "SET_LANG", lang: l });
 
   // пресеты агента (локальный стор до движка agent-config)
@@ -458,12 +457,11 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
         {dept === "appearance" && (
           <View style={{ borderRadius: 20, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
             <View style={{ padding: 14, backgroundColor: theme.surface }}>
-              <Text style={{ color: theme.text, fontSize: 13.5, marginBottom: 8 }}>Тема</Text>
-              <View style={{ flexDirection: "row", gap: 8 }}>
-                {(["light", "dark", "system"] as const).map((th) => (
-                  <Chip key={th} label={th === "light" ? "Светлая" : th === "dark" ? "Тёмная" : "Система"} active={state.theme === th} onPress={() => setTheme(th)} />
-                ))}
-              </View>
+              <Text style={{ color: theme.text, fontSize: 13.5, marginBottom: 4 }}>Тема — «Кровь»</Text>
+              <Text style={{ color: theme.dim, fontSize: 12.5, lineHeight: 18 }}>
+                Чёрный фон, белый текст, красный точечно. Второй темы нет и системной
+                она не подчиняется.
+              </Text>
             </View>
             <DeptDivider theme={theme} />
             <View style={{ padding: 14, backgroundColor: theme.surface }}>

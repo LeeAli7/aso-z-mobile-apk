@@ -399,11 +399,6 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
             style={{ position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: "transparent" }}
             pointerEvents="box-none"
           >
-            <View pointerEvents="none" style={{ height: 20 }}>
-              {Array.from({ length: 10 }).map((_, i) => (
-                <View key={i} style={{ flex: 1, backgroundColor: theme.bg, opacity: Math.min(1, (i + 1) / 10) }} />
-              ))}
-            </View>
             <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8, paddingHorizontal: 12, paddingBottom: insets.bottom + 8, paddingTop: 0, backgroundColor: "transparent" }} pointerEvents="box-none">
               <TextInput
                 value={text}

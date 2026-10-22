@@ -1178,22 +1178,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         pointerEvents="box-none"
         style={{ position: "absolute", top: 0, left: 0, right: 0, zIndex: 20 }}
       >
-        {/* затухание на всю высоту шапки: текст уходит под кнопки, а не налезает на них */}
-        <View pointerEvents="none" style={{ position: "absolute", top: 0, left: 0, right: 0, height: insets.top + 58 }}>
-          {(() => {
-            const strips = Math.ceil((insets.top + 58) / 2);
-            return Array.from({ length: strips }).map((_, i) => (
-              <View
-                key={i}
-                style={{
-                  height: 2,
-                  backgroundColor: theme.bg,
-                  opacity: Math.max(0, 1 - i / Math.max(1, strips - 1)),
-                }}
-              />
-            ));
-          })()}
-        </View>
+        {/* Никаких плашек/градиентов под шапкой: кнопки плавают над чёрным,
+            текст уходит под них и не «налезает» — подложек и полос нет. */}
         <View
           pointerEvents="box-none"
           style={{
@@ -1382,32 +1368,21 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         pointerEvents="box-none"
         style={{
           position: "absolute", left: 0, right: 0, bottom: 0,
-          backgroundColor: "transparent",
+          // непрозрачный чёрный под капсулой: текст не просвечивает под ней
+          backgroundColor: theme.bg,
         }}
       >
         <View
           pointerEvents="box-none"
           onLayout={(e) => setComposerH(Math.round(e.nativeEvent.layout.height))}
           style={{
-            backgroundColor: "transparent",
-            paddingHorizontal: 12, paddingTop: 6,
+            backgroundColor: theme.bg,
+            paddingHorizontal: 12, paddingTop: 16,
             paddingBottom: Platform.OS === "android" ? kbH + Math.max(insets.bottom, 8) + 8 : insets.bottom + 8,
           }}
         >
-          {/* Затухание над капсулой: сообщения растворяются, а не обрезаются
-              её верхней кромкой — раньше текст упирался в капсулу резкой линией. */}
-          <View pointerEvents="none" style={{ height: 14, marginTop: 0, marginBottom: 0 }}>
-            {Array.from({ length: 14 }).map((_, i) => (
-              <View
-                key={i}
-                style={{
-                  height: 2,
-                  backgroundColor: theme.bg,
-                  opacity: Math.min(0.98, 0.03 + i * 0.073),
-                }}
-              />
-            ))}
-          </View>
+          {/* Никакого затухания над капсулой: капсула — единственная поверхность,
+              промежуточных полос/линий/теней между чатом и вводом нет. */}
           {/* вложения — НАД капсулой: иконка ТИПА каждого вложения (та же, что в меню «Прикрепить»), крестики для удаления */}
           {attachments.length > 0 && (
             <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: 8, gap: 8 }}>
@@ -1515,19 +1490,6 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           </Glass>
 
           {/* Вложения: капсула уезжает вверх, снизу выезжает панель из трёх плиток. */}
-          {/* нижняя кромка: текст, уходящий под экран, тоже должен гаснуть,
-              а не торчать полоской под капсулой */}
-          <View
-            pointerEvents="none"
-            style={{
-              position: "absolute", left: 0, right: 0, bottom: 0,
-              height: 12,
-            }}
-          >
-            {Array.from({ length: 10 }).map((_, i) => (
-              <View key={i} style={{ flex: 1, backgroundColor: theme.bg, opacity: Math.min(1, i / 8) }} />
-            ))}
-          </View>
           {attachOpen && (
             <View style={{ flexDirection: "row", gap: 10, marginTop: 10, marginBottom: 8 }}>
               {[
