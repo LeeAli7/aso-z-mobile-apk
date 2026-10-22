@@ -434,20 +434,29 @@ export async function streamAgentChat(
   }
 
   let messages: any[] = [...initialMessages];
-  if (model.systemPrompt && !messages.some((m) => m.role === "system")) {
+  {
     // п.9 промпта перечислял инструменты статично — модель звала выключенные
     // и получала отказ. Подставляем фактический список доступных тулов.
     const names = (tools ?? [])
       .map((t: any) => t?.function?.name)
       .filter((n: any): n is string => typeof n === "string");
-    let sys = model.systemPrompt as string;
+    let sys = ASOAI_SYSTEM_PROMPT;
     if (names.length) {
       sys = sys.replace(
         /^9\. Инструменты:.*$/m,
         `9. Инструменты (доступны сейчас): ${names.join(", ")}. Остальные выключены в настройках — не вызывай их. Выполняй по одному; вывод придёт следующим сообщением.`,
       );
     }
-    messages = [{ role: "system", content: sys }, ...messages];
+    // Промпт модели (или проекта) добавляем К базовому, а не вместо него:
+    // раньше при пустом systemPrompt у модели не было ни правил, ни списка тулов.
+    if (model.systemPrompt) sys = sys + "\n\n" + model.systemPrompt;
+    const sysIdx = messages.findIndex((m: any) => m.role === "system");
+    if (sysIdx === -1) messages = [{ role: "system", content: sys }, ...messages];
+    else
+      messages[sysIdx] = {
+        role: "system",
+        content: sys + "\n\n" + (messages[sysIdx].content || ""),
+      };
   }
 
   let toolsEnabled = true;
@@ -458,7 +467,7 @@ export async function streamAgentChat(
   // уже автодокрутка. Симптом из баг-репорта: после tool_result модель бросает
   // короткое подтверждение («готово») и цепь обрывается — задача не доведена.
   let toolsUsedInTurn = 0;
-  let continuedAfterTool = false;
+  let continuedAfterTool = 0;
 
   // Лимит ходов и компрессия из конфига агента (Hermes: agent.max_turns, compression).
   let maxIter = MAX_AGENT_ITERATIONS;
@@ -467,8 +476,9 @@ export async function streamAgentChat(
   try {
     const { loadAgentConfig } = await import("./agentConfig");
     const cfg = await loadAgentConfig();
-    // maxTurns Hermes = всего ходов; итерации тулов — десятая часть, минимум 8
-    maxIter = Math.max(8, Math.min(90, Math.ceil(cfg.maxTurns / 10)));
+    // maxTurns — это ходы агента; тул-итерации не режем в 10 раз (было 9 шагов
+    // на дефолте), иначе длинная задача обрывалась на 8-м вызове инструмента.
+    maxIter = Math.max(30, Math.min(120, Math.ceil(cfg.maxTurns)));
     compressionOn = cfg.compressionEnabled;
     compressionRatio = cfg.compressionThreshold;
   } catch {}
@@ -562,8 +572,10 @@ export async function streamAgentChat(
       // это чаще всего «показывает результат» вместо завершения задачи.
       // Даём ОДИН шанс довести: просим продолжить по факту вывода.
       const short = (r.text || "").trim();
-      if (toolsUsedInTurn > 0 && !continuedAfterTool && short.length > 0 && short.length < 80) {
-        continuedAfterTool = true;
+      // Хуже пустого ответа ничего нет: tool_result ушёл, а модель промолчала —
+      // раньше в этом случае молча завершали ход.
+      if (toolsUsedInTurn > 0 && continuedAfterTool < 2 && short.length < 400) {
+        continuedAfterTool++;
         messages.push({ role: "assistant", content: short });
         messages.push({
           role: "user",
@@ -571,6 +583,11 @@ export async function streamAgentChat(
             "[System: Продолжи задачу по факту вывода инструмента. Если работа не завершена — выполни следующий шаг. " +
             "Если всё готово — дай итоговый ответ (что сделано и результат). Не повторяй уже сказанное.]",
         });
+        continue;
+      }
+      if (!short && toolsUsedInTurn === 0 && tailRetries < 1) {
+        tailRetries++;
+        messages.push({ role: "user", content: "[System: ответ пустой — ответь на вопрос пользователя.]" });
         continue;
       }
       callbacks.onDone(r.text || lastText, messages);

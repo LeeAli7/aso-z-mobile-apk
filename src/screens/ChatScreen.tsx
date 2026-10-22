@@ -265,9 +265,15 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // Раньше onContentSizeChange вызывал scrollToEnd на каждый токен стрима,
   // поэтому при прокрутке вверх чат рывком возвращал вниз — до верха не достать.
   const atBottom = useRef(true);
+  const stickTimer = useRef<any>(null);
   const stickBottom = (force = false) => {
     if (!force && !atBottom.current) return;
-    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 60);
+    if (stickTimer.current) clearTimeout(stickTimer.current);
+    stickTimer.current = setTimeout(() => {
+      stickTimer.current = null;
+      if (!force && !atBottom.current) return;
+      listRef.current?.scrollToEnd({ animated: true });
+    }, 60);
   };
   const scrollBottom = () => stickBottom();
 
@@ -1276,12 +1282,19 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             paddingTop: insets.top + 64,
             // капсула ввода плавает поверх списка: оставляем ровно её высоту,
             // чтобы последнее сообщение можно было доскроллить над капсулой
-            paddingBottom: Math.max(composerH, 76) + 16,
+            paddingBottom: Math.max(composerH, 76) + 4,
           }}
           onContentSizeChange={() => stickBottom()}
+          onScrollBeginDrag={() => {
+            atBottom.current = false;
+            if (stickTimer.current) { clearTimeout(stickTimer.current); stickTimer.current = null; }
+          }}
           onScroll={(e) => {
             const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-            atBottom.current = contentSize.height - contentOffset.y - layoutMeasurement.height < 90;
+            // «у низа» = до кромки меньше 24px. Старый порог 90px считал низом
+            // и верх короткого чата — список возвращал вниз при чтении выше.
+            atBottom.current =
+              contentOffset.y + layoutMeasurement.height >= contentSize.height - 24;
           }}
           scrollEventThrottle={16}
           keyboardShouldPersistTaps="handled"
@@ -1377,7 +1390,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         >
           {/* Затухание над капсулой: сообщения растворяются, а не обрезаются
               её верхней кромкой — раньше текст упирался в капсулу резкой линией. */}
-          <View pointerEvents="none" style={{ height: 28, marginTop: -8, marginBottom: 2 }}>
+          <View pointerEvents="none" style={{ height: 14, marginTop: 0, marginBottom: 0 }}>
             {Array.from({ length: 14 }).map((_, i) => (
               <View
                 key={i}
@@ -1429,7 +1442,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             <TextInput
               value={text}
               underlineColorAndroid="transparent"
-              onFocus={scrollBottom}
+              /* тап по полю не должен выбрасывать из прочитанного места в самый низ */
               onChangeText={(v) => {
                 // если пользователь правит текст руками во время диктовки —
                 // дальше распознанное дописывается к НОВОМУ тексту, а не затирает его
@@ -1502,7 +1515,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             pointerEvents="none"
             style={{
               position: "absolute", left: 0, right: 0, bottom: 0,
-              height: Platform.OS === "android" ? kbH + Math.max(insets.bottom, 8) + 8 : insets.bottom + 8,
+              height: 12,
             }}
           >
             {Array.from({ length: 10 }).map((_, i) => (

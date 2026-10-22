@@ -12,7 +12,7 @@
 import { checkDangerousCommand, isLongRunningCommand, runCommandBackground, runCommandCapture, runtimeAvailable } from "./runtime";
 import { runMemoryOps, memorySnapshot, MemoryOp } from "./memory";
 import { runTodoOps, TodoOp } from "./todo";
-import { listSkills, viewSkill, saveSkill, deleteSkill } from "./skills";
+import { listSkills, viewSkill, saveSkill, deleteSkill, resolveSkillsDir } from "./skills";
 import { webSearch, formatSearchResults } from "./webSearch";
 import { runDelegation, DelegateTask, formatDelegationResults } from "./delegation";
 
@@ -106,8 +106,21 @@ function resolveAlias(
     const command = String(a.command ?? a.cmd ?? a.script ?? a.input ?? "");
     return command ? { name: "run_command", args: { command } } : null;
   }
-  if (["glob", "find", "list_dir", "ls"].includes(n)) {
-    const path = String(a.path ?? a.dir ?? a.pattern ?? ".");
+  if (["glob", "find"].includes(n)) {
+    // раньше шаблон подставлялся в PATH: glob("**/*.ts") уходил как
+    // list_files(path="**/*.ts") и падал на несуществующем каталоге.
+    const pat = String(a.pattern ?? a.glob ?? a.query ?? "");
+    const base = String(a.path ?? a.dir ?? ".");
+    if (!pat) return { name: "list_files", args: { path: base } };
+    const pats = pat.split(/[\s,]+/).filter(Boolean);
+    const expr = pats.map((p) => `-name ${q(p)}`).join(" -o ");
+    return {
+      name: "run_command",
+      args: { command: `find ${q(base)} -maxdepth 8 \\( ${expr} \\) 2>/dev/null | head -100` },
+    };
+  }
+  if (["list_dir", "ls"].includes(n)) {
+    const path = String(a.path ?? a.dir ?? ".");
     return { name: "list_files", args: { path } };
   }
   if (["grep", "search_in_files", "rg"].includes(n)) {
@@ -444,7 +457,8 @@ registerTool({
     const content = String(args.content ?? "");
     const bad = pathProblem(p);
     if (bad) return bad;
-    if (content.length > 200_000) return "ошибка: файл слишком большой (лимит 200 КБ)";
+    if (content.length > 200_000)
+      return `ошибка: текст слишком большой (${encodeURIComponent(content).replace(/%[0-9A-F]{2}/g, "x").length} байт при лимите 200 000 символов)`;
     const b64 = utf8ToBase64(content);
     const r = await runCommandCapture(
       `mkdir -p "$(dirname "${p}")" && echo ${b64} | base64 -d > "${p}" && wc -c "${p}"`,
@@ -570,7 +584,18 @@ registerTool({
     const name = String(args.name ?? "").trim();
     if (!name) {
       const list = await listSkills();
-      if (list.length === 0) return "Навыков пока нет. Создай первый через skill_manage после успешной задачи.";
+      if (list.length === 0) {
+        // «Навыков нет» и «хранилище недоступно» — разные вещи: пустой список от
+        // недоступного каталога раньше выдавался за норму и прятал поломку рантайма.
+        const st = await resolveSkillsDir();
+        if (!st.dir) {
+          return (
+            `Навыки недоступны: ${st.error ?? "каталог навыков не найден"}. ` +
+            "Проверь доступ: run_command «ls -la $ASO_HOME $HOME/.aso $HOME/.skills»."
+          );
+        }
+        return `Навыков пока нет (каталог ${st.dir} пуст). Создай первый через skill_manage после успешной задачи.`;
+      }
       return "Доступные навыки:\n" + list.map((s) => `- ${s.name}: ${s.description}`).join("\n");
     }
     return viewSkill(name);

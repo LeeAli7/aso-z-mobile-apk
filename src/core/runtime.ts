@@ -160,7 +160,24 @@ export function wrapPersistent(cmd: string, cwd?: string): string {
 }
 
 /**
- * Выполнить команду и дождаться завершения, собрав весь вывод.
+/**
+ * Фоновые процессы (dev-серверы) тоже должны видеть окружение прошлых вызовов:
+ * раньше они стартовали с чистым env и cd, хотя обычные команды уже были
+ * персистентными. Состояние только ЧИТАЕМ — процесс живёт долго, писать после
+ * него некому.
+ */
+export function wrapPersistentBg(cmd: string, cwd?: string): string {
+  const state = '"${ASO_SHELL_STATE:-$HOME/.aso/shell-state}"';
+  const cd = cwd ? `cd ${shellQuote(cwd)} 2>/dev/null || true` : "true";
+  return [
+    `__ASO_ST=${state}`,
+    `if [ -f "$__ASO_ST" ]; then . "$__ASO_ST" >/dev/null 2>&1; fi`,
+    cd,
+    cmd,
+  ].join("\n");
+}
+
+/** Выполнить команду и дождаться завершения, собрав весь вывод.
  * Используется агентом для [CMD: …] блоков. Нативный execCapture делает всё
  * одним вызовом (запуск + сбор + ожидание) — без событий, поэтому нет гонки,
  * когда быстрая команда завершалась до подписки на onExit и JS висел вечно.
@@ -298,7 +315,7 @@ export async function runCommandBackground(cmd: string, cwd?: string, waitMs = 1
   let exitCode: number | null = null;
   let handle: RuntimeHandle;
   try {
-    handle = await runCommand(cmd, cwd);
+    handle = await runCommand(wrapPersistentBg(cmd, cwd), cwd);
   } catch (e: any) {
     return { ok: false, sessionId: -1, ready: false, output: "", error: String(e?.message || e) };
   }

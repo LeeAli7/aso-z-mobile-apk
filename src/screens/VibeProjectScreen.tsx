@@ -116,9 +116,15 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
   // Автоскролл вниз — только когда пользователь у нижней кромки:
   // иначе список дёргало вниз на каждом токене и до верха было не достать.
   const atBottom = useRef(true);
+  const stickTimer = useRef<any>(null);
   const stickBottom = (force = false) => {
     if (!force && !atBottom.current) return;
-    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 60);
+    if (stickTimer.current) clearTimeout(stickTimer.current);
+    stickTimer.current = setTimeout(() => {
+      stickTimer.current = null;
+      if (!force && !atBottom.current) return;
+      listRef.current?.scrollToEnd({ animated: true });
+    }, 60);
   };
   const scrollBottom = () => stickBottom();
 
@@ -379,7 +385,8 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
             onContentSizeChange={() => stickBottom()}
             onScroll={(e) => {
               const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-              atBottom.current = contentSize.height - contentOffset.y - layoutMeasurement.height < 90;
+              atBottom.current =
+              contentOffset.y + layoutMeasurement.height >= contentSize.height - 24;
             }}
             scrollEventThrottle={16}
             renderItem={({ item }) => <VibeBubble msg={item} theme={theme} />}

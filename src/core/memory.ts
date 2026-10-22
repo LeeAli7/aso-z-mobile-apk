@@ -191,22 +191,50 @@ export async function runMemoryOps(ops: MemoryOp[]): Promise<string> {
           continue;
         }
         const cur = entries[idx].text;
-        // old_text совпал со всей записью → меняем запись; иначе меняем ТОЛЬКО фрагмент,
-        // чтобы длинная заметка не превращалась в огрызок
-        const wholeEntry = cur.trim() === needle;
+        const nextContent = op.content.trim();
+        // Сколько РЕАЛЬНО заменили: раньше при несовпадении сырого old_text замена не
+        // происходила, а отчёт всё равно был победный — агент думал, что память обновлена.
+        let replacedText = "";
+        let how = "";
+        if (cur.trim() === needle) {
+          replacedText = nextContent;
+          how = "запись заменена целиком";
+        } else if (cur.includes(needle)) {
+          replacedText = cur.replace(needle, nextContent);
+          how = "заменён фрагмент, остальная запись сохранена";
+        } else {
+          // Строку копируют из list/snapshot — там маркеры «- » и «1) ». Ищем без них.
+          const n = norm(needle);
+          const trimmed = needle.replace(/^\s*[-•*]\s+/, "").replace(/^\s*\d+[.)]\s+/, "");
+          if (n && cur.includes(n)) {
+            replacedText = cur.replace(n, nextContent);
+            how = "заменён фрагмент (маркеры списка отброшены)";
+          } else if (n && cur.includes(trimmed)) {
+            replacedText = cur.replace(trimmed, nextContent);
+            how = "заменён фрагмент (без префикса)";
+          } else if (n && norm(cur).includes(n)) {
+            const at = norm(cur).indexOf(n);
+            const start = cur.length - cur.replace(/^\s*[-•*]\s+|^\s*\d+[.)]\s+/, "").length + at;
+            replacedText = cur.slice(0, start) + nextContent + cur.slice(start + n.length);
+            how = "заменён фрагмент (по нормализованному тексту)";
+          } else {
+            // запись найдена по нормализации, но кусок не совпал дословно —
+            // меняем всю запись, а не делаем вид, что заменили фрагмент
+            replacedText = nextContent;
+            how = "запись заменена целиком (фрагмент дословно не совпал)";
+          }
+        }
+        if (replacedText === cur) {
+          reports.push(
+            `replace: запись найдена, но текст не изменился (${found.how}) — проверь old_text. ` +
+              `Сейчас в записи: ${cur.slice(0, 120)}`,
+          );
+          continue;
+        }
         const next = [...entries];
-        next[idx] = {
-          ...entries[idx],
-          text: wholeEntry ? op.content.trim() : cur.replace(op.old_text!, op.content),
-          updatedAt: Date.now(),
-        };
+        next[idx] = { ...entries[idx], text: replacedText, updatedAt: Date.now() };
         const err = await save(target, next);
-        reports.push(
-          err ??
-            (wholeEntry
-              ? `replace → ${target}: запись заменена (${found.how})`
-              : `replace → ${target}: заменён фрагмент, остальная запись сохранена (${found.how})`),
-        );
+        reports.push(err ?? `replace → ${target}: ${how} (${found.how})`);
         break;
       }
       case "remove": {
