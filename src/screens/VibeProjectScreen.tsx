@@ -113,8 +113,14 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
     return () => clearTimeout(t);
   }, [messages, projectId]);
 
-  const scrollBottom = () =>
+  // Автоскролл вниз — только когда пользователь у нижней кромки:
+  // иначе список дёргало вниз на каждом токене и до верха было не достать.
+  const atBottom = useRef(true);
+  const stickBottom = (force = false) => {
+    if (!force && !atBottom.current) return;
     setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 60);
+  };
+  const scrollBottom = () => stickBottom();
 
   const send = useCallback(async () => {
     const content = text.trim();
@@ -366,17 +372,23 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
         <>
           <FlatList
             ref={listRef}
+            style={{ flex: 1 }}
             data={messages}
             keyExtractor={(m) => m.id}
-            contentContainerStyle={{ padding: 14 }}
-            onContentSizeChange={scrollBottom}
+            contentContainerStyle={{ padding: 14, paddingBottom: 20 }}
+            onContentSizeChange={() => stickBottom()}
+            onScroll={(e) => {
+              const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+              atBottom.current = contentSize.height - contentOffset.y - layoutMeasurement.height < 90;
+            }}
+            scrollEventThrottle={16}
             renderItem={({ item }) => <VibeBubble msg={item} theme={theme} />}
           />
           <KeyboardAvoidingView
             behavior={Platform.OS === "ios" ? "padding" : Platform.OS === "android" ? "height" : undefined}
             keyboardVerticalOffset={Platform.OS === "ios" ? 0 : insets.top}
           >
-            <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8, paddingHorizontal: 12, paddingBottom: insets.bottom + 8, borderTopWidth: 1, borderTopColor: theme.border, paddingTop: 8 }}>
+            <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8, paddingHorizontal: 12, paddingBottom: insets.bottom + 8, paddingTop: 8, backgroundColor: "transparent" }}>
               <TextInput
                 value={text}
                 onChangeText={setText}
@@ -384,7 +396,7 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
                 placeholderTextColor={theme.mute}
                 multiline
                 textAlignVertical="top"
-                style={{ flex: 1, backgroundColor: theme.surface2, borderRadius: 20, paddingHorizontal: 14, paddingTop: 11, paddingBottom: 11, fontSize: 14, color: theme.text, maxHeight: 100, minHeight: 44 }}
+                style={{ flex: 1, backgroundColor: theme.surface, borderRadius: 25, borderWidth: 0, paddingHorizontal: 16, paddingTop: 11, paddingBottom: 11, fontSize: 15, color: theme.text, maxHeight: 110, minHeight: 44 }}
               />
               {busy ? (
                 <Pressable onPress={stop} style={{ width: 44, height: 44, borderRadius: 20, backgroundColor: theme.danger, alignItems: "center", justifyContent: "center" }}>

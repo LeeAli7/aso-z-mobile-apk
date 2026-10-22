@@ -261,8 +261,15 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     [active, dispatch, setActive, setDefaultModel, t],
   );
 
-  const scrollBottom = () =>
+  // Автоскролл вниз — ТОЛЬКО если пользователь уже у нижней кромки.
+  // Раньше onContentSizeChange вызывал scrollToEnd на каждый токен стрима,
+  // поэтому при прокрутке вверх чат рывком возвращал вниз — до верха не достать.
+  const atBottom = useRef(true);
+  const stickBottom = (force = false) => {
+    if (!force && !atBottom.current) return;
     setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 60);
+  };
+  const scrollBottom = () => stickBottom();
 
   // ── Проекты: окно «всё в одном чате» ──
   const loadProjects = useCallback(async () => {
@@ -474,7 +481,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       setText("");
       markStreaming(sid, true);
       getRun(sid).stop = false;
-      scrollBottom();
+      // отправил сообщение — принудительно вниз, даже если читал историю выше
+      stickBottom(true);
 
       const cur = state.sessions.find((s) => s.id === sid);
       // ВАЖНО: включаем текущее сообщение в историю — иначе модель не видит вопрос.
@@ -1248,10 +1256,18 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       ) : (
         <FlatList<Group>
           ref={listRef}
+          style={{ flex: 1 }}
           data={chainGroups}
           keyExtractor={(g) => g.id}
-          contentContainerStyle={{ padding: 16, paddingTop: insets.top + 64, paddingBottom: composerH + 24 }}
-          onContentSizeChange={scrollBottom}
+          /* paddingBottom — только воздух: капсула стоит в потоке ниже списка,
+             поэтому прежний composerH + 24 давал пустую полосу над капсулой. */
+          contentContainerStyle={{ padding: 16, paddingTop: insets.top + 64, paddingBottom: 16 }}
+          onContentSizeChange={() => stickBottom()}
+          onScroll={(e) => {
+            const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+            atBottom.current = contentSize.height - contentOffset.y - layoutMeasurement.height < 90;
+          }}
+          scrollEventThrottle={16}
           keyboardShouldPersistTaps="handled"
           renderItem={({ item: g, index }) => {
             if (g.kind === "chain") {
