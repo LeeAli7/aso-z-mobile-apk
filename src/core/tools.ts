@@ -407,10 +407,11 @@ registerTool({
 registerTool({
   name: "memory",
   description:
-    "Память агента. Сохраняет факты о пользователе (target=user) или рабочие заметки/конвенции (target=memory). " +
-    "Используй, когда пользователь сообщил важный факт о себе/своих предпочтениях/правилах — сохрани это, " +
-    "чтобы помнить в будущих сессиях. Операции: add (добавить), replace (заменить по old_text), remove (удалить по old_text). " +
-    "Можно передать массив операций в одном вызове.",
+    "Память агента — РАБОТАЕТ, доступ всегда есть. Факты о пользователе хранятся в target=user, " +
+    "рабочие заметки/конвенции — в target=memory. Используй, когда пользователь сообщил важный факт о себе " +
+    "(имя, предпочтения, правила, проекты, окружение) — сохрани это, чтобы помнить в будущих сессиях. " +
+    "Операции: add (добавить), replace (заменить по old_text), remove (удалить по old_text), " +
+    "list (показать, что уже записано). Можно передать массив операций в одном вызове.",
   parameters: {
     type: "object",
     properties: {
@@ -420,7 +421,7 @@ registerTool({
         items: {
           type: "object",
           properties: {
-            action: { type: "string", enum: ["add", "replace", "remove"] },
+            action: { type: "string", enum: ["add", "replace", "remove", "list"] },
             target: { type: "string", enum: ["user", "memory"], description: "куда: user=факты о пользователе, memory=заметки" },
             content: { type: "string", description: "Текст для add/replace" },
             old_text: { type: "string", description: "Фрагмент для поиска при replace/remove" },
@@ -432,7 +433,30 @@ registerTool({
     required: ["operations"],
   },
   handler: async (args): Promise<string> => {
-    const ops = Array.isArray(args.operations) ? (args.operations as MemoryOp[]) : [];
+    // Модели иногда присылают одну операцию верхним уровнем (action/content/…)
+    // вместо массива — принимаем оба формата, иначе тул падал и агент решал,
+    // что «память недоступна».
+    let ops: MemoryOp[] = Array.isArray(args.operations)
+      ? (args.operations as MemoryOp[])
+      : Array.isArray(args.ops)
+        ? (args.ops as MemoryOp[])
+        : [];
+    if (ops.length === 0 && typeof args.action === "string") {
+      ops = [{
+        action: args.action as MemoryOp["action"],
+        target: args.target as MemoryOp["target"],
+        content: args.content as string,
+        old_text: args.old_text as string,
+      }];
+    }
+    // list / пустой вызов — показать содержимое памяти
+    const wantsList = ops.length === 0 || ops.some((o) => (o as any)?.action === "list");
+    if (wantsList) {
+      const snap = await memorySnapshot();
+      return snap.trim()
+        ? `Текущая память (доступ есть):\n${snap}`
+        : "Память пуста. Можно записывать: memory {operations:[{action:\"add\",target:\"user\",content:\"...\"}]}.";
+    }
     return runMemoryOps(ops);
   },
 });

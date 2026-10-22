@@ -5,6 +5,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
+  Dimensions,
   Easing,
   FlatList,
   Image,
@@ -105,6 +106,9 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   const [renameTarget, setRenameTarget] = useState<Session | null>(null);
   // мини-окно действий с сессией (долгое нажатие в панели)
   const [sessionMenuTarget, setSessionMenuTarget] = useState<Session | null>(null);
+  // точка нажатия (pageX/pageY) — мини-меню сессии выезжает РЯДОМ С ПАЛЬЦЕМ,
+  // а не шторкой снизу
+  const [sessionMenuPoint, setSessionMenuPoint] = useState<{ x: number; y: number } | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<Session | null>(null);
   const [editTarget, setEditTarget] = useState<Msg | null>(null);
@@ -618,8 +622,11 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       // её к текстовому сообщению: она рендерится НАД ответом, а не отдельным блоком снизу.
       const onThinking = (thinking: string) => {
         if (getRun(sid).stop) return;
-        const plainNoTools = toolIds.length === 0;
-        if (plainNoTools && !thinkId && textId) {
+        // Порядок «раздумья → ответ» должен быть ВСЕГДА, даже если провайдер
+        // отдал reasoning-чанки уже после первых токенов ответа (бывает у
+        // reasoning-моделей и при ретраях): в этом случае думалка приклеивается
+        // к текстовому сообщению и рисуется НАД ним, а не отдельной карточкой снизу.
+        if (!thinkId && textId) {
           dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: textId, patch: { thinking, streaming: true } });
           return;
         }
@@ -1320,10 +1327,15 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={0}
+        style={{ backgroundColor: "transparent" }}
       >
         <View
           onLayout={(e) => setComposerH(Math.round(e.nativeEvent.layout.height))}
-          style={{ paddingHorizontal: 12, paddingTop: 6, paddingBottom: Platform.OS === "android" ? kbH + Math.max(insets.bottom, 8) + 8 : insets.bottom + 8 }}
+          style={{
+            backgroundColor: "transparent",
+            paddingHorizontal: 12, paddingTop: 6,
+            paddingBottom: Platform.OS === "android" ? kbH + Math.max(insets.bottom, 8) + 8 : insets.bottom + 8,
+          }}
         >
           {/* вложения — НАД капсулой: иконка ТИПА каждого вложения (та же, что в меню «Прикрепить»), крестики для удаления */}
           {attachments.length > 0 && (
@@ -1349,7 +1361,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           <Glass
             radius={25}
             border={false}
-            style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 8 }}
+            style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 8, overflow: "hidden" }}
           >
             <Pressable
               onPress={() => setAttachOpen((v) => !v)}
@@ -1364,6 +1376,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             </Pressable>
             <TextInput
               value={text}
+              underlineColorAndroid="transparent"
               onFocus={scrollBottom}
               onChangeText={(v) => {
                 // если пользователь правит текст руками во время диктовки —
@@ -1376,7 +1389,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               multiline
               textAlignVertical="center"
               style={{
-                flex: 1, fontSize: 14, color: theme.text,
+                flex: 1, fontSize: 14, color: theme.text, backgroundColor: "transparent",
                 fontFamily: fonts.sansMedium,
                 textAlignVertical: "center",
                 // web: textarea не центрирует текст вертикально — задаём высоту и паддинги,
@@ -1479,7 +1492,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         onNavigate={openDrawerRoute}
         sessions={chatSessions}
         cronSessions={cronSessions}
-        onSessionMenu={setSessionMenuTarget}
+        onSessionMenu={(s: Session, p?: { x: number; y: number }) => { setSessionMenuPoint(p ?? null); setSessionMenuTarget(s); }}
         onPin={(s) => {
           dispatch({ type: "UPDATE_SESSION", sessionId: s.id, patch: { pinned: !s.pinned } });
           showToast("ok", s.pinned ? "Откреплено" : "Закреплено");
@@ -1590,19 +1603,32 @@ export function ChatScreen({ navigation }: { navigation: any }) {
 
       {/* ── Прикрепить: фото / камера / файл — компактное меню без заголовка, закрытие свайпом вниз, кнопки на всю ширину ── */}
       {/* ── Действия с сессией: мини-окно по долгому нажатию в панели ── */}
-      <Sheet visible={!!sessionMenuTarget} onClose={() => setSessionMenuTarget(null)} title={sessionMenuTarget?.name || ""} snapPoints={["auto"]} autoMaxPct={50}>
-        {sessionMenuTarget && (
-          <View style={{ marginTop: 2 }}>
-            {[
+      {/* ── Мини-меню сессии — у места нажатия (long-press), не шторка снизу ── */}
+      {!!sessionMenuTarget && (
+        <>
+          <Pressable
+            onPress={() => { setSessionMenuTarget(null); setSessionMenuPoint(null); }}
+            style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 60 }}
+            accessibilityLabel="Закрыть меню"
+          />
+          {(() => {
+            const win = Dimensions.get("window");
+            const W = 196, ROW = 48, H = ROW * 3 + 8;
+            const px = sessionMenuPoint?.x ?? win.width / 2;
+            const py = sessionMenuPoint?.y ?? win.height / 2;
+            const left = Math.min(Math.max(12, px - W / 2), win.width - W - 12);
+            const top = Math.min(Math.max(insets.top + 12, py - H - 12), win.height - H - (insets.bottom + 12));
+            const rows = [
               {
                 key: "rename",
                 icon: "pen" as const,
                 label: "Редактировать",
                 color: theme.text,
                 onPress: () => {
-                  setRenameValue(sessionMenuTarget.name);
-                  setRenameTarget(sessionMenuTarget);
-                  setSessionMenuTarget(null);
+                  const t = sessionMenuTarget;
+                  setSessionMenuTarget(null); setSessionMenuPoint(null);
+                  setRenameValue(t.name);
+                  setRenameTarget(t);
                 },
               },
               {
@@ -1611,13 +1637,10 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                 label: sessionMenuTarget.pinned ? "Открепить" : "Прикрепить",
                 color: theme.text,
                 onPress: () => {
-                  dispatch({
-                    type: "UPDATE_SESSION",
-                    sessionId: sessionMenuTarget.id,
-                    patch: { pinned: !sessionMenuTarget.pinned },
-                  });
-                  showToast("ok", sessionMenuTarget.pinned ? "Откреплено" : "Закреплено");
-                  setSessionMenuTarget(null);
+                  const t = sessionMenuTarget;
+                  dispatch({ type: "UPDATE_SESSION", sessionId: t.id, patch: { pinned: !t.pinned } });
+                  showToast("ok", t.pinned ? "Откреплено" : "Закреплено");
+                  setSessionMenuTarget(null); setSessionMenuPoint(null);
                 },
               },
               {
@@ -1626,31 +1649,38 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                 label: "Удалить",
                 color: theme.danger,
                 onPress: () => {
-                  setDeleteTarget(sessionMenuTarget);
-                  setSessionMenuTarget(null);
+                  const t = sessionMenuTarget;
+                  setSessionMenuTarget(null); setSessionMenuPoint(null);
+                  setDeleteTarget(t);
                 },
               },
-            ].map((row, i) => (
-              <Pressable
-                key={row.key}
-                onPress={row.onPress}
-                style={({ pressed }) => ({
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 12,
-                  minHeight: 52,
-                  opacity: pressed ? 0.55 : 1,
-                  borderTopWidth: i === 0 ? 0 : 1,
-                  borderTopColor: theme.border,
-                })}
+            ];
+            return (
+              <View
+                style={{
+                  position: "absolute", left, top, width: W, zIndex: 61,
+                  backgroundColor: theme.surface2, borderRadius: 20, paddingVertical: 4,
+                }}
               >
-                <AppIcon name={row.icon} color={row.color} size={18} />
-                <Text style={{ color: row.color, fontSize: 16 }}>{row.label}</Text>
-              </Pressable>
-            ))}
-          </View>
-        )}
-      </Sheet>
+                {rows.map((row, i) => (
+                  <Pressable
+                    key={row.key}
+                    onPress={row.onPress}
+                    style={({ pressed }) => ({
+                      flexDirection: "row", alignItems: "center", gap: 12,
+                      height: ROW, paddingHorizontal: 16, borderRadius: 16, marginHorizontal: 4,
+                      backgroundColor: pressed ? theme.surface : "transparent",
+                    })}
+                  >
+                    <AppIcon name={row.icon} color={row.color} size={18} />
+                    <Text style={{ color: row.color, fontSize: 15.5, fontWeight: "500" }}>{row.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            );
+          })()}
+        </>
+      )}
 
       {/* ── Rename session (in-app, Alert.prompt на Android не работает) ── */}
       <Sheet visible={!!renameTarget} onClose={() => setRenameTarget(null)} title="Переименовать сессию" snapPoints={["auto"]} autoMaxPct={50}>

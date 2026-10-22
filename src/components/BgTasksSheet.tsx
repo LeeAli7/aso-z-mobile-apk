@@ -137,15 +137,16 @@ export function BgIndicator({
       onPress={onPress}
       hitSlop={8}
       style={{
-        flexDirection: "row", alignItems: "center", gap: 6,
-        paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20,
-        backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
+        width: 44, height: 44, borderRadius: 22,
+        flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5,
+        marginRight: 8,
+        backgroundColor: theme.surface,
       }}
       accessibilityLabel="Фоновые процессы"
       accessibilityRole="button"
     >
-      <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: theme.ok }} />
-      <Text style={{ color: theme.dim, fontSize: 11.5, fontWeight: "600" }}>{count}</Text>
+      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.ok }} />
+      <Text style={{ color: theme.text, fontSize: 13, fontWeight: "600" }}>{count}</Text>
     </Pressable>
   );
 }

@@ -81,7 +81,7 @@ export function DrawerLineArt({
   /** Сессии автозадач — отдельный раздел, не мешаются с ручными чатами. */
   cronSessions?: Session[];
   /** Долгое нажатие по сессии — мини-окно действий. */
-  onSessionMenu?: (s: Session) => void;
+  onSessionMenu?: (s: Session, point?: { x: number; y: number }) => void;
   onPin?: (s: Session) => void;
 }) {
   const insets = useSafeAreaInsets();
@@ -274,7 +274,10 @@ export function DrawerLineArt({
                       onPress={() => onSelectSession(s.id)}
                       // действия (переименовать / прикрепить / удалить) живут в
                       // мини-окне: держим строку — и открывается окно
-                      onLongPress={() => onSessionMenu?.(s)}
+                      onLongPress={(e: any) => {
+                        const ne = e?.nativeEvent ?? {};
+                        onSessionMenu?.(s, { x: ne.pageX ?? 0, y: ne.pageY ?? 0 });
+                      }}
                       delayLongPress={320}
                       style={({ pressed }) => ({
                         flexDirection: "row",

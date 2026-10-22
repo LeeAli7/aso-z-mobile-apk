@@ -7,17 +7,18 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "splash": {
-      "backgroundColor": "#0d0d0d",
-      "image": "./assets/logo.png",
-      "resizeMode": "contain"
+      "backgroundColor": "#000000",
+      "resizeMode": "contain",
+      "image": "./assets/logo.png"
     },
     "ios": {
       "supportsTablet": true
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#0d0d0d",
-        "foregroundImage": "./assets/adaptive-icon.png"
+        "backgroundColor": "#000000",
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "package": "app.aso.zmobile",
       "predictiveBackGestureEnabled": false,
@@ -54,7 +55,21 @@
         {
           "photosPermission": "Aso запрашивает доступ к фото для анализа изображений"
         }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#000000",
+          "image": "./assets/logo.png",
+          "imageWidth": 180,
+          "resizeMode": "contain",
+          "dark": {
+            "backgroundColor": "#000000",
+            "image": "./assets/logo.png"
+          }
+        }
       ]
-    ]
+    ],
+    "backgroundColor": "#000000"
   }
 }
