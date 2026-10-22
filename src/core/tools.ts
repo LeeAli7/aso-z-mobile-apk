@@ -93,14 +93,67 @@ export function toolNames(): string[] {
  * Фаза 1: тулсет-гейт — тул выключенного сета не исполняется (модель могла
  * получить все дефы: ChatScreen зовёт синхронный getToolDefs()).
  * Фаза 2: approvals опасных команд + redact секретов в результате. */
+/** Синонимы тулов из чужих промптов → наши реальные инструменты. */
+function resolveAlias(
+  name: string,
+  args: Record<string, unknown>,
+): { name: string; args: Record<string, unknown> } | null {
+  const a = (args ?? {}) as Record<string, any>;
+  const n = name.toLowerCase();
+  const q = (v: string) => "'" + v.replace(/'/g, "'\\''") + "'";
+
+  if (["bash", "shell", "sh", "exec", "terminal", "run_terminal_cmd"].includes(n)) {
+    const command = String(a.command ?? a.cmd ?? a.script ?? a.input ?? "");
+    return command ? { name: "run_command", args: { command } } : null;
+  }
+  if (["glob", "find", "list_dir", "ls"].includes(n)) {
+    const path = String(a.path ?? a.dir ?? a.pattern ?? ".");
+    return { name: "list_files", args: { path } };
+  }
+  if (["grep", "search_in_files", "rg"].includes(n)) {
+    const pat = String(a.pattern ?? a.query ?? a.text ?? "");
+    if (!pat) return null;
+    const path = String(a.path ?? ".");
+    return { name: "run_command", args: { command: `grep -rn ${q(pat)} ${q(path)} 2>/dev/null | head -80` } };
+  }
+  if (["read", "cat", "view"].includes(n)) {
+    const path = String(a.path ?? a.file_path ?? "");
+    return path ? { name: "read_file", args: { path } } : null;
+  }
+  if (["edit", "patch", "str_replace", "apply_patch"].includes(n)) {
+    const path = String(a.path ?? a.file_path ?? "");
+    const oldT = a.old_string ?? a.old ?? a.old_text;
+    const newT = a.new_string ?? a.new ?? a.new_text;
+    if (!path || typeof oldT !== "string" || typeof newT !== "string") return null;
+    // замена одного вхождения через python; строки в base64 — без проблем с кавычками
+    const code =
+      `import base64,sys;p=${JSON.stringify(path)};` +
+      `o=base64.b64decode("${utf8ToBase64(oldT)}").decode();` +
+      `n=base64.b64decode("${utf8ToBase64(newT)}").decode();` +
+      `s=open(p,encoding="utf-8").read();` +
+      `sys.exit("НЕ НАЙДЕНО: old_string отсутствует в файле") if o not in s else None;` +
+      `open(p,"w",encoding="utf-8").write(s.replace(o,n,1));print("заменено 1 вхождение")`;
+    return { name: "run_command", args: { command: `python3 -c ${JSON.stringify(code)}` } };
+  }
+  return null;
+}
+
 export async function executeTool(
   name: string,
   args: Record<string, unknown>,
   ctx: ToolContext,
 ): Promise<{ ok: boolean; result: string }> {
-  const spec = registry.get(name);
+  // Модели (и старые системные промпты) зовут bash/glob/grep/edit — у нас таких
+  // тулов нет, и агент тратил ход на «Tool ... does not exist». Переводим синонимы
+  // в реальные инструменты вместо отказа.
+  const alias = resolveAlias(name, args);
+  const spec = registry.get(alias ? alias.name : name);
   if (!spec) {
     return { ok: false, result: `Tool '${name}' does not exist. Available tools: ${toolNames().join(", ")}` };
+  }
+  if (alias) {
+    name = alias.name;
+    args = alias.args;
   }
   // ── Тулсет-гейт ──
   try {
@@ -398,7 +451,12 @@ registerTool({
       ctx.projectId,
       ctx.cwd,
     );
-    return r.ok ? `Файл записан: ${p} (${content.length} симв.).` : `ошибка записи: ${r.error || r.output || `exit ${r.code}`}`;
+    if (!r.ok) return `ошибка записи: ${r.error || r.output || `exit ${r.code}`}`;
+    // wc -c даёт БАЙТЫ: для кириллицы они расходятся с символами вдвое,
+    // раньше тул отвечал числом символов и это сбивало модель при сверке с ls -l
+    const m = /(\d+)/.exec(String(r.output ?? ""));
+    const bytes = m ? Number(m[1]) : content.length;
+    return `Файл записан: ${p} (${bytes} байт, ${content.length} симв.).`;
   },
 });
 

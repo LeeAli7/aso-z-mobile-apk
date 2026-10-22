@@ -452,6 +452,11 @@ export async function streamAgentChat(
   let lastText = "";
   let tailRetries = 0;
   const MAX_TAIL_RETRIES = 2;
+  // Сколько результатов инструментов реально вернулось в этой задаче и была ли
+  // уже автодокрутка. Симптом из баг-репорта: после tool_result модель бросает
+  // короткое подтверждение («готово») и цепь обрывается — задача не доведена.
+  let toolsUsedInTurn = 0;
+  let continuedAfterTool = false;
 
   // Лимит ходов и компрессия из конфига агента (Hermes: agent.max_turns, compression).
   let maxIter = MAX_AGENT_ITERATIONS;
@@ -550,6 +555,22 @@ export async function streamAgentChat(
     }
 
     if (r.calls.length === 0) {
+      // ── Автопродолжение после инструментов ──
+      // Если тул уже отработал, а модель ответила одной короткой строкой —
+      // это чаще всего «показывает результат» вместо завершения задачи.
+      // Даём ОДИН шанс довести: просим продолжить по факту вывода.
+      const short = (r.text || "").trim();
+      if (toolsUsedInTurn > 0 && !continuedAfterTool && short.length > 0 && short.length < 80) {
+        continuedAfterTool = true;
+        messages.push({ role: "assistant", content: short });
+        messages.push({
+          role: "user",
+          content:
+            "[System: Продолжи задачу по факту вывода инструмента. Если работа не завершена — выполни следующий шаг. " +
+            "Если всё готово — дай итоговый ответ (что сделано и результат). Не повторяй уже сказанное.]",
+        });
+        continue;
+      }
       callbacks.onDone(r.text || lastText, messages);
       return;
     }
@@ -573,6 +594,7 @@ export async function streamAgentChat(
         model, // для delegate_task
       };
       const res = await executeTool(c.name, parseToolArgs(c.arguments), toolCtx);
+      toolsUsedInTurn++;
       callbacks.onToolResult?.(c, res.ok, res.result);
       messages.push({ role: "tool", tool_call_id: c.id, name: c.name, content: res.result });
     }

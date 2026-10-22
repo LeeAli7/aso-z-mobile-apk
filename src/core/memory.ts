@@ -55,6 +55,34 @@ function sizeOf(arr: MemoryEntry[]): number {
 }
 
 /**
+ * Привести текст к виду, в котором он лежит в хранилище:
+ * убрать маркеры списка («- », «• », «1. »), которыми агент копирует строки
+ * из снапшота/списка. Без этого replace/remove по дословной строке из `list`
+ * отвечал «не найдено» — самая частая жалоба на память.
+ */
+function norm(t: string): string {
+  return t
+    .replace(/^\s*[-•*]\s+/, "")
+    .replace(/^\s*\d+[.)]\s+/, "")
+    .trim();
+}
+
+/** Найти запись по фрагменту: сначала дословно, затем по нормализованному тексту. */
+function findEntry(entries: MemoryEntry[], needle: string): { idx: number; how: string } {
+  const raw = needle.trim();
+  let idx = entries.findIndex((e) => e.text.includes(raw));
+  if (idx >= 0) return { idx, how: "точное совпадение" };
+  const n = norm(raw);
+  if (!n) return { idx: -1, how: "" };
+  idx = entries.findIndex((e) => e.text.includes(n) || norm(e.text).includes(n));
+  if (idx >= 0) return { idx, how: "по нормализованному тексту" };
+  // последняя попытка: без учёта регистра
+  const low = n.toLowerCase();
+  idx = entries.findIndex((e) => e.text.toLowerCase().includes(low));
+  return { idx, how: idx >= 0 ? "без учёта регистра" : "" };
+}
+
+/**
  * Сохранить без вытеснения. Возвращает null при успехе или текст ошибки.
  */
 async function save(target: MemoryTarget, entries: MemoryEntry[]): Promise<string | null> {
@@ -134,9 +162,11 @@ export async function runMemoryOps(ops: MemoryOp[]): Promise<string> {
           reports.push("add: нет content");
           continue;
         }
+        const text0 = op.content.trim();
         const next: MemoryEntry[] = [
           ...entries,
-          { id: genId(), text: op.content.trim(), createdAt: Date.now(), updatedAt: Date.now() },
+          // маркер списка не храним: снапшот сам добавляет «- », иначе выходило «- - текст»
+          { id: genId(), text: norm(text0), createdAt: Date.now(), updatedAt: Date.now() },
         ];
         const err = await save(target, next);
         reports.push(err ?? `add → ${target}: записано (${sizeOf(next)}/${CHAR_LIMIT[target]} симв.)`);
@@ -148,9 +178,14 @@ export async function runMemoryOps(ops: MemoryOp[]): Promise<string> {
           continue;
         }
         const needle = op.old_text.trim();
-        const idx = entries.findIndex((e) => e.text.includes(op.old_text!));
+        const found = findEntry(entries, op.old_text);
+        const idx = found.idx;
         if (idx < 0) {
-          reports.push(`replace: не найдено «${needle.slice(0, 60)}» — ничего не изменено`);
+          const list = entries.map((e, i) => `${i + 1}) ${e.text.slice(0, 70)}`).join(" | ");
+          reports.push(
+            `replace: не найдено «${needle.slice(0, 60)}» — ничего не изменено. ` +
+              `Записи (${entries.length}): ${list || "пусто"}`,
+          );
           continue;
         }
         const cur = entries[idx].text;
@@ -167,8 +202,8 @@ export async function runMemoryOps(ops: MemoryOp[]): Promise<string> {
         reports.push(
           err ??
             (wholeEntry
-              ? `replace → ${target}: запись заменена`
-              : `replace → ${target}: заменён фрагмент (остальная запись сохранена)`),
+              ? `replace → ${target}: запись заменена (${found.how})`
+              : `replace → ${target}: заменён фрагмент, остальная запись сохранена (${found.how})`),
         );
         break;
       }
@@ -178,9 +213,14 @@ export async function runMemoryOps(ops: MemoryOp[]): Promise<string> {
           continue;
         }
         const before = entries.length;
-        const filtered = entries.filter((e) => !e.text.includes(op.old_text!));
+        const hit = findEntry(entries, op.old_text);
+        const filtered = hit.idx >= 0 ? entries.filter((_, i) => i !== hit.idx) : entries;
+        if (hit.idx < 0) {
+          reports.push(`remove: не найдено «${op.old_text.trim().slice(0, 60)}» — ничего не удалено`);
+          continue;
+        }
         const err = await save(target, filtered);
-        reports.push(err ?? `remove → ${target}: удалено ${before - filtered.length} шт.`);
+        reports.push(err ?? `remove → ${target}: удалено ${before - filtered.length} шт. (${hit.how})`);
         break;
       }
       case "list":

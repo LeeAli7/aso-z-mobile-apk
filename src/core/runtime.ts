@@ -134,6 +134,32 @@ export function stripCmdBlocks(text: string): string {
 export type CmdResult = { ok: boolean; output: string; code: number; error?: string; timedOut?: boolean };
 
 /**
+ * bash -c запускается на каждый вызов заново (ProcessBuilder в нативном модуле),
+ * поэтому `cd` и `export` терялись: агент ставил переменную, а следующий вызов её
+ * уже не видел — вопреки описанию «persistent shell session».
+ * Оборачиваем команду: перед запуском восстанавливаем сохранённые cwd + переменные,
+ * после запуска сохраняем их обратно. Файл состояния — $HOME/.aso/shell-state.
+ */
+function shellQuote(p: string): string {
+  return "'" + p.replace(/'/g, "'\\''") + "'";
+}
+
+export function wrapPersistent(cmd: string, cwd?: string): string {
+  const state = '"${ASO_SHELL_STATE:-$HOME/.aso/shell-state}"';
+  const cd = cwd ? `cd ${shellQuote(cwd)} 2>/dev/null || true` : "true";
+  return [
+    `__ASO_ST=${state}`,
+    `if [ -f "$__ASO_ST" ]; then . "$__ASO_ST" >/dev/null 2>&1; fi`,
+    `mkdir -p "$(dirname "$__ASO_ST")" 2>/dev/null`,
+    cd,
+    cmd,
+    `__ASO_RC=$?`,
+    `{ printf 'cd %s\n' "\"$(pwd)\""; export -p 2>/dev/null | grep -v -E '^declare -x (PWD|OLDPWD|SHLVL|_|RANDOM|LINENO|SECONDS|COLUMNS|LINES|BASH_[A-Z_]+)=' | head -n 120; } > "$__ASO_ST.new" 2>/dev/null && mv -f "$__ASO_ST.new" "$__ASO_ST" 2>/dev/null`,
+    `exit $__ASO_RC`,
+  ].join("\n");
+}
+
+/**
  * Выполнить команду и дождаться завершения, собрав весь вывод.
  * Используется агентом для [CMD: …] блоков. Нативный execCapture делает всё
  * одним вызовом (запуск + сбор + ожидание) — без событий, поэтому нет гонки,
@@ -165,7 +191,7 @@ export function runCommandCapture(
       // Дублируем защиту на стороне JS: даже если нативный код не ответит
       // (старая сборка модуля), промис разрешится по тайм-ауту.
       const r: any = await Promise.race([
-        rtExecCapture(cmd, cwd, timeoutMs),
+        rtExecCapture(wrapPersistent(cmd, cwd), cwd, timeoutMs),
         new Promise((res) =>
           setTimeout(
             () =>
