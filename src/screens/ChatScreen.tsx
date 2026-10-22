@@ -1178,8 +1178,15 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         pointerEvents="box-none"
         style={{ position: "absolute", top: 0, left: 0, right: 0, zIndex: 20 }}
       >
-        {/* Никаких плашек/градиентов под шапкой: кнопки плавают над чёрным,
-            текст уходит под них и не «налезает» — подложек и полос нет. */}
+        {/* Плавное ступенчатое затемнение сверху: под кнопками сплошной фон,
+            ниже — мягкий переход 30px, чтобы текст растворялся без кромки. */}
+        <View pointerEvents="none" style={{ position: "absolute", top: 0, left: 0, right: 0 }}>
+          {Array.from({ length: insets.top + 86 }).map((_, i) => {
+            const solid = insets.top + 56;
+            const op = i < solid ? 1 : Math.max(0, 1 - (i - solid) / 30);
+            return <View key={`hd${i}`} style={{ height: 1, backgroundColor: theme.bg, opacity: op }} />;
+          })}
+        </View>
         <View
           pointerEvents="box-none"
           style={{
@@ -1368,21 +1375,26 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         pointerEvents="box-none"
         style={{
           position: "absolute", left: 0, right: 0, bottom: 0,
-          // непрозрачный чёрный под капсулой: текст не просвечивает под ней
-          backgroundColor: theme.bg,
+          backgroundColor: "transparent",
         }}
       >
         <View
           pointerEvents="box-none"
           onLayout={(e) => setComposerH(Math.round(e.nativeEvent.layout.height))}
           style={{
-            backgroundColor: theme.bg,
-            paddingHorizontal: 12, paddingTop: 16,
+            backgroundColor: "transparent",
+            paddingHorizontal: 12, paddingTop: 40,
             paddingBottom: Platform.OS === "android" ? kbH + Math.max(insets.bottom, 8) + 8 : insets.bottom + 8,
           }}
         >
-          {/* Никакого затухания над капсулой: капсула — единственная поверхность,
-              промежуточных полос/линий/теней между чатом и вводом нет. */}
+          {/* Подложка капсулы: плавное затухание 34px над ней + сплошной низ.
+              Кромок и линий нет — текст мягко растворяется, под капсулой не просвечивает. */}
+          <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }}>
+            {Array.from({ length: 34 }).map((_, i) => (
+              <View key={`cf${i}`} style={{ height: 1, backgroundColor: theme.bg, opacity: i / 34 }} />
+            ))}
+            <View style={{ flex: 1, backgroundColor: theme.bg }} />
+          </View>
           {/* вложения — НАД капсулой: иконка ТИПА каждого вложения (та же, что в меню «Прикрепить»), крестики для удаления */}
           {attachments.length > 0 && (
             <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: 8, gap: 8 }}>

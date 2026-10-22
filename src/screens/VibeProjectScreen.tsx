@@ -399,6 +399,14 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
             style={{ position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: "transparent" }}
             pointerEvents="box-none"
           >
+            <View pointerEvents="box-none" style={{ paddingTop: 30 }}>
+            {/* подложка капсулы: плавное затухание 30px сверху + сплошной низ */}
+            <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }}>
+              {Array.from({ length: 30 }).map((_, i) => (
+                <View key={`vf${i}`} style={{ height: 1, backgroundColor: theme.bg, opacity: i / 30 }} />
+              ))}
+              <View style={{ flex: 1, backgroundColor: theme.bg }} />
+            </View>
             <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8, paddingHorizontal: 12, paddingBottom: insets.bottom + 8, paddingTop: 0, backgroundColor: "transparent" }} pointerEvents="box-none">
               <TextInput
                 value={text}
@@ -418,6 +426,7 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
                   <AppIcon name="send" size={20} color={text.trim() ? theme.onAccent : theme.mute} />
                 </Pressable>
               )}
+            </View>
             </View>
           </KeyboardAvoidingView>
         </>
