@@ -482,7 +482,9 @@ registerTool({
     "Память агента — РАБОТАЕТ, доступ всегда есть. Факты о пользователе хранятся в target=user, " +
     "рабочие заметки/конвенции — в target=memory. Используй, когда пользователь сообщил важный факт о себе " +
     "(имя, предпочтения, правила, проекты, окружение) — сохрани это, чтобы помнить в будущих сессиях. " +
-    "Операции: add (добавить), replace (заменить по old_text), remove (удалить по old_text), " +
+    "Операции: add (добавить), replace (заменить по old_text), remove (удалить по old_text). " +
+    "У replace: old_text — что заменить (можно копировать из list как есть, маркеры не мешают), " +
+    "content — новый текст НА МЕСТЕ фрагмента, а не вся запись целиком. " +
     "list (показать, что уже записано). Можно передать массив операций в одном вызове.",
   parameters: {
     type: "object",
@@ -496,7 +498,11 @@ registerTool({
             action: { type: "string", enum: ["add", "replace", "remove", "list"] },
             target: { type: "string", enum: ["user", "memory"], description: "куда: user=факты о пользователе, memory=заметки" },
             content: { type: "string", description: "Текст для add/replace" },
-            old_text: { type: "string", description: "Фрагмент для поиска при replace/remove" },
+            old_text: {
+              type: "string",
+              description:
+                "Фрагмент для поиска при replace/remove. Можно копировать прямо из списка — маркеры «- » и «1) » отбрасываются.",
+            },
           },
           required: ["action"],
         },
