@@ -1337,6 +1337,13 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             paddingBottom: Platform.OS === "android" ? kbH + Math.max(insets.bottom, 8) + 8 : insets.bottom + 8,
           }}
         >
+          {/* Затухание над капсулой: сообщения растворяются, а не обрезаются
+              её верхней кромкой — раньше текст упирался в капсулу резкой линией. */}
+          <View pointerEvents="none" style={{ height: 16, marginTop: -6, marginBottom: 2 }}>
+            {[0.06, 0.16, 0.3, 0.46, 0.62, 0.76, 0.88, 0.96].map((o, i) => (
+              <View key={i} style={{ height: 2, backgroundColor: theme.bg, opacity: o }} />
+            ))}
+          </View>
           {/* вложения — НАД капсулой: иконка ТИПА каждого вложения (та же, что в меню «Прикрепить»), крестики для удаления */}
           {attachments.length > 0 && (
             <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: 8, gap: 8 }}>
