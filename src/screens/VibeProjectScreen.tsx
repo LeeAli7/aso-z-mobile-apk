@@ -375,7 +375,7 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
             style={{ flex: 1 }}
             data={messages}
             keyExtractor={(m) => m.id}
-            contentContainerStyle={{ padding: 14, paddingBottom: 20 }}
+            contentContainerStyle={{ padding: 14, paddingBottom: 100 }}
             onContentSizeChange={() => stickBottom()}
             onScroll={(e) => {
               const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
@@ -384,11 +384,20 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
             scrollEventThrottle={16}
             renderItem={({ item }) => <VibeBubble msg={item} theme={theme} />}
           />
+          {/* капсула плавает поверх чата: слой прозрачный, сообщения уходят под него
+              и гаснут, а не упираются в чёрную плашку */}
           <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : Platform.OS === "android" ? "height" : undefined}
-            keyboardVerticalOffset={Platform.OS === "ios" ? 0 : insets.top}
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            keyboardVerticalOffset={0}
+            style={{ position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: "transparent" }}
+            pointerEvents="box-none"
           >
-            <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8, paddingHorizontal: 12, paddingBottom: insets.bottom + 8, paddingTop: 8, backgroundColor: "transparent" }}>
+            <View pointerEvents="none" style={{ height: 20 }}>
+              {Array.from({ length: 10 }).map((_, i) => (
+                <View key={i} style={{ flex: 1, backgroundColor: theme.bg, opacity: Math.min(1, (i + 1) / 10) }} />
+              ))}
+            </View>
+            <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8, paddingHorizontal: 12, paddingBottom: insets.bottom + 8, paddingTop: 0, backgroundColor: "transparent" }} pointerEvents="box-none">
               <TextInput
                 value={text}
                 onChangeText={setText}
