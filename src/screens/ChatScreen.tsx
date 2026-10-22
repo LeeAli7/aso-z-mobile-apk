@@ -11,6 +11,7 @@ import {
   Image,
   Keyboard,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   Share,
@@ -1611,7 +1612,14 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       {/* ── Прикрепить: фото / камера / файл — компактное меню без заголовка, закрытие свайпом вниз, кнопки на всю ширину ── */}
       {/* ── Действия с сессией: мини-окно по долгому нажатию в панели ── */}
       {/* ── Мини-меню сессии — у места нажатия (long-press), не шторка снизу ── */}
-      {!!sessionMenuTarget && (
+      <Modal
+        visible={!!sessionMenuTarget}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => { setSessionMenuTarget(null); setSessionMenuPoint(null); }}
+      >
+        {!!sessionMenuTarget && (
         <>
           <Pressable
             onPress={() => { setSessionMenuTarget(null); setSessionMenuPoint(null); }}
@@ -1687,7 +1695,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             );
           })()}
         </>
-      )}
+        )}
+      </Modal>
 
       {/* ── Rename session (in-app, Alert.prompt на Android не работает) ── */}
       <Sheet visible={!!renameTarget} onClose={() => setRenameTarget(null)} title="Переименовать сессию" snapPoints={["auto"]} autoMaxPct={50}>
