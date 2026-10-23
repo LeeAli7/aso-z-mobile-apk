@@ -26,6 +26,7 @@ import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from "expo-speech-recognition";
 import { AppIcon, AppIconName } from "../design-system/components/AppIcon";
+import { PulseLoader } from "../components/PulseLoader";
 
 import { useApp, genId, Msg, Session } from "../store/AppStore";
 import { ModelInfo, streamChat, streamAgentChat, ChatMessage, ChatPart, AgentToolCall } from "../core/gateway";
@@ -117,7 +118,6 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // детали команды/раздумий — bottom-sheet как окно сессии
   const [detailTarget, setDetailTarget] = useState<Msg | null>(null);
   // прикрепление: окно-меню (фото/камера/файл) и выбранные вложения
-  const [attachOpen, setAttachOpen] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   // ── Мультивложение (t9): массив выбранных файлов/фото ──
   const [attachments, setAttachments] = useState<{ kind: "image" | "camera" | "file"; uri: string; name?: string }[]>([]);
@@ -237,6 +237,15 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     } catch {}
   }, [recording, state.lang, text]);
   const listRef = useRef<FlatList<any>>(null);
+  // Плавное открытие сессии: список монтируется целиком, потом один прыжок
+  // в низ без анимации и мягкое проявление — без поэтапного дёрганья.
+  const listFade = useRef(new Animated.Value(0)).current;
+  const [listReady, setListReady] = useState(false);
+  const [showJump, setShowJump] = useState(false);
+  const jumpAnim = useRef(new Animated.Value(0)).current;
+  // Плюс → красный крест: поворот 0→45° и смена цвета.
+  const attachAnim = useRef(new Animated.Value(0)).current;
+  const [attachOpen, setAttachOpen] = useState(false);
 
   const active = state.sessions.find((s) => s.id === state.activeSessionId) ?? null;
   const allModels = [...state.models, ...state.customModels];
@@ -273,6 +282,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   const atBottom = useRef(true);
   const stickTimer = useRef<any>(null);
   const stickBottom = (force = false) => {
+    if (force) atBottom.current = true;
     if (!force && !atBottom.current) return;
     if (stickTimer.current) clearTimeout(stickTimer.current);
     stickTimer.current = setTimeout(() => {
@@ -282,6 +292,38 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     }, 60);
   };
   const scrollBottom = () => stickBottom();
+
+  // модель ещё не выдала ни одного токена — вместо пустого пузыря показываем
+  // пульс капсулы; как только пошёл текст, индикатор исчезает
+  const waitingFirst = useMemo(() => {
+    if (!active || !isStreaming(active.id)) return false;
+    const last = active.messages[active.messages.length - 1];
+    if (!last) return true;
+    const m = last as any;
+    return last.role === "assistant" && !m.content && !m.thinking && !m.tool;
+  }, [active, streamingSessions]);
+
+  // новая сессия — заново: скрыть, прыгнуть в конец, проявить
+  useEffect(() => {
+    setListReady(false);
+    listFade.setValue(0);
+    // страховка: если контент не отстрелил onContentSizeChange, всё равно
+    // показываем чат, чтобы экран не остался чёрным
+    const tmr = setTimeout(() => {
+      setListReady(true);
+      listFade.setValue(1);
+    }, 1200);
+    return () => clearTimeout(tmr);
+  }, [active?.id, listFade]);
+
+  useEffect(() => {
+    Animated.timing(jumpAnim, {
+      toValue: showJump ? 1 : 0,
+      duration: 170,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start();
+  }, [showJump, jumpAnim]);
 
   // ── Проекты: окно «всё в одном чате» ──
   const loadProjects = useCallback(async () => {
@@ -1267,6 +1309,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       {(!active || active.messages.length === 0) ? (
         <EmptyChat theme={theme} topInset={insets.top} />
       ) : (
+        <Animated.View style={{ flex: 1, opacity: listFade }}>
         <FlatList<Group>
           ref={listRef}
           style={{ flex: 1 }}
@@ -1281,17 +1324,30 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             // чтобы последнее сообщение можно было доскроллить над капсулой
             paddingBottom: Math.max(composerH, 76) + 4,
           }}
-          onContentSizeChange={() => stickBottom()}
+          onContentSizeChange={() => {
+            if (!listReady) {
+              // всё уже в дереве — один прыжок в самый низ без анимации,
+              // затем мягкое проявление: никакого поэтапного доезжания
+              listRef.current?.scrollToEnd({ animated: false });
+              setListReady(true);
+              Animated.timing(listFade, {
+                toValue: 1, duration: 190, easing: Easing.out(Easing.quad), useNativeDriver: true,
+              }).start();
+            } else {
+              stickBottom();
+            }
+          }}
           onScrollBeginDrag={() => {
-            atBottom.current = false;
             if (stickTimer.current) { clearTimeout(stickTimer.current); stickTimer.current = null; }
           }}
           onScroll={(e) => {
             const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-            // «у низа» = до кромки меньше 24px. Старый порог 90px считал низом
-            // и верх короткого чата — список возвращал вниз при чтении выше.
-            atBottom.current =
-              contentOffset.y + layoutMeasurement.height >= contentSize.height - 24;
+            // «у низа» = меньше 64px до кромки: тогда новые сообщения сами
+            // подтягивают чат; выше — листаем спокойно и не дёргается
+            const dist = contentSize.height - layoutMeasurement.height - contentOffset.y;
+            const near = dist <= 64;
+            atBottom.current = near;
+            setShowJump((prev) => prev === !near ? prev : !near);
           }}
           scrollEventThrottle={16}
           keyboardShouldPersistTaps="handled"
@@ -1358,10 +1414,62 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             );
           }}
         />
+        </Animated.View>
       )}
 
       {/* streaming-индикатор намеренно убран: ни «обрабатываю запрос…», ни точек —
           пользователь попросил чистый чат. Раздумья видны в блоке ThinkingBlock. */}
+
+      {/* подъём сессии: пока список не готов — пульс капсулы по центру */}
+      {!listReady && !!active && active.messages.length > 0 ? (
+        <View
+          pointerEvents="none"
+          style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center" }}
+        >
+          <PulseLoader theme={theme} />
+        </View>
+      ) : null}
+
+      {/* ожидание первого токена модели — мелкий пульс над капсулой */}
+      {waitingFirst ? (
+        <View
+          pointerEvents="none"
+          style={{ position: "absolute", left: 0, right: 0, bottom: Math.max(composerH, 76) + 14, alignItems: "center" }}
+        >
+          <PulseLoader theme={theme} scale={0.62} />
+        </View>
+      ) : null}
+
+      {/* кнопка «в самый низ» — появляется, когда пролистали вверх */}
+      <Animated.View
+        pointerEvents={showJump ? "auto" : "none"}
+        style={{
+          position: "absolute", right: 16,
+          bottom: Math.max(composerH, 76) + 12,
+          opacity: jumpAnim,
+          transform: [
+            { translateY: jumpAnim.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) },
+            { scale: jumpAnim.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) },
+          ],
+        }}
+      >
+        <Pressable
+          onPress={() => {
+            atBottom.current = true;
+            setShowJump(false);
+            listRef.current?.scrollToEnd({ animated: true });
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="В самый низ"
+          style={({ pressed }) => ({
+            width: 44, height: 44, borderRadius: 22,
+            alignItems: "center", justifyContent: "center",
+            backgroundColor: pressed ? theme.surface2 : theme.surface,
+          })}
+        >
+          <AppIcon name="chevron-down" size={20} color={theme.text} />
+        </Pressable>
+      </Animated.View>
 
       {/* input.
         Android: капсулу поднимаем вручную через kbH (Keyboard listeners выше) —
@@ -1393,7 +1501,13 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               Array.from({ length: composerH }).map((_, i) => (
                 <View
                   key={`cf${i}`}
-                  style={{ height: 1, backgroundColor: theme.bg, opacity: i / Math.max(1, composerH - 1) }}
+                  style={{
+                    height: 1,
+                    backgroundColor: theme.bg,
+                    // панель вложений перекрывает фон глухо: иначе между
+                    // плитками просвечивал обрывками текст чата
+                    opacity: attachOpen ? 1 : i / Math.max(1, composerH - 1),
+                  }}
                 />
               ))}
           </View>
@@ -1424,7 +1538,16 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 8, overflow: "hidden" }}
           >
             <Pressable
-              onPress={() => setAttachOpen((v) => !v)}
+              onPress={() => {
+                const next = !attachOpen;
+                setAttachOpen(next);
+                Animated.timing(attachAnim, {
+                  toValue: next ? 1 : 0,
+                  duration: 220,
+                  easing: Easing.out(Easing.cubic),
+                  useNativeDriver: true,
+                }).start();
+              }}
               hitSlop={6}
               style={({ pressed }) => ({
                 width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center",
@@ -1432,7 +1555,26 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               })}
               accessibilityLabel="Прикрепить"
             >
-              <AppIcon name="plus" size={22} color={theme.text} />
+              {/* плюс поворачивается на 45° и растворяется — на его месте
+                  крест из того же центра, уже красный */}
+              <Animated.View
+                style={{
+                  position: "absolute",
+                  opacity: attachAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
+                  transform: [{ rotate: attachAnim.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "45deg"] }) }],
+                }}
+              >
+                <AppIcon name="plus" size={22} color={theme.text} />
+              </Animated.View>
+              <Animated.View
+                style={{
+                  position: "absolute",
+                  opacity: attachAnim,
+                  transform: [{ rotate: attachAnim.interpolate({ inputRange: [0, 1], outputRange: ["-45deg", "0deg"] }) }],
+                }}
+              >
+                <AppIcon name="close" size={22} color={theme.danger} />
+              </Animated.View>
             </Pressable>
             <TextInput
               value={text}
@@ -1505,7 +1647,13 @@ export function ChatScreen({ navigation }: { navigation: any }) {
 
           {/* Вложения: капсула уезжает вверх, снизу выезжает панель из трёх плиток. */}
           {attachOpen && (
-            <View style={{ flexDirection: "row", gap: 10, marginTop: 10, marginBottom: 8 }}>
+            <Animated.View
+              style={{
+                flexDirection: "row", gap: 10, marginTop: 10, marginBottom: 8,
+                opacity: attachAnim,
+                transform: [{ translateY: attachAnim.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) }],
+              }}
+            >
               {[
                 { icon: "camera" as const, label: "Камера", onPress: pickCamera },
                 { icon: "image" as const, label: "Альбом", onPress: pickImage },
@@ -1533,7 +1681,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                   <Text style={{ color: theme.text, fontSize: 13, fontWeight: "500" }}>{b.label}</Text>
                 </Pressable>
               ))}
-            </View>
+            </Animated.View>
           )}
         </View>
       </KeyboardAvoidingView>
