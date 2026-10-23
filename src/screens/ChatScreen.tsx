@@ -1389,10 +1389,13 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               панели, от полной прозрачности у верхней кромки до глухого чёрного
               за нижней кромкой экрана. Никаких плашек и обрывов у капсулы. */}
           <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }}>
-            {Array.from({ length: 96 }).map((_, i, arr) => (
-              <View key={`cf${i}`} style={{ height: 1, backgroundColor: theme.bg, opacity: i / (arr.length - 1) }} />
-            ))}
-            <View style={{ flex: 1, backgroundColor: theme.bg }} />
+            {composerH > 0 &&
+              Array.from({ length: composerH }).map((_, i) => (
+                <View
+                  key={`cf${i}`}
+                  style={{ height: 1, backgroundColor: theme.bg, opacity: i / Math.max(1, composerH - 1) }}
+                />
+              ))}
           </View>
           {/* вложения — НАД капсулой: иконка ТИПА каждого вложения (та же, что в меню «Прикрепить»), крестики для удаления */}
           {attachments.length > 0 && (

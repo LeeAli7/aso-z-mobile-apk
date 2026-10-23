@@ -62,6 +62,7 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
   const [fileContent, setFileContent] = useState<string | null>(null);
   const [viewName, setViewName] = useState("");
   const [mode, setMode] = useState<"chat" | "files">("chat");
+  const [boxH, setBoxH] = useState(0);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [showFile, setShowFile] = useState(false);
@@ -401,15 +402,19 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
           >
             <View
               pointerEvents="box-none"
+              onLayout={(e) => setBoxH(Math.max(0, Math.round(e.nativeEvent.layout.height)))}
               style={{ paddingTop: 96 }}
             >
             {/* подложка капсулы: зеркально верхнему затуханию — градиент на всю
                 высоту панели, плашек и обрывов у капсулы нет */}
             <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }}>
-              {Array.from({ length: 96 }).map((_, i, arr) => (
-                <View key={`vf${i}`} style={{ height: 1, backgroundColor: theme.bg, opacity: i / (arr.length - 1) }} />
-              ))}
-              <View style={{ flex: 1, backgroundColor: theme.bg }} />
+              {boxH > 0 &&
+                Array.from({ length: boxH }).map((_, i) => (
+                  <View
+                    key={`vf${i}`}
+                    style={{ height: 1, backgroundColor: theme.bg, opacity: i / Math.max(1, boxH - 1) }}
+                  />
+                ))}
             </View>
             <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8, paddingHorizontal: 12, paddingBottom: insets.bottom + 8, paddingTop: 0, backgroundColor: "transparent" }} pointerEvents="box-none">
               <TextInput

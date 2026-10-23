@@ -2,7 +2,7 @@
   "expo": {
     "name": "Aso-z",
     "slug": "aso-z-mobile",
-    "version": "2.6.5",
+    "version": "2.6.6",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -23,7 +23,7 @@
       "package": "app.aso.zmobile",
       "predictiveBackGestureEnabled": false,
       "usesCleartextTraffic": true,
-      "versionCode": 2060500
+      "versionCode": 2060600
     },
     "web": {
       "favicon": "./assets/favicon.png"
