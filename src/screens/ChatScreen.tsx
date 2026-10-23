@@ -1181,11 +1181,9 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         {/* Плавное ступенчатое затемнение сверху: под кнопками сплошной фон,
             ниже — мягкий переход 30px, чтобы текст растворялся без кромки. */}
         <View pointerEvents="none" style={{ position: "absolute", top: 0, left: 0, right: 0 }}>
-          {Array.from({ length: insets.top + 86 }).map((_, i) => {
-            const solid = insets.top + 56;
-            const op = i < solid ? 1 : Math.max(0, 1 - (i - solid) / 30);
-            return <View key={`hd${i}`} style={{ height: 1, backgroundColor: theme.bg, opacity: op }} />;
-          })}
+          {Array.from({ length: insets.top + 66 }).map((_, i, arr) => (
+            <View key={`hd${i}`} style={{ height: 1, backgroundColor: theme.bg, opacity: 1 - i / (arr.length - 1) }} />
+          ))}
         </View>
         <View
           pointerEvents="box-none"
@@ -1383,15 +1381,15 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           onLayout={(e) => setComposerH(Math.round(e.nativeEvent.layout.height))}
           style={{
             backgroundColor: "transparent",
-            paddingHorizontal: 12, paddingTop: 40,
+            paddingHorizontal: 12, paddingTop: 30,
             paddingBottom: Platform.OS === "android" ? kbH + Math.max(insets.bottom, 8) + 8 : insets.bottom + 8,
           }}
         >
           {/* Подложка капсулы: плавное затухание 34px над ней + сплошной низ.
               Кромок и линий нет — текст мягко растворяется, под капсулой не просвечивает. */}
           <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }}>
-            {Array.from({ length: 34 }).map((_, i) => (
-              <View key={`cf${i}`} style={{ height: 1, backgroundColor: theme.bg, opacity: i / 34 }} />
+            {Array.from({ length: 30 }).map((_, i) => (
+              <View key={`cf${i}`} style={{ height: 1, backgroundColor: theme.bg, opacity: Math.pow(i / 30, 1.5) }} />
             ))}
             <View style={{ flex: 1, backgroundColor: theme.bg }} />
           </View>

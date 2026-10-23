@@ -403,7 +403,7 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
             {/* подложка капсулы: плавное затухание 30px сверху + сплошной низ */}
             <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }}>
               {Array.from({ length: 30 }).map((_, i) => (
-                <View key={`vf${i}`} style={{ height: 1, backgroundColor: theme.bg, opacity: i / 30 }} />
+                <View key={`vf${i}`} style={{ height: 1, backgroundColor: theme.bg, opacity: Math.pow(i / 30, 1.5) }} />
               ))}
               <View style={{ flex: 1, backgroundColor: theme.bg }} />
             </View>

@@ -93,6 +93,31 @@ export function toolNames(): string[] {
  * Фаза 1: тулсет-гейт — тул выключенного сета не исполняется (модель могла
  * получить все дефы: ChatScreen зовёт синхронный getToolDefs()).
  * Фаза 2: approvals опасных команд + redact секретов в результате. */
+/** Имена-синонимы: модели и чужие промпты зовут их вместо наших реальных тулов. */
+export const ALIAS_NAMES = new Set([
+  "bash", "shell", "sh", "exec", "terminal", "run_terminal_cmd",
+  "glob", "find", "ls", "list_dir",
+  "grep", "search_in_files", "rg",
+  "read", "cat", "view", "read_file_part",
+  "edit", "patch", "str_replace", "apply_patch",
+  "write", "create_file", "save_file",
+]);
+
+function firstStr(a: Record<string, any>, keys: string[]): string {
+  for (const k of keys) {
+    const v = a?.[k];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return "";
+}
+
+function matchStr(a: Record<string, any>, re: RegExp): string {
+  for (const [k, v] of Object.entries(a ?? {})) {
+    if (typeof v === "string" && v.trim() && re.test(k)) return v;
+  }
+  return "";
+}
+
 /** Синонимы тулов из чужих промптов → наши реальные инструменты. */
 function resolveAlias(
   name: string,
@@ -101,43 +126,58 @@ function resolveAlias(
   const a = (args ?? {}) as Record<string, any>;
   const n = name.toLowerCase();
   const q = (v: string) => "'" + v.replace(/'/g, "'\\''") + "'";
+  const pathOf = () =>
+    firstStr(a, ["path", "file_path", "filepath", "file", "filename", "target", "name", "dir"]) ||
+    matchStr(a, /path|file|dir/i);
 
   if (["bash", "shell", "sh", "exec", "terminal", "run_terminal_cmd"].includes(n)) {
-    const command = String(a.command ?? a.cmd ?? a.script ?? a.input ?? "");
+    const command = String(a.command ?? a.cmd ?? a.script ?? a.input ?? a.bash ?? "");
     return command ? { name: "run_command", args: { command } } : null;
   }
   if (["glob", "find"].includes(n)) {
-    // раньше шаблон подставлялся в PATH: glob("**/*.ts") уходил как
-    // list_files(path="**/*.ts") и падал на несуществующем каталоге.
-    const pat = String(a.pattern ?? a.glob ?? a.query ?? "");
-    const base = String(a.path ?? a.dir ?? ".");
+    const pat = String(a.pattern ?? a.glob ?? a.query ?? a.match ?? a.file_pattern ?? "");
+    const base = String(a.path ?? a.dir ?? a.base ?? ".");
     if (!pat) return { name: "list_files", args: { path: base } };
-    const pats = pat.split(/[\s,]+/).filter(Boolean);
-    const expr = pats.map((p) => `-name ${q(p)}`).join(" -o ");
-    return {
-      name: "run_command",
-      args: { command: `find ${q(base)} -maxdepth 8 \\( ${expr} \\) 2>/dev/null | head -100` },
-    };
+    // python-глоб: корректно понимает ** и «папка/шаблон», в отличие от find -name
+    const code =
+      `import glob,os;` +
+      `b=${JSON.stringify(base)};p=${JSON.stringify(pat)};` +
+      `h=sorted(glob.glob(os.path.join(b,p),recursive=True)) or sorted(glob.glob(p,recursive=True));` +
+      `print("\\n".join(h[:200]) or "ничего не найдено по шаблону "+p)`;
+    return { name: "run_command", args: { command: `python3 -c ${JSON.stringify(code)}` } };
   }
   if (["list_dir", "ls"].includes(n)) {
-    const path = String(a.path ?? a.dir ?? ".");
-    return { name: "list_files", args: { path } };
+    return { name: "list_files", args: { path: pathOf() || "." } };
   }
   if (["grep", "search_in_files", "rg"].includes(n)) {
-    const pat = String(a.pattern ?? a.query ?? a.text ?? "");
+    const pat = String(a.pattern ?? a.query ?? a.text ?? a.search ?? a.regex ?? "");
     if (!pat) return null;
-    const path = String(a.path ?? ".");
+    const path = String(a.path ?? a.dir ?? ".");
     return { name: "run_command", args: { command: `grep -rn ${q(pat)} ${q(path)} 2>/dev/null | head -80` } };
   }
-  if (["read", "cat", "view"].includes(n)) {
-    const path = String(a.path ?? a.file_path ?? "");
+  if (["read", "cat", "view", "read_file_part"].includes(n)) {
+    const path = pathOf();
     return path ? { name: "read_file", args: { path } } : null;
   }
+  if (["write", "create_file", "save_file"].includes(n)) {
+    const path = pathOf();
+    const content = String(a.content ?? a.text ?? a.data ?? a.body ?? "");
+    return path && content ? { name: "write_file", args: { path, content } } : null;
+  }
   if (["edit", "patch", "str_replace", "apply_patch"].includes(n)) {
-    const path = String(a.path ?? a.file_path ?? "");
-    const oldT = a.old_string ?? a.old ?? a.old_text;
-    const newT = a.new_string ?? a.new ?? a.new_text;
-    if (!path || typeof oldT !== "string" || typeof newT !== "string") return null;
+    const path = pathOf();
+    const oldT =
+      a.old_string ?? a.old_str ?? a.old ?? a.old_text ?? a.find ?? a.search ?? a.from ??
+      matchStr(a, /^(old|find|search|from|before)/i);
+    const newT =
+      a.new_string ?? a.new_str ?? a.new ?? a.new_text ?? a.replace ?? a.replacement ?? a.to ??
+      a.with ?? matchStr(a, /^(new|repl|to$|with|after)/i);
+    if (!path) return null;
+    if (typeof newT === "string" && (typeof oldT !== "string" || oldT === "")) {
+      // «перепиши файл целиком» — модели часто зовут edit без old_string
+      return { name: "write_file", args: { path, content: newT } };
+    }
+    if (typeof oldT !== "string" || typeof newT !== "string") return null;
     // замена одного вхождения через python; строки в base64 — без проблем с кавычками
     const code =
       `import base64,sys;p=${JSON.stringify(path)};` +
@@ -162,7 +202,21 @@ export async function executeTool(
   const alias = resolveAlias(name, args);
   const spec = registry.get(alias ? alias.name : name);
   if (!spec) {
-    return { ok: false, result: `Tool '${name}' does not exist. Available tools: ${toolNames().join(", ")}` };
+    if (ALIAS_NAMES.has(name.toLowerCase())) {
+      return {
+        ok: false,
+        result:
+          `Тул '${name}' поддерживается как синоним, но не хватило аргументов. ` +
+          `Поля: path, pattern, command, old_string/new_string, content. ` +
+          `Проще вызвать напрямую: ${toolNames().join(", ")}.`,
+      };
+    }
+    return {
+      ok: false,
+      result:
+        `Tool '${name}' does not exist. Available tools: ${toolNames().join(", ")}. ` +
+        `Синонимы (bash, glob, grep, read, edit, write, ls) тоже работают.`,
+    };
   }
   if (alias) {
     name = alias.name;
