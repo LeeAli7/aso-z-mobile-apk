@@ -399,11 +399,15 @@ export function VibeProjectScreen({ route, navigation }: { route: any; navigatio
             style={{ position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: "transparent" }}
             pointerEvents="box-none"
           >
-            <View pointerEvents="box-none" style={{ paddingTop: 30 }}>
-            {/* подложка капсулы: плавное затухание 30px сверху + сплошной низ */}
+            <View
+              pointerEvents="box-none"
+              style={{ paddingTop: 96 }}
+            >
+            {/* подложка капсулы: зеркально верхнему затуханию — градиент на всю
+                высоту панели, плашек и обрывов у капсулы нет */}
             <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }}>
-              {Array.from({ length: 30 }).map((_, i) => (
-                <View key={`vf${i}`} style={{ height: 1, backgroundColor: theme.bg, opacity: Math.pow(i / 30, 1.5) }} />
+              {Array.from({ length: 96 }).map((_, i, arr) => (
+                <View key={`vf${i}`} style={{ height: 1, backgroundColor: theme.bg, opacity: i / (arr.length - 1) }} />
               ))}
               <View style={{ flex: 1, backgroundColor: theme.bg }} />
             </View>

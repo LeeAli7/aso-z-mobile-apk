@@ -1381,15 +1381,16 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           onLayout={(e) => setComposerH(Math.round(e.nativeEvent.layout.height))}
           style={{
             backgroundColor: "transparent",
-            paddingHorizontal: 12, paddingTop: 30,
+            paddingHorizontal: 12, paddingTop: 96,
             paddingBottom: Platform.OS === "android" ? kbH + Math.max(insets.bottom, 8) + 8 : insets.bottom + 8,
           }}
         >
-          {/* Подложка капсулы: плавное затухание 34px над ней + сплошной низ.
-              Кромок и линий нет — текст мягко растворяется, под капсулой не просвечивает. */}
+          {/* Подложка капсулы: как сверху, только зеркально — градиент на всю высоту
+              панели, от полной прозрачности у верхней кромки до глухого чёрного
+              за нижней кромкой экрана. Никаких плашек и обрывов у капсулы. */}
           <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }}>
-            {Array.from({ length: 30 }).map((_, i) => (
-              <View key={`cf${i}`} style={{ height: 1, backgroundColor: theme.bg, opacity: Math.pow(i / 30, 1.5) }} />
+            {Array.from({ length: 96 }).map((_, i, arr) => (
+              <View key={`cf${i}`} style={{ height: 1, backgroundColor: theme.bg, opacity: i / (arr.length - 1) }} />
             ))}
             <View style={{ flex: 1, backgroundColor: theme.bg }} />
           </View>
