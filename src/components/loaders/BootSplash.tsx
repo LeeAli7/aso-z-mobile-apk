@@ -62,10 +62,26 @@ export function BootSplash({ onDone, holdMs = 0 }: Props) {
       style={[StyleSheet.absoluteFill, { backgroundColor: "#000", zIndex: 999 }, fade]}
     >
       <View style={styles.center}>
-        <PillBurstLoader size={1.05} onBurst={start} />
+        <Guard onFail={start}>
+          <PillBurstLoader size={1.05} onBurst={start} />
+        </Guard>
       </View>
     </Animated.View>
   );
+}
+
+/** если лоадер упал при рендере — сразу открываем приложение, а не чёрный экран */
+class Guard extends React.Component<{ onFail: () => void; children: React.ReactNode }, { dead: boolean }> {
+  state = { dead: false };
+  static getDerivedStateFromError() {
+    return { dead: true };
+  }
+  componentDidCatch() {
+    this.props.onFail();
+  }
+  render() {
+    return this.state.dead ? null : this.props.children;
+  }
 }
 
 const styles = StyleSheet.create({
