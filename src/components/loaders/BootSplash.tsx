@@ -6,7 +6,7 @@
  * растворяется и под ним проявляется интерфейс. То есть переход в приложение
  * происходит вместе со взрывом, а не после него.
  */
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import Animated, {
   Easing,
@@ -47,6 +47,12 @@ export function BootSplash({ onDone, holdMs = 0 }: Props) {
   }, [holdMs, onDone, opacity]);
 
   const fade = useAnimatedStyle(() => ({ opacity: opacity.value }));
+
+  // страховка: если анимация почему-то не отдала вспышку — не держим чёрный экран
+  useEffect(() => {
+    const id = setTimeout(start, 3600);
+    return () => clearTimeout(id);
+  }, [start]);
 
   if (!visible) return null;
 
