@@ -11,9 +11,9 @@ export function LoaderLab({ which }: { which: string }) {
   return (
     <View style={s.root}>
       {which === "burst" ? (
-        <PillBurstLoader size={1.35} />
+        <PillBurstLoader size={1} />
       ) : (
-        <PillSwapLoader size={1.35} />
+        <PillSwapLoader size={1} />
       )}
     </View>
   );
