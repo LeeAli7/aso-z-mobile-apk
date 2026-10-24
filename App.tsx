@@ -27,6 +27,8 @@ import { OnboardingScreen } from "./src/screens/OnboardingScreen";
 import { TerminalScreen } from "./src/screens/TerminalScreen";
 import { StorageScreen } from "./src/screens/StorageScreen";
 import { ToastHost, showToast } from "./src/design-system/components/Toast";
+import { BootSplash } from "./src/components/loaders/BootSplash";
+import { LoaderLab } from "./src/screens/LoaderLab";
 
 /**
  * Проверка доступа к хранилищу при каждом запуске приложения (п.3).
@@ -143,7 +145,14 @@ function OnboardingGate() {
   return <ThemedApp />;
 }
 
+const LAB_SEARCH =
+  typeof window !== "undefined" && typeof window.location !== "undefined"
+    ? window.location.search
+    : "";
+const LAB = LAB_SEARCH.indexOf("lab=") >= 0;
+
 export default function App() {
+  if (LAB) return <LoaderLab which={LAB_SEARCH.indexOf("burst") >= 0 ? "burst" : "swap"} />;
   // Шрифты Kimi (MiSans/Geist Mono/Pixelify) — вытащены из APK Kimi.
   const [fontsLoaded] = useFonts({
     "MiSansLatin-Regular": require("./assets/fonts/MiSansLatin-Regular.otf"),
@@ -153,12 +162,16 @@ export default function App() {
     "GeistMono-Italic": require("./assets/fonts/GeistMono-Italic.ttf"),
     PixelifySans: require("./assets/fonts/PixelifySans-Regular.ttf"),
   });
+  // Шторка загрузки: чёрный экран с «взрывом капсулы». Интерфейс монтируется
+  // сразу под ней и проявляется ровно в момент вспышки.
+  const [booted, setBooted] = useState(false);
   if (!fontsLoaded) return null;
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <AppProvider>
           <OnboardingGate />
+          {!booted ? <BootSplash onDone={() => setBooted(true)} /> : null}
         </AppProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

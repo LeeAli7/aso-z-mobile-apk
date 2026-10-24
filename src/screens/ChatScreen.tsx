@@ -26,7 +26,7 @@ import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from "expo-speech-recognition";
 import { AppIcon, AppIconName } from "../design-system/components/AppIcon";
-import { PulseLoader } from "../components/PulseLoader";
+import { PillSwapLoader } from "../components/loaders/PillSwapLoader";
 
 import { useApp, genId, Msg, Session } from "../store/AppStore";
 import { ModelInfo, streamChat, streamAgentChat, ChatMessage, ChatPart, AgentToolCall } from "../core/gateway";
@@ -1420,23 +1420,23 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       {/* streaming-индикатор намеренно убран: ни «обрабатываю запрос…», ни точек —
           пользователь попросил чистый чат. Раздумья видны в блоке ThinkingBlock. */}
 
-      {/* подъём сессии: пока список не готов — пульс капсулы по центру */}
+      {/* экран ожидания: подъём сессии — «role swap» по центру */}
       {!listReady && !!active && active.messages.length > 0 ? (
         <View
           pointerEvents="none"
           style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center" }}
         >
-          <PulseLoader theme={theme} />
+          <PillSwapLoader size={0.92} />
         </View>
       ) : null}
 
-      {/* ожидание первого токена модели — мелкий пульс над капсулой */}
+      {/* ожидание первого токена модели — та же анимация, мелкая, над капсулой */}
       {waitingFirst ? (
         <View
           pointerEvents="none"
-          style={{ position: "absolute", left: 0, right: 0, bottom: Math.max(composerH, 76) + 14, alignItems: "center" }}
+          style={{ position: "absolute", left: 0, right: 0, bottom: Math.max(composerH, 76) + 10, alignItems: "center" }}
         >
-          <PulseLoader theme={theme} scale={0.62} />
+          <PillSwapLoader size={0.52} />
         </View>
       ) : null}
 
