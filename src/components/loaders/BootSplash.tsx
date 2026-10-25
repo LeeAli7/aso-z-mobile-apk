@@ -48,6 +48,17 @@ export function BootSplash({ onDone, holdMs = 0 }: Props) {
 
   const fade = useAnimatedStyle(() => ({ opacity: opacity.value }));
 
+  // появление самой капсулы: без него на старте капсула и красная точка
+  // возникают одним кадром поверх чёрного
+  const intro = useSharedValue(0);
+  useEffect(() => {
+    intro.value = withTiming(1, { duration: 260, easing: Easing.out(Easing.cubic) });
+  }, [intro]);
+  const introStyle = useAnimatedStyle(() => ({
+    opacity: intro.value,
+    transform: [{ scale: 0.96 + 0.04 * intro.value }],
+  }));
+
   // страховка: если анимация почему-то не отдала вспышку — не держим чёрный экран
   useEffect(() => {
     const id = setTimeout(start, 3600);
@@ -61,11 +72,11 @@ export function BootSplash({ onDone, holdMs = 0 }: Props) {
       pointerEvents="none"
       style={[StyleSheet.absoluteFill, { backgroundColor: "#000", zIndex: 999 }, fade]}
     >
-      <View style={styles.center}>
+      <Animated.View style={[styles.center, introStyle]}>
         <Guard onFail={start}>
           <PillBurstLoader size={1.05} onBurst={start} />
         </Guard>
-      </View>
+      </Animated.View>
     </Animated.View>
   );
 }

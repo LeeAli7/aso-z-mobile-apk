@@ -208,9 +208,6 @@ export function PillBurstLoader({ size = 1, onBurst }: Props) {
     let p = Math.pow(c, 2.2);
     if (u > 0.55) p = 1;
     const pp = u >= 0.94 ? 0 : p;
-    if (pp <= 0.05) {
-      return { opacity: 0, left: 40, top: 40, width: 0, height: 0, borderRadius: 0 };
-    }
     const pulse =
       2 * Math.sin(time.value * (12 + 30 * pp)) * (0.3 + pp);
     const r = 26 + 14 * pp + (u < 0.55 ? pulse : 0);

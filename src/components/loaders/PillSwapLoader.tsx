@@ -121,7 +121,9 @@ export function PillSwapLoader({ size = 1 }: Props) {
     const sg = half ? -1 : 1;
 
     const pr = 26 * back(cl((u - 0.58) / 0.2));
-    const on = pr > 0.5 ? 1 : 0;
+    // точка не «включается», а проявляется вместе с ростом радиуса —
+    // иначе на телефоне она читается как вспышка
+    const on = cl((pr - 1) / 10);
 
     return {
       opacity: on,

@@ -240,7 +240,9 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // Плавное открытие сессии: список монтируется целиком, потом один прыжок
   // в низ без анимации и мягкое проявление — без поэтапного дёрганья.
   const listFade = useRef(new Animated.Value(0)).current;
+  const loaderFade = useRef(new Animated.Value(1)).current;
   const [listReady, setListReady] = useState(false);
+  const [loaderOn, setLoaderOn] = useState(true);
   const [showJump, setShowJump] = useState(false);
   const jumpAnim = useRef(new Animated.Value(0)).current;
   // Плюс → красный крест: поворот 0→45° и смена цвета.
@@ -303,15 +305,38 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     return last.role === "assistant" && !m.content && !m.thinking && !m.tool;
   }, [active, streamingSessions]);
 
+  /* плавный переход «ожидание → чат»: список проявляется, капсула ожидания
+     в это же время растворяется. Раньше лоадер исчезал одним кадром. */
+  const crossFade = useCallback((delay = 0) => {
+    Animated.parallel([
+      Animated.timing(listFade, {
+        toValue: 1, duration: 280, delay,
+        easing: Easing.out(Easing.cubic), useNativeDriver: true,
+      }),
+      Animated.timing(loaderFade, {
+        toValue: 0, duration: 280, delay,
+        easing: Easing.in(Easing.quad), useNativeDriver: true,
+      }),
+    ]).start(({ finished }) => {
+      if (finished) setLoaderOn(false);
+    });
+  }, [listFade, loaderFade]);
+
   // новая сессия — заново: скрыть, прыгнуть в конец, проявить
   useEffect(() => {
     setListReady(false);
+    setLoaderOn(true);
+    // капсула ожидания тоже проявляется, а не возникает одним кадром
+    loaderFade.setValue(0);
+    Animated.timing(loaderFade, {
+      toValue: 1, duration: 170, easing: Easing.out(Easing.quad), useNativeDriver: true,
+    }).start();
     listFade.setValue(0);
     // страховка: если контент не отстрелил onContentSizeChange, всё равно
     // показываем чат, чтобы экран не остался чёрным
     const tmr = setTimeout(() => {
       setListReady(true);
-      listFade.setValue(1);
+      crossFade(0);
     }, 1200);
     return () => clearTimeout(tmr);
   }, [active?.id, listFade]);
@@ -1330,9 +1355,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               // затем мягкое проявление: никакого поэтапного доезжания
               listRef.current?.scrollToEnd({ animated: false });
               setListReady(true);
-              Animated.timing(listFade, {
-                toValue: 1, duration: 190, easing: Easing.out(Easing.quad), useNativeDriver: true,
-              }).start();
+              crossFade(0);
             } else {
               stickBottom();
             }
@@ -1421,13 +1444,17 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           пользователь попросил чистый чат. Раздумья видны в блоке ThinkingBlock. */}
 
       {/* экран ожидания: подъём сессии — «role swap» по центру */}
-      {!listReady && !!active && active.messages.length > 0 ? (
-        <View
+      {loaderOn && !!active && active.messages.length > 0 ? (
+        <Animated.View
           pointerEvents="none"
-          style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center" }}
+          style={{
+            position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+            alignItems: "center", justifyContent: "center",
+            opacity: loaderFade,
+          }}
         >
           <PillSwapLoader size={0.92} />
-        </View>
+        </Animated.View>
       ) : null}
 
       {/* ожидание первого токена модели — та же анимация, мелкая, над капсулой */}
@@ -1445,7 +1472,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         pointerEvents={showJump ? "auto" : "none"}
         style={{
           position: "absolute", right: 16,
-          bottom: Math.max(composerH, 76) + 12,
+          bottom: Math.max(composerH, 76) - 80,
           opacity: jumpAnim,
           transform: [
             { translateY: jumpAnim.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) },
@@ -1504,9 +1531,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                   style={{
                     height: 1,
                     backgroundColor: theme.bg,
-                    // панель вложений перекрывает фон глухо: иначе между
-                    // плитками просвечивал обрывками текст чата
-                    opacity: attachOpen ? 1 : i / Math.max(1, composerH - 1),
+                    opacity: i / Math.max(1, composerH - 1),
                   }}
                 />
               ))}
@@ -1543,9 +1568,9 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                 setAttachOpen(next);
                 Animated.timing(attachAnim, {
                   toValue: next ? 1 : 0,
-                  duration: 220,
-                  easing: Easing.out(Easing.cubic),
-                  useNativeDriver: true,
+                  duration: next ? 280 : 220,
+                  easing: next ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
+                  useNativeDriver: false,
                 }).start();
               }}
               hitSlop={6}
@@ -1646,7 +1671,13 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           </Glass>
 
           {/* Вложения: капсула уезжает вверх, снизу выезжает панель из трёх плиток. */}
-          {attachOpen && (
+          <Animated.View
+            pointerEvents={attachOpen ? "auto" : "none"}
+            style={{
+              overflow: "hidden",
+              height: attachAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 110] }),
+            }}
+          >
             <Animated.View
               style={{
                 flexDirection: "row", gap: 10, marginTop: 10, marginBottom: 8,
@@ -1682,7 +1713,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                 </Pressable>
               ))}
             </Animated.View>
-          )}
+          </Animated.View>
         </View>
       </KeyboardAvoidingView>
 
