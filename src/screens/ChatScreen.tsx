@@ -247,6 +247,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   const jumpAnim = useRef(new Animated.Value(0)).current;
   // Плюс → красный крест: поворот 0→45° и смена цвета.
   const attachAnim = useRef(new Animated.Value(0)).current;
+  const attachAnimN = useRef(new Animated.Value(0)).current;
   const [attachOpen, setAttachOpen] = useState(false);
 
   const active = state.sessions.find((s) => s.id === state.activeSessionId) ?? null;
@@ -1566,12 +1567,13 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               onPress={() => {
                 const next = !attachOpen;
                 setAttachOpen(next);
-                Animated.timing(attachAnim, {
+                const cfg = {
                   toValue: next ? 1 : 0,
                   duration: next ? 280 : 220,
                   easing: next ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
-                  useNativeDriver: false,
-                }).start();
+                };
+                Animated.timing(attachAnim, { ...cfg, useNativeDriver: false }).start();
+                Animated.timing(attachAnimN, { ...cfg, useNativeDriver: true }).start();
               }}
               hitSlop={6}
               style={({ pressed }) => ({
@@ -1585,8 +1587,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               <Animated.View
                 style={{
                   position: "absolute",
-                  opacity: attachAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
-                  transform: [{ rotate: attachAnim.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "45deg"] }) }],
+                  opacity: attachAnimN.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
+                  transform: [{ rotate: attachAnimN.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "45deg"] }) }],
                 }}
               >
                 <AppIcon name="plus" size={22} color={theme.text} />
@@ -1681,8 +1683,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             <Animated.View
               style={{
                 flexDirection: "row", gap: 10, marginTop: 10, marginBottom: 8,
-                opacity: attachAnim,
-                transform: [{ translateY: attachAnim.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) }],
+                opacity: attachAnimN,
+                transform: [{ translateY: attachAnimN.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) }],
               }}
             >
               {[
