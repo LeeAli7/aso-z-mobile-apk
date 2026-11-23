@@ -15,7 +15,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
-import { PillBurstLoader } from "./PillBurstLoader";
+import { ApertureReveal } from "../../design-system/components/ApertureMark";
 
 type Props = {
   /** вызывается после того, как шторка растворилась */
@@ -74,7 +74,7 @@ export function BootSplash({ onDone, holdMs = 0 }: Props) {
     >
       <Animated.View style={[styles.center, introStyle]}>
         <Guard onFail={start}>
-          <PillBurstLoader size={1.05} onBurst={start} />
+          <ApertureReveal size={92} onDone={start} />
         </Guard>
       </Animated.View>
     </Animated.View>

@@ -22,11 +22,16 @@ import {
   AppState } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
+import * as Haptics from "expo-haptics";
+import { LinearGradient } from "expo-linear-gradient";
+import Reanimated, { useSharedValue, useAnimatedStyle, withTiming, Easing as REasing } from "react-native-reanimated";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from "expo-speech-recognition";
+import { Svg, Polyline } from "react-native-svg";
 import { AppIcon, AppIconName } from "../design-system/components/AppIcon";
-import { PillSwapLoader } from "../components/loaders/PillSwapLoader";
+import { AttachmentStrip } from "../components/AttachmentStrip";
+import { ApertureSpin } from "../design-system/components/ApertureMark";
 
 import { useApp, genId, Msg, Session } from "../store/AppStore";
 import { ModelInfo, streamChat, streamAgentChat, ChatMessage, ChatPart, AgentToolCall } from "../core/gateway";
@@ -177,6 +182,22 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // Текст, который был в поле до старта записи. Android присылает interim-результат
   // ЦЕЛИКОМ на каждое обновление; дописывание «prev + txt» давало слова по 2-3 раза.
   const sttBase = useRef("");
+  const [recSec, setRecSec] = useState(0);
+  const waveApi = useRef<((v: number) => void) | null>(null);
+  // 0 — обычная капсула, 1 — диктовка: левая кнопка сжата, линия во всю ширину
+  const recProg = useSharedValue(0);
+  useEffect(() => {
+    recProg.value = withTiming(recording ? 1 : 0, {
+      duration: recording ? 220 : 180,
+      easing: REasing.out(REasing.cubic),
+    });
+  }, [recording, recProg]);
+  const leftStyle = useAnimatedStyle(() => ({
+    width: 40 * (1 - recProg.value),
+    opacity: 1 - recProg.value,
+    marginRight: -8 * recProg.value,
+    overflow: "hidden",
+  }));
   // true ровно на время программной записи текста из STT: ручной ввод пользователя
   // в это окно не должен считаться частью распознанной фразы.
   const sttWriting = useRef(false);
@@ -200,9 +221,21 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     recStarting.current = false;
     setRecording(false);
   });
+  // rms с микрофона: 10-20 событий в секунду, рисуем не чаще 22 кадров
+  useSpeechRecognitionEvent("volumechange", (e: any) => {
+    waveApi.current?.(Number(e?.value ?? 0));
+  });
+  // таймер записи
+  useEffect(() => {
+    if (!recording) return;
+    setRecSec(0);
+    const id = setInterval(() => setRecSec((v) => v + 1), 1000);
+    return () => clearInterval(id);
+  }, [recording]);
   const toggleVoice = useCallback(async () => {
     try {
       if (recording) {
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
         try { ExpoSpeechRecognitionModule.stop(); } catch {}
         setRecording(false);
         return;
@@ -229,6 +262,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       try {
         sttBase.current = text.trim();
         ExpoSpeechRecognitionModule.start({ lang, interimResults: true, continuous: false } as any);
+        closeAttach();
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
         setRecording(true);
       } catch (e: any) {
         showToast("err", String(e?.message || e));
@@ -247,8 +282,38 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   const jumpAnim = useRef(new Animated.Value(0)).current;
   // Плюс → красный крест: поворот 0→45° и смена цвета.
   const attachAnim = useRef(new Animated.Value(0)).current;
-  const attachAnimN = useRef(new Animated.Value(0)).current;
+  // панель вложений: прогресс живёт на UI-потоке. Раньше высоту вёл
+  // Animated с useNativeDriver:false — каждый кадр пересобирал 200 полосок
+  // подложки и перекладывал список, отсюда рывки.
+  // низ связки над клавиатурой/жестом — панель вложений встаёт ровно сюда
+  const compPadBottom = Platform.OS === "android" ? kbH + Math.max(insets.bottom, 8) + 8 : insets.bottom + 8;
+  const attachProg = useSharedValue(0);
   const [attachOpen, setAttachOpen] = useState(false);
+  // Вся связка «лента вложений + капсула + панель» поднимается одним transform.
+  // Никакого пересчёта height: layout не меняется, список не перекладывается,
+  // composerH не дёргается — отсюда пропавшие рывки.
+  const attachLift = useAnimatedStyle(() => ({
+    transform: [{ translateY: -110 * attachProg.value }],
+  }));
+  const attachPanelStyle = useAnimatedStyle(() => ({
+    opacity: attachProg.value,
+    transform: [{ translateY: (1 - attachProg.value) * 8 }],
+  }));
+
+  /** Закрыть панель откуда угодно (тайл, выбор файла, клавиатура).
+   *  Раньше тайлы звали только setAttachOpen(false), а анимация оставалась
+   *  на 1: панель висела раскрытой с pointerEvents="none" — видно, но не нажать.
+   *  Отсюда и «приходится закрывать и открывать заново». */
+  const closeAttach = useCallback(() => {
+    setAttachOpen(false);
+    attachProg.value = withTiming(0, { duration: 200, easing: REasing.in(REasing.cubic) });
+    Animated.timing(attachAnim, {
+      toValue: 0,
+      duration: 220,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [attachProg, attachAnim]);
 
   const active = state.sessions.find((s) => s.id === state.activeSessionId) ?? null;
   const allModels = [...state.models, ...state.customModels];
@@ -375,7 +440,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
 
   // ── Прикрепление: фото (галерея, мультивыбор), камера, файл (мультивыбор) ──
   const pickImage = useCallback(async () => {
-    setAttachOpen(false);
+    closeAttach();
     try {
       const res = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images"],
@@ -393,7 +458,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   }, []);
 
   const pickCamera = useCallback(async () => {
-    setAttachOpen(false);
+    closeAttach();
     try {
       const perm = await ImagePicker.requestCameraPermissionsAsync();
       if (!perm.granted) {
@@ -410,7 +475,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   }, []);
 
   const pickFile = useCallback(async () => {
-    setAttachOpen(false);
+    closeAttach();
     try {
       const res = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: true });
       if (!res.canceled && res.assets?.length) {
@@ -1246,13 +1311,14 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         pointerEvents="box-none"
         style={{ position: "absolute", top: 0, left: 0, right: 0, zIndex: 20 }}
       >
-        {/* Плавное ступенчатое затемнение сверху: под кнопками сплошной фон,
-            ниже — мягкий переход 30px, чтобы текст растворялся без кромки. */}
-        <View pointerEvents="none" style={{ position: "absolute", top: 0, left: 0, right: 0 }}>
-          {Array.from({ length: insets.top + 66 }).map((_, i, arr) => (
-            <View key={`hd${i}`} style={{ height: 1, backgroundColor: theme.bg, opacity: 1 - i / (arr.length - 1) }} />
-          ))}
-        </View>
+        {/* Плавное затемнение сверху: сплошной фон под кнопками, ниже мягкий
+            переход. Настоящий градиент — 1px-полоски давали ступеньки. */}
+        <LinearGradient
+          pointerEvents="none"
+          colors={[theme.bg, theme.bg, "transparent"]}
+          locations={[0, 0.42, 1]}
+          style={{ position: "absolute", top: 0, left: 0, right: 0, height: insets.top + 66 }}
+        />
         <View
           pointerEvents="box-none"
           style={{
@@ -1454,7 +1520,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             opacity: loaderFade,
           }}
         >
-          <PillSwapLoader size={0.92} />
+          <ApertureSpin size={34} color={theme.mute} />
         </Animated.View>
       ) : null}
 
@@ -1464,7 +1530,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           pointerEvents="none"
           style={{ position: "absolute", left: 0, right: 0, bottom: Math.max(composerH, 76) + 10, alignItems: "center" }}
         >
-          <PillSwapLoader size={0.52} />
+          <ApertureSpin size={20} color={theme.mute} cycle={960} />
         </View>
       ) : null}
 
@@ -1518,62 +1584,52 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           style={{
             backgroundColor: "transparent",
             paddingHorizontal: 12, paddingTop: 96,
-            paddingBottom: Platform.OS === "android" ? kbH + Math.max(insets.bottom, 8) + 8 : insets.bottom + 8,
+            paddingBottom: compPadBottom,
           }}
         >
-          {/* Подложка капсулы: как сверху, только зеркально — градиент на всю высоту
-              панели, от полной прозрачности у верхней кромки до глухого чёрного
-              за нижней кромкой экрана. Никаких плашек и обрывов у капсулы. */}
-          <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }}>
-            {composerH > 0 &&
-              Array.from({ length: composerH }).map((_, i) => (
-                <View
-                  key={`cf${i}`}
-                  style={{
-                    height: 1,
-                    backgroundColor: theme.bg,
-                    opacity: i / Math.max(1, composerH - 1),
-                  }}
-                />
-              ))}
-          </View>
-          {/* вложения — НАД капсулой: иконка ТИПА каждого вложения (та же, что в меню «Прикрепить»), крестики для удаления */}
-          {attachments.length > 0 && (
-            <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: 8, gap: 8 }}>
-              {attachments.map((a, ai) => (
-                <View key={ai} style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: theme.surface, borderRadius: 20, paddingLeft: 6, paddingRight: 4, paddingVertical: 4 }}>
-                  <View style={{ width: 28, height: 28, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: theme.accentDim }}>
-                    {a.kind === "file" ? (
-                      <AppIcon name={fileIconName(a.name)} size={15} color={theme.accentHi} />
-                    ) : (
-                      <AppIcon name={a.kind === "camera" ? "camera" : "image"} size={15} color={theme.accentHi} />
-                    )}
-                  </View>
-                  <Text numberOfLines={1} style={{ color: theme.dim, fontSize: 11, maxWidth: 110, flexShrink: 1 }}>{a.name ?? "файл"}</Text>
-                  <Pressable onPress={() => setAttachments((prev) => prev.filter((_, i) => i !== ai))} hitSlop={8} accessibilityLabel="Убрать вложение" style={{ width: 28, height: 28, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: theme.surface2 }}>
-                    <AppIcon name="close" size={14} color={theme.mute} />
-                  </Pressable>
-                </View>
-              ))}
-            </View>
-          )}
+          {/* Подложка: настоящий градиент вместо 200 полосок по 1 px — именно они
+              просвечивали полосами в зазорах между плитками панели. Привязан к низу
+              связки, то есть гаснет ровно на нижней кромке капсулы и ниже не идёт. */}
+          <Reanimated.View collapsable={false} style={[{ position: "relative" }, attachLift]}>
+            <LinearGradient
+              pointerEvents="none"
+              colors={["transparent", theme.bg]}
+              locations={[0, 1]}
+              style={{ position: "absolute", left: -12, right: -12, top: -96, bottom: 0 }}
+            />
+            {/* вложения — НАД капсулой: блок 72, внутри фото или иконка типа, имя снизу */}
+            {attachments.length > 0 && (
+              <AttachmentStrip
+                items={attachments}
+                theme={theme}
+                onRemove={(i) => setAttachments((prev) => prev.filter((_, k) => k !== i))}
+              />
+            )}
           {/* капсула ввода: #141416, радиус 26, без стекла и градиентов */}
           <Glass
             radius={25}
             border={false}
             style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 8, overflow: "hidden" }}
           >
+            {/* во время диктовки слева не остаётся ничего: кнопка сжимается
+                в ноль, линия начинается от самой кромки капсулы */}
+            <Reanimated.View style={[{ flexShrink: 0 }, leftStyle]}>
             <Pressable
+              disabled={recording}
               onPress={() => {
                 const next = !attachOpen;
+                void Haptics.selectionAsync().catch(() => {});
                 setAttachOpen(next);
-                const cfg = {
+                attachProg.value = withTiming(next ? 1 : 0, {
+                  duration: next ? 260 : 200,
+                  easing: next ? REasing.out(REasing.cubic) : REasing.in(REasing.cubic),
+                });
+                Animated.timing(attachAnim, {
                   toValue: next ? 1 : 0,
                   duration: next ? 280 : 220,
                   easing: next ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
-                };
-                Animated.timing(attachAnim, { ...cfg, useNativeDriver: false }).start();
-                Animated.timing(attachAnimN, { ...cfg, useNativeDriver: true }).start();
+                  useNativeDriver: true,
+                }).start();
               }}
               hitSlop={6}
               style={({ pressed }) => ({
@@ -1587,8 +1643,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               <Animated.View
                 style={{
                   position: "absolute",
-                  opacity: attachAnimN.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
-                  transform: [{ rotate: attachAnimN.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "45deg"] }) }],
+                  opacity: attachAnim.interpolate({ inputRange: [0, 1], outputRange: recording ? [0, 0] : [1, 0] }),
+                  transform: [{ rotate: attachAnim.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "45deg"] }) }],
                 }}
               >
                 <AppIcon name="plus" size={22} color={theme.text} />
@@ -1596,15 +1652,19 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               <Animated.View
                 style={{
                   position: "absolute",
-                  opacity: attachAnim,
+                  opacity: recording ? 0 : attachAnim,
                   transform: [{ rotate: attachAnim.interpolate({ inputRange: [0, 1], outputRange: ["-45deg", "0deg"] }) }],
                 }}
               >
                 <AppIcon name="close" size={22} color={theme.danger} />
               </Animated.View>
             </Pressable>
+            </Reanimated.View>
+            {/* поле; на время диктовки текст невидим — поверх идёт линия уровня */}
+            <View style={{ flex: 1 }}>
             <TextInput
               value={text}
+              caretHidden={recording}
               underlineColorAndroid="transparent"
               /* тап по полю не должен выбрасывать из прочитанного места в самый низ */
               onChangeText={(v) => {
@@ -1613,12 +1673,13 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                 if (!sttWriting.current) sttBase.current = v;
                 setText(v);
               }}
-              placeholder={t("message_placeholder")}
+              placeholder={recording ? "" : t("message_placeholder")}
               placeholderTextColor={theme.mute}
               multiline
               textAlignVertical="center"
               style={{
-                flex: 1, fontSize: 14, color: theme.text, backgroundColor: "transparent",
+                flex: 1, fontSize: 14, backgroundColor: "transparent",
+                color: recording ? "transparent" : theme.text,
                 fontFamily: fonts.sansMedium,
                 textAlignVertical: "center",
                 // web: textarea не центрирует текст вертикально — задаём высоту и паддинги,
@@ -1628,6 +1689,17 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                   : { minHeight: 44, maxHeight: 76, paddingVertical: 0, lineHeight: 20 }),
               }}
             />
+            {recording ? (
+              <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                <RecWave api={waveApi} color={theme.text} />
+              </View>
+            ) : null}
+            </View>
+            {recording ? (
+              <Text style={{ fontFamily: fonts.mono, fontSize: 11.5, color: theme.mute }}>
+                {`${Math.floor(recSec / 60)}:${String(recSec % 60).padStart(2, "0")}`}
+              </Text>
+            ) : null}
             {recording ? (
               <Pressable
                 onPress={toggleVoice}
@@ -1671,21 +1743,21 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               </Pressable>
             )}
           </Glass>
+          </Reanimated.View>
 
-          {/* Вложения: капсула уезжает вверх, снизу выезжает панель из трёх плиток. */}
-          <Animated.View
+          {/* Панель «прикрепить»: висит под капсулой абсолютно, высота не анимируется —
+              связка уезжает вверх transform'ом, поэтому layout не пересчитывается.
+              Плитки 92, между ними пусто: переписка просвечивает. */}
+          <Reanimated.View
             pointerEvents={attachOpen ? "auto" : "none"}
+            collapsable={false}
             style={{
-              overflow: "hidden",
-              height: attachAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 110] }),
+              position: "absolute", left: 0, right: 0, bottom: compPadBottom,
+              height: 110, paddingTop: 10, zIndex: 3,
             }}
           >
-            <Animated.View
-              style={{
-                flexDirection: "row", gap: 10, marginTop: 10, marginBottom: 8,
-                opacity: attachAnimN,
-                transform: [{ translateY: attachAnimN.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) }],
-              }}
+            <Reanimated.View
+              style={[{ flexDirection: "row", gap: 10 }, attachPanelStyle]}
             >
               {[
                 { icon: "camera" as const, label: "Камера", onPress: pickCamera },
@@ -1695,7 +1767,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                 <Pressable
                   key={b.label}
                   onPress={() => {
-                    setAttachOpen(false);
+                    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                    closeAttach();
                     b.onPress();
                   }}
                   style={({ pressed }) => ({
@@ -1714,8 +1787,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                   <Text style={{ color: theme.text, fontSize: 13, fontWeight: "500" }}>{b.label}</Text>
                 </Pressable>
               ))}
-            </Animated.View>
-          </Animated.View>
+            </Reanimated.View>
+          </Reanimated.View>
         </View>
       </KeyboardAvoidingView>
 
@@ -1982,6 +2055,70 @@ export function ChatScreen({ navigation }: { navigation: any }) {
  * Иконка файла по типу — те же AppIcon, что в меню «Прикрепить»:
  * архив → archive, документ/текст → description, остальное → insert-drive-file.
  */
+/**
+ * Живая линия уровня для диктовки (вариант А): 40 сэмплов rms с микрофона,
+ * зигзаг гаснет к левой кромке, обновление не чаще 22 раз в секунду.
+ * Рисуется поверх поля, поэтому текст в поле на время записи прозрачный.
+ */
+function RecWave({ api, color }: { api: React.MutableRefObject<((v: number) => void) | null>; color: string }) {
+  const [pts, setPts] = useState("");
+  const buf = useRef<number[]>(new Array(40).fill(0));
+  const last = useRef(0);
+  const sm = useRef(0);
+  const inn = useSharedValue(0);
+
+  useEffect(() => {
+    inn.value = withTiming(1, { duration: 180, easing: REasing.out(REasing.cubic) });
+  }, [inn]);
+  const st = useAnimatedStyle(() => ({
+    opacity: inn.value,
+    transform: [{ scaleX: 0.55 + 0.45 * inn.value }],
+  }));
+
+  const push = useCallback((v: number) => {
+    const now = Date.now();
+    if (now - last.current < 45) return;
+    last.current = now;
+    const raw = Math.max(0, Math.min(1, (v + 2) / 12));
+    sm.current = sm.current * 0.55 + raw * 0.45;
+    buf.current.push(sm.current);
+    buf.current.shift();
+    const n = buf.current.length;
+    setPts(
+      buf.current
+        .map((a, i) => {
+          const env = Math.min(1, i / 4); // слева линия ещё зарождается
+          const sgn = i % 2 === 0 ? 1 : -1;
+          const x = ((i / (n - 1)) * 100).toFixed(2);
+          const y = (22 - sgn * a * 15 * (0.35 + 0.65 * env)).toFixed(1);
+          return `${x},${y}`;
+        })
+        .join(" "),
+    );
+  }, []);
+
+  useEffect(() => {
+    api.current = push;
+    return () => { api.current = null; };
+  }, [api, push]);
+
+  return (
+    <Reanimated.View style={[StyleSheet.absoluteFill, st]}>
+      <Svg width="100%" height="100%" viewBox="0 0 100 44" preserveAspectRatio="none">
+        <Polyline
+          points={pts}
+          fill="none"
+          stroke={color}
+          strokeWidth={1.6}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          vectorEffect="non-scaling-stroke"
+        />
+      </Svg>
+    </Reanimated.View>
+  );
+}
+
 function fileIconName(name?: string): AppIconName {
   const ext = (name ?? "").split(".").pop()?.toLowerCase() ?? "";
   if (["zip", "rar", "7z", "tar", "gz", "bz2", "xz", "tgz", "zst"].includes(ext)) return "box";

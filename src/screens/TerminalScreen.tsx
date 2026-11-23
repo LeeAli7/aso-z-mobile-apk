@@ -170,20 +170,26 @@ export function TerminalScreen({ navigation }: { navigation: any }) {
         onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
         keyboardShouldPersistTaps="handled"
       >
-        {lines.map((l) => (
-          <Text
-            key={l.id}
-            selectable
-            style={{
-              color: color(l.kind),
-              fontSize: 12.5,
-              lineHeight: 19,
-              fontFamily: fonts.mono,
-            }}
-          >
-            {l.text}
-          </Text>
-        ))}
+        {/* Вывод — ОДИН selectable-блок: при выделении подсветка идёт ровной
+            полосой по всей ширине. Раньше каждая строка была отдельным
+            selectable-Text, и прямоугольники выделения налезали друг на друга. */}
+        <Text
+          selectable
+          style={{
+            color: termFg,
+            fontSize: 12.5,
+            lineHeight: 20,
+            fontFamily: fonts.mono,
+            includeFontPadding: false,
+          }}
+        >
+          {lines.map((l, i) => (
+            <Text key={l.id} style={{ color: color(l.kind) }}>
+              {l.text}
+              {i < lines.length - 1 ? "\n" : ""}
+            </Text>
+          ))}
+        </Text>
         {busy ? (
           <Text style={{ color: theme.dim, fontSize: 12.5, fontFamily: fonts.mono }}>…</Text>
         ) : null}
