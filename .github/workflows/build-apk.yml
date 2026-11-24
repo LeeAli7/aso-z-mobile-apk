@@ -1,8 +1,8 @@
 name: Build Android APK
 
+# Только вручную: полный APK собираем на «зафиксировали», а не на каждый коммит.
+# Повседневные правки идут через dev-client (Metro).
 on:
-  push:
-    branches: [master]
   workflow_dispatch:
 
 jobs:

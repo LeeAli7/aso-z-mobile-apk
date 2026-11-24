@@ -5,6 +5,7 @@ import Reanimated, {
   useAnimatedStyle,
   useSharedValue,
   withTiming,
+  type SharedValue,
 } from "react-native-reanimated";
 
 import { AppIcon } from "../design-system/components/AppIcon";
@@ -48,6 +49,7 @@ export function ModelPickerPopover({
   prefs,
   onPrefs,
   onAdd,
+  progress,
 }: {
   open: boolean;
   models: Model[];
@@ -60,10 +62,15 @@ export function ModelPickerPopover({
   prefs: ModelPrefs;
   onPrefs: (p: ModelPrefs) => void;
   onAdd: () => void;
+  /** прогресс морфа, общий с кнопкой: кнопка гаснет ровно на столько же */
+  progress?: SharedValue<number>;
 }) {
   const [mounted, setMounted] = useState(open);
   const [param, setParam] = useState<"reason" | "ctx" | null>(null);
-  const p = useSharedValue(0);
+  const [cardMounted, setCardMounted] = useState(false);
+  const localP = useSharedValue(0);
+  const p = progress ?? localP;
+  const cardP = useSharedValue(0);
 
   const rows = models.length;
   const listH = rows > 4 ? LIST_MAX : Math.max(1, rows) * ROW;
@@ -74,16 +81,30 @@ export function ModelPickerPopover({
       // «всё закрыто» при каждом открытии: карточка параметра не помнит прошлый раз
       setParam(null);
       setMounted(true);
-      p.value = withTiming(1, { duration: 240, easing: REasing.out(REasing.cubic) });
+      // рост из кнопки: чуть длиннее и с мягким «выходом», чтобы не дёргалось
+      p.value = withTiming(1, { duration: 300, easing: REasing.bezier(0.16, 0.84, 0.24, 1) });
       return;
     }
-    p.value = withTiming(0, { duration: 180, easing: REasing.in(REasing.cubic) });
-    const id = setTimeout(() => setMounted(false), 200);
+    // закрытие: карточка уезжает первой, окно возвращается в кнопку
+    setParam(null);
+    p.value = withTiming(0, { duration: 240, easing: REasing.bezier(0.4, 0, 0.6, 1) });
+    const id = setTimeout(() => setMounted(false), 260);
     return () => clearTimeout(id);
   }, [open, p]);
 
   // окно не должно уезжать за правый край: прижимаем к экрану с полем 8,
   // иначе у кнопки у края половина окна оказывается за экраном
+  useEffect(() => {
+    if (param != null) {
+      setCardMounted(true);
+      cardP.value = withTiming(1, { duration: 220, easing: REasing.bezier(0.16, 0.84, 0.24, 1) });
+      return;
+    }
+    cardP.value = withTiming(0, { duration: 160, easing: REasing.bezier(0.4, 0, 0.6, 1) });
+    const id = setTimeout(() => setCardMounted(false), 180);
+    return () => clearTimeout(id);
+  }, [param, cardP]);
+
   const leftTo = Math.max(8, Math.min(anchor.x + anchor.w - W, screenW - W - 8));
   const win = useAnimatedStyle(() => ({
     // окно растёт из кнопки и одновременно съезжает влево, если у края экрана
@@ -93,6 +114,11 @@ export function ModelPickerPopover({
     borderRadius: 26 + (20 - 26) * p.value,
   }));
   const body = useAnimatedStyle(() => ({ opacity: p.value * p.value }));
+  // карточка выезжает из-под окна: чуть вверх + проявляется
+  const card = useAnimatedStyle(() => ({
+    opacity: cardP.value,
+    transform: [{ translateY: (1 - cardP.value) * -8 }, { scale: 0.98 + 0.02 * cardP.value }],
+  }));
 
   if (!mounted) return null;
 
@@ -229,12 +255,10 @@ export function ModelPickerPopover({
       </Reanimated.View>
 
       {/* ── окно 2: параметр, только когда строка открыта ── */}
-      {param != null ? (
+      {cardMounted ? (
       <Reanimated.View
-        style={[{
-          opacity: p.value,
-          transform: [{ translateY: (1 - p.value) * 6 }],
-        }, {
+        pointerEvents={param != null ? "auto" : "none"}
+        style={[card, {
           position: "absolute",
           left: leftTo,
           top: anchor.y + winH + 8,

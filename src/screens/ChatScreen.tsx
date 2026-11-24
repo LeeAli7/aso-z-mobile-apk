@@ -94,12 +94,9 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   const markStreaming = (sid: string, on: boolean) => {
     streamingRef.current[sid] = on;
     setStreamingSessions((p) => ({ ...p, [sid]: on }));
-    // шторка фоновых: стрим активной сессии — тоже фоновая задача
-    setBgTasks((p) => {
-      const rest = p.filter((x) => x.id !== "stream:" + sid);
-      if (on) return [...rest, { id: "stream:" + sid, kind: "stream", label: "Ответ агента", startedAt: Date.now() } as PopoverTask];
-      return rest;
-    });
+    // Основной агент — НЕ фоновая задача: ни в счётчике, ни в шторке.
+    // Индикатор и окно процессов показывают только реальный фон
+    // (рантайм, субагенты, расписание).
     // единый реестр фоновых: индикатор и кнопка «стоп» видят стрим из движка
     if (on) {
       registerBg("stream", "stream:" + sid, "Ответ агента", () => {
@@ -163,6 +160,10 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   const pillRef = useRef<View>(null);
   const chipRef = useRef<View>(null);
   const [pillBox, setPillBox] = useState({ x: 0, y: 0, w: 118, h: 40 });
+  // прогресс морфа кнопка→окно: один shared value на оба, иначе кнопка
+  // пропадает мгновенно и окно «появляется поверх» неё
+  const pickerProg = useSharedValue(0);
+  const pillFade = useAnimatedStyle(() => ({ opacity: 1 - pickerProg.value }));
   const [chipBox, setChipBox] = useState({ x: 0, y: 0, w: 47, h: 40 });
   const { width: screenW } = useWindowDimensions();
 
@@ -1421,6 +1422,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             <BgIndicator theme={theme} count={bgCount} onPress={openBg} />
           </View>
           {/* Выбор модели — справа, габариты как у бургера: высота touchTarget, капсула. */}
+          <Reanimated.View style={pillFade}>
           <Pressable
             ref={pillRef as any}
             onPress={openPicker}
@@ -1428,7 +1430,6 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             accessibilityLabel="Модель"
             hitSlop={{ top: 2, bottom: 2 }}
             style={({ pressed }) => ({
-              opacity: modelPickerOpen ? 0 : 1,
               height: 40,
               flexDirection: "row",
               alignItems: "center",
@@ -1442,6 +1443,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             <Text numberOfLines={1} style={{ color: theme.text, fontSize: 13.5, fontFamily: fonts.sansDemi, maxWidth: 132 }}>{modelName}</Text>
             <AppIcon name="chevron-down" size={13} color={theme.dim} />
           </Pressable>
+          </Reanimated.View>
         </View>
 
       </View>
@@ -1757,7 +1759,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                 // чтобы строка (20px) стояла ровно по центру поля 44
                 ...(Platform.OS === "web"
                   ? { height: 44, lineHeight: 20, paddingTop: 12, paddingBottom: 12, maxHeight: undefined }
-                  : { minHeight: 44, maxHeight: 76, paddingVertical: 0, lineHeight: 20 }),
+                  : { minHeight: 44, maxHeight: 120, paddingVertical: 0, lineHeight: 20 }),
               }}
             />
             {recording ? (
@@ -1895,6 +1897,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
 
       {/* ── Выбор модели: окно растёт вверх на месте кнопки, без шторки снизу ── */}
       <ModelPickerPopover
+        progress={pickerProg}
         open={modelPickerOpen}
         models={allModels.map((m) => ({
           modelName: m.modelName,
