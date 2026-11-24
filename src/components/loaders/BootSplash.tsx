@@ -48,16 +48,10 @@ export function BootSplash({ onDone, holdMs = 0 }: Props) {
 
   const fade = useAnimatedStyle(() => ({ opacity: opacity.value }));
 
-  // появление самой капсулы: без него на старте капсула и красная точка
-  // возникают одним кадром поверх чёрного
-  const intro = useSharedValue(0);
-  useEffect(() => {
-    intro.value = withTiming(1, { duration: 260, easing: Easing.out(Easing.cubic) });
-  }, [intro]);
-  const introStyle = useAnimatedStyle(() => ({
-    opacity: intro.value,
-    transform: [{ scale: 0.96 + 0.04 * intro.value }],
-  }));
+  // Знак уже стоит на первом кадре: раньше он проявлялся из нуля, и между
+  // нативной заставкой и анимацией получалась чёрная пауза.
+  const intro = useSharedValue(1);
+  const introStyle = useAnimatedStyle(() => ({ opacity: intro.value }));
 
   // страховка: если анимация почему-то не отдала вспышку — не держим чёрный экран
   useEffect(() => {

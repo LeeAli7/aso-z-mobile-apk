@@ -10,7 +10,7 @@ import { decrypt } from "./crypto";
 import { normalizeChatUrl } from "./url";
 import { Platform } from "react-native";
 import { config } from "./env";
-import { executeTool } from "./tools";
+import { executeTool, toolNames } from "./tools";
 
 export interface ModelInfo {
   /** Уникальный ключ модели (напр. "sys:deepseek-v4-flash-free" или кастомный). */
@@ -79,6 +79,7 @@ export const ASOAI_SYSTEM_PROMPT = [
   "11. Результат работы должен быть РЕАЛЬНЫМ: если ты что-то выполнил — покажи фактический вывод. Если инструмент вернул ошибку — честно скажи об этом и попробуй другой путь. Никогда не подставляй выдуманный результат вместо реального вывода инструмента.",
   "12. Не спрашивай «хотите, я сделаю?» — делай. После выполнения дай краткое резюме (2-4 предложения).",
   "13. Уточняющий вопрос — это ПОСЛЕДНЕЕ средство, а не первое. Сначала попробуй выполнить сам: посмотри файлы, окружение, вывод команд. Спрашивай только если без ответа пользователя задача РЕАЛЬНО неоднозначна (например, какую из двух одинаково названных папок удалить) — и тогда задай ОДИН короткий вопрос с вариантами, а не список вопросов. Если можешь выбрать разумный вариант по умолчанию — выбирай и говори какой.",
+  "15. ФОРМАТ КОМАНД. Инструменты вызываются ТОЛЬКО как function call: имя строго из списка (run_command, read_file, write_file, list_files, memory, todo, web_search, skill_view, skill_manage, session_search) и аргументы — ОДИН валидный JSON-объект. Точные поля: run_command {\"command\": \"…\", \"background\": false, \"timeout_ms\": 120000}; read_file {\"path\": \"…\"}; list_files {\"path\": \"…\"}; write_file {\"path\": \"…\", \"content\": \"…\"}; memory {\"operations\": [{\"action\": \"add|replace|remove|list\", \"content\": \"…\", \"target\": \"user|memory\"}]}; todo {\"operations\": [{\"action\": \"add|update|remove|list\", \"content\": \"…\", \"id\": \"…\"}]}; web_search {\"query\": \"…\"}; skill_view {\"name\": \"…\"}; session_search {\"query\": \"…\"}. НЕ изобретай имён инструментов и НЕ пиши команды текстом — ни `run: ls`, ни `command(ls)`, ни <tool>ls</tool>, ни блоком ```bash с расчётом на выполнение: приложение понимает только перечисленные имена и JSON-аргументы, остальное вызовет ошибку. Если подходящего инструмента нет — объясни словами, что нужно сделать, и не притворяйся, что выполнил.",
   "14. Ты не знаешь состояние устройства, пока не проверил. Не рассуждай «должно быть так» — проверь: ls, cat, stat, --version, curl -I. Ошибку считай фактом, а не поводом для догадок: читай текст ошибки и устраняй её причину.",
 ].join("\n");
 
@@ -481,6 +482,9 @@ export async function streamAgentChat(
   // уже автодокрутка. Симптом из баг-репорта: после tool_result модель бросает
   // короткое подтверждение («готово») и цепь обрывается — задача не доведена.
   let toolsUsedInTurn = 0;
+  // Битые вызовы (неизвестный инструмент, кривые аргументы): не показываем
+  // ошибку пользователю, а возвращаем её модели и просим исправленный вызов.
+  let failedCalls = 0;
   let continuedAfterTool = 0;
 
   // Лимит ходов и компрессия из конфига агента (Hermes: agent.max_turns, compression).
@@ -630,6 +634,21 @@ export async function streamAgentChat(
       toolsUsedInTurn++;
       callbacks.onToolResult?.(c, res.ok, res.result);
       messages.push({ role: "tool", tool_call_id: c.id, name: c.name, content: res.result });
+      if (!res.ok) {
+        failedCalls++;
+        // Приложение понимает только свои инструменты и JSON-аргументы.
+        // Модель, приславшая чужой формат, получает текст ошибки и второй шанс —
+        // в чате при этом не появляется красная карточка с ошибкой.
+        messages.push({
+          role: "user",
+          content:
+            `[System: вызов «${c.name}» НЕ выполнен. Ошибка: ${String(res.result).slice(0, 500)}. ` +
+            `Не повторяй тот же вызов. Пришли исправленный: имя инструмента строго из списка ` +
+            `(${toolNames().join(", ")}) и аргументы — валидный JSON-объект. ` +
+            `Если инструмент не подходит — ответь словами, без вызова.]`,
+        });
+        if (failedCalls >= 3) toolsEnabled = false;
+      }
     }
     // последняя итерация бюджета — просим финальный ответ без тулов
     if (iter === maxIter - 1) toolsEnabled = false;

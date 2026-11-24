@@ -20,6 +20,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ApertureSpin } from "../design-system/components/ApertureMark";
 import { AppIcon, AppIconName } from "../design-system/components/AppIcon";
 import { ModelInfo } from "../core/gateway";
 import { Session } from "../store/AppStore";
@@ -51,6 +52,7 @@ export function DrawerLineArt({
   onNewChat,
   onNavigate,
   sessions,
+  streaming,
   activeId,
   onSelectSession,
   search,
@@ -72,6 +74,8 @@ export function DrawerLineArt({
   onNewChat: () => void;
   onNavigate: (route: string) => void;
   sessions: Session[];
+  /** какие сессии сейчас работают: id → true */
+  streaming?: Record<string, boolean>;
   activeId?: string | null;
   onSelectSession: (id: string) => void;
   search: string;
@@ -290,6 +294,7 @@ export function DrawerLineArt({
                     >
                       {!!s.pinned && <AppIcon name="pin" color={theme.dim} size={14} />}
                       {!!s.cron && <AppIcon name="clock" color={theme.mute} size={14} />}
+                      {streaming?.[s.id] ? <ApertureSpin size={13} color={theme.text} cycle={1080} min={0.14} /> : null}
                       <Text numberOfLines={1} style={{ flex: 1, color: on ? theme.text : theme.dim, fontSize: 15.5, fontWeight: on ? "600" : "400" }}>
                         {s.name}
                       </Text>

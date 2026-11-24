@@ -379,11 +379,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   const listRef = useRef<FlatList<any>>(null);
   // Плавное открытие сессии: список монтируется целиком, потом один прыжок
   // в низ без анимации и мягкое проявление — без поэтапного дёрганья.
-  const listFade = useRef(new Animated.Value(0)).current;
-  const loaderFade = useRef(new Animated.Value(1)).current;
-  const waitFade = useRef(new Animated.Value(0)).current;
+  const listFade = useRef(new Animated.Value(1)).current;
   const [listReady, setListReady] = useState(false);
-  const [loaderOn, setLoaderOn] = useState(true);
   const [showJump, setShowJump] = useState(false);
   const jumpAnim = useRef(new Animated.Value(0)).current;
   // Плюс → красный крест: поворот 0→45° и смена цвета.
@@ -444,6 +441,15 @@ export function ChatScreen({ navigation }: { navigation: any }) {
 
   const active = state.sessions.find((s) => s.id === state.activeSessionId) ?? null;
   const allModels = [...state.models, ...state.customModels];
+  // что показать «работает» в списке сессий: реестр стримов + флаг у сообщения
+  const liveSessions = useMemo(() => {
+    const o: Record<string, boolean> = { ...streamingSessions };
+    for (const s of state.sessions) {
+      const last = s.messages[s.messages.length - 1] as any;
+      if (last?.streaming) o[s.id] = true;
+    }
+    return o;
+  }, [state.sessions, streamingSessions]);
   const model = allModels.find((m) => m.modelName === active?.modelId) ?? allModels[0];
   // Рассуждение и контекст — свои у каждой модели, живут в AsyncStorage.
   const [prefs, setPrefs] = useState<ModelPrefs>(DEFAULT_PREFS);
@@ -510,60 +516,28 @@ export function ChatScreen({ navigation }: { navigation: any }) {
 
   // модель ещё не выдала ни одного токена — вместо пустого пузыря показываем
   // пульс капсулы; как только пошёл текст, индикатор исчезает
+  // пока модель не выдала текст — знак ждёт слева под последним блоком
+  // (размышлением или командой), как продолжение цепочки
   const waitingFirst = useMemo(() => {
-    if (!active || !isStreaming(active.id)) return false;
-    const last = active.messages[active.messages.length - 1];
-    if (!last) return true;
-    const m = last as any;
-    return last.role === "assistant" && !m.content && !m.thinking && !m.tool;
+    if (!active) return false;
+    const last = active.messages[active.messages.length - 1] as any;
+    if (!last) return false;
+    // «живой» ход: либо в реестре стримов, либо у самого сообщения флаг streaming
+    const live = isStreaming(active.id) || !!last.streaming;
+    if (!live) return false;
+    if (last.role === "user") return true; // ответ ещё не начался
+    return !last.content; // размышление/команда уже есть, текста ещё нет
   }, [active, streamingSessions]);
 
-  // знак ожидания: появляется, пока модель не выдала первый токен, и тихо
-  // уходит, как только пошёл текст — без скачка раскладки
+  // Смена сессии — сразу к последнему сообщению. Никакой шторки и чёрного
+  // экрана: сообщения уже в памяти, поэтому прыгаем в низ в тот же кадр.
   useEffect(() => {
-    Animated.timing(waitFade, {
-      toValue: waitingFirst ? 1 : 0,
-      duration: waitingFirst ? 200 : 180,
-      easing: waitingFirst ? Easing.out(Easing.cubic) : Easing.in(Easing.quad),
-      useNativeDriver: true,
-    }).start();
-  }, [waitingFirst, waitFade]);
-
-  /* плавный переход «ожидание → чат»: список проявляется, капсула ожидания
-     в это же время растворяется. Раньше лоадер исчезал одним кадром. */
-  const crossFade = useCallback((delay = 0) => {
-    Animated.parallel([
-      Animated.timing(listFade, {
-        toValue: 1, duration: 280, delay,
-        easing: Easing.out(Easing.cubic), useNativeDriver: true,
-      }),
-      Animated.timing(loaderFade, {
-        toValue: 0, duration: 280, delay,
-        easing: Easing.in(Easing.quad), useNativeDriver: true,
-      }),
-    ]).start(({ finished }) => {
-      if (finished) setLoaderOn(false);
-    });
-  }, [listFade, loaderFade]);
-
-  // новая сессия — заново: скрыть, прыгнуть в конец, проявить
-  useEffect(() => {
-    setListReady(false);
-    setLoaderOn(true);
-    // капсула ожидания тоже проявляется, а не возникает одним кадром
-    loaderFade.setValue(0);
-    Animated.timing(loaderFade, {
-      toValue: 1, duration: 170, easing: Easing.out(Easing.quad), useNativeDriver: true,
-    }).start();
-    listFade.setValue(0);
-    // страховка: если контент не отстрелил onContentSizeChange, всё равно
-    // показываем чат, чтобы экран не остался чёрным
-    const tmr = setTimeout(() => {
-      setListReady(true);
-      crossFade(0);
-    }, 1200);
-    return () => clearTimeout(tmr);
-  }, [active?.id, listFade]);
+    setListReady(true);
+    const id = setTimeout(() => {
+      listRef.current?.scrollToEnd({ animated: false });
+    }, 0);
+    return () => clearTimeout(id);
+  }, [active?.id]);
 
   useEffect(() => {
     Animated.timing(jumpAnim, {
@@ -977,9 +951,15 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         if (getRun(sid).stop) return;
         const tid = toolIds[toolIdx++];
         if (!tid) return;
+        if (!ok) {
+          // Битый вызов (чужое имя инструмента, кривой JSON) — не наша проблема
+          // в UI: карточку убираем, модель получает ошибку и шлёт исправленный вызов.
+          dispatch({ type: "DELETE_MSG", sessionId: sid, msgId: tid });
+          return;
+        }
         dispatch({
           type: "UPDATE_MSG", sessionId: sid, msgId: tid,
-          patch: { toolState: ok ? "done" : "error", toolOutput: String(result ?? "").slice(0, 2000) },
+          patch: { toolState: "done", toolOutput: String(result ?? "").slice(0, 2000) },
         });
       };
       // Финал: FILE-запись (проекты, plain-путь), [CMD:] фолбэк, закрытие стриминга.
@@ -1558,7 +1538,16 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           style={{ flex: 1 }}
           data={chainGroups}
           keyExtractor={(g) => g.id}
-          ListFooterComponent={null}
+          ListFooterComponent={
+            waitingFirst ? (
+              <View
+                style={{ alignItems: "flex-start", paddingTop: 10, paddingLeft: 2 }}
+                accessibilityLabel="Агент думает"
+              >
+                <ApertureSpin size={22} color={theme.text} cycle={1080} min={0.14} />
+              </View>
+            ) : null
+          }
           /* paddingBottom — только воздух: капсула стоит в потоке ниже списка,
              поэтому прежний composerH + 24 давал пустую полосу над капсулой. */
           contentContainerStyle={{
@@ -1570,11 +1559,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           }}
           onContentSizeChange={() => {
             if (!listReady) {
-              // всё уже в дереве — один прыжок в самый низ без анимации,
-              // затем мягкое проявление: никакого поэтапного доезжания
               listRef.current?.scrollToEnd({ animated: false });
               setListReady(true);
-              crossFade(0);
             } else {
               stickBottom();
             }
@@ -1661,35 +1647,6 @@ export function ChatScreen({ navigation }: { navigation: any }) {
 
       {/* streaming-индикатор намеренно убран: ни «обрабатываю запрос…», ни точек —
           пользователь попросил чистый чат. Раздумья видны в блоке ThinkingBlock. */}
-
-      {/* экран ожидания: подъём сессии — «role swap» по центру */}
-      {loaderOn && !!active && active.messages.length > 0 ? (
-        <Animated.View
-          pointerEvents="none"
-          style={{
-            position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
-            alignItems: "center", justifyContent: "center",
-            opacity: loaderFade,
-          }}
-        >
-          <ApertureSpin size={34} color={theme.mute} />
-        </Animated.View>
-      ) : null}
-
-      {/* ожидание первого токена: наш знак по центру, створки встают по одной */}
-      {waitingFirst ? (
-        <Animated.View
-          pointerEvents="none"
-          style={{
-            position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
-            alignItems: "center", justifyContent: "center",
-            opacity: waitFade,
-          }}
-          accessibilityLabel="Агент думает"
-        >
-          <ApertureSpin size={64} color={theme.text} cycle={1080} min={0.14} />
-        </Animated.View>
-      ) : null}
 
       {/* кнопка «в самый низ» — появляется, когда пролистали вверх */}
       <Animated.View
@@ -1947,6 +1904,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         onNewChat={handleNewSession}
         onNavigate={openDrawerRoute}
         sessions={chatSessions}
+        streaming={liveSessions}
         cronSessions={cronSessions}
         onSessionMenu={(s: Session, p?: { x: number; y: number }) => { setSessionMenuPoint(p ?? null); setSessionMenuTarget(s); }}
         onPin={(s) => {
