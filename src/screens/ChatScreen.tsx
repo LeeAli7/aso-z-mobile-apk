@@ -1552,7 +1552,9 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                 style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6, paddingLeft: 2 }}
                 accessibilityLabel="Агент думает"
               >
-                <ApertureSpin size={24} color={theme.mute} cycle={1000} />
+                {/* тот же почерк, что в сплэше при запуске: створки встают
+                    по одной, шаг 70 мс — только здесь бесконечной очередью */}
+                <ApertureSpin size={26} color={theme.text} cycle={1080} min={0.14} />
                 <Text style={{ color: theme.dim, fontSize: 12.5, fontFamily: fonts.sansMedium }}>
                   Агент думает
                 </Text>
