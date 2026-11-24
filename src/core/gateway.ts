@@ -373,7 +373,7 @@ export interface AgentCallbacks {
   /** Модель вызвала тул — UI показывает карточку выполнения. */
   onToolCall?: (call: AgentToolCall) => void;
   /** Тул завершился — UI закрывает пульсацию и показывает результат. */
-  onToolResult?: (call: AgentToolCall, ok: boolean, result: string) => void;
+  onToolResult?: (call: AgentToolCall, ok: boolean, result: string, brokenCall?: boolean) => void;
   onDone: (finalText: string, messages: ChatMessage[]) => void;
   onError: (message: string) => void;
 }
@@ -632,9 +632,16 @@ export async function streamAgentChat(
       };
       const res = await executeTool(c.name, parseToolArgs(c.arguments), toolCtx);
       toolsUsedInTurn++;
-      callbacks.onToolResult?.(c, res.ok, res.result);
+      // «Битый вызов» — модель прислала чужое имя или кривые аргументы.
+      // Обычный провал команды (exit 1) — это результат работы, а не битый вызов:
+      // такой показываем карточкой и НЕ просим модель переписать вызов.
+      const brokenCall =
+        !res.ok &&
+        (!toolNames().includes(String(c.name)) ||
+          /does not exist|не хватило аргументов|не удалось разобрать|invalid json|unexpected token/i.test(res.result));
+      callbacks.onToolResult?.(c, res.ok, res.result, brokenCall);
       messages.push({ role: "tool", tool_call_id: c.id, name: c.name, content: res.result });
-      if (!res.ok) {
+      if (brokenCall) {
         failedCalls++;
         // Приложение понимает только свои инструменты и JSON-аргументы.
         // Модель, приславшая чужой формат, получает текст ошибки и второй шанс —

@@ -20,6 +20,8 @@ import {
   TextInput,
   View,
   useWindowDimensions,
+  UIManager,
+  findNodeHandle,
   AppState } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
@@ -67,7 +69,7 @@ import { Glass, GlassPressable } from "../design-system/components/Glass";
 import { Sheet } from "../design-system/components/Sheet";
 import { Button } from "../design-system/components/Button";
 import { Input } from "../design-system/components/Input";
-import { showToast } from "../design-system/components/Toast";
+import { showError, showToast } from "../design-system/components/Toast";
 
 /** Группа сообщений для ленты: chain = блок раздумий+команд, single = обычное сообщение. */
 type Group =
@@ -112,6 +114,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     }
   };
   const [msgMenuTarget, setMsgMenuTarget] = useState<Msg | null>(null);
+  const [msgMenuAt, setMsgMenuAt] = useState<{ x: number; y: number } | null>(null);
   const [renameTarget, setRenameTarget] = useState<Session | null>(null);
   // мини-окно действий с сессией (долгое нажатие в панели)
   const [sessionMenuTarget, setSessionMenuTarget] = useState<Session | null>(null);
@@ -508,6 +511,49 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // поэтому при прокрутке вверх чат рывком возвращал вниз — до верха не достать.
   const atBottom = useRef(true);
   const stickTimer = useRef<any>(null);
+  // Пока идёт наша прокрутка — события скролла не должны решать, что мы «ушли
+  // наверх»: контент растёт быстрее, и раньше из-за этого чат замирал на
+  // 1–2 вызовах выше последнего.
+  const progUntil = useRef(0);
+  const rowRefs = useRef<Record<string, any>>({});
+
+  /** Прокрутить в самый низ и добрать после раскладки (карточка/картинка выше). */
+  const doScrollEnd = (animated = true) => {
+    atBottom.current = true;
+    progUntil.current = Date.now() + 420;
+    const l = listRef.current;
+    if (!l) return;
+    l.scrollToEnd({ animated });
+    setTimeout(() => {
+      l.scrollToEnd({ animated: false });
+      progUntil.current = Date.now() + 260;
+    }, 90);
+  };
+
+  /** Финальный ответ: показать его НАЧАЛО и перестать тянуть чат вниз. */
+  const anchorFinal = (id: string) => {
+    atBottom.current = false;
+    const node = rowRefs.current[id];
+    const inner: any = (listRef.current as any)?.getInnerViewNode?.();
+    if (!node || !inner || !UIManager?.measureLayout) {
+      doScrollEnd(true);
+      return;
+    }
+    try {
+      UIManager.measureLayout(
+        findNodeHandle(node) as any,
+        findNodeHandle(inner) as any,
+        () => doScrollEnd(true),
+        (_x: number, y: number) => {
+          progUntil.current = Date.now() + 500;
+          listRef.current?.scrollToOffset({ offset: Math.max(0, y - 88), animated: true });
+        },
+      );
+    } catch {
+      doScrollEnd(true);
+    }
+  };
+
   const stickBottom = (force = false) => {
     if (force) atBottom.current = true;
     if (!force && !atBottom.current) return;
@@ -515,7 +561,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     stickTimer.current = setTimeout(() => {
       stickTimer.current = null;
       if (!force && !atBottom.current) return;
-      listRef.current?.scrollToEnd({ animated: true });
+      doScrollEnd(true);
     }, 60);
   };
   const scrollBottom = () => stickBottom();
@@ -875,6 +921,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       let textId: string | null = null;
       let agentTokAt = 0;
       let agentTokTimer: ReturnType<typeof setTimeout> | null = null;
+      // финальный ответ уже заякорен: показываем его начало и не тянем вниз
+      let anchored = false;
       const toolIds: string[] = [];
       let toolIdx = 0;
       const written: string[] = [];
@@ -903,7 +951,15 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           } else {
             dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: textId, patch: { content: textAcc } });
           }
-          scrollBottom();
+          // Итоговый ответ после инструментов: как только текста набралось на
+          // пару строк — показываем его НАЧАЛО и отпускаем автоскролл.
+          // Короткие «сейчас проверю» перед следующим вызовом не заякоривают.
+          if (!anchored && toolIds.length > 0 && textAcc.length > 120 && textId) {
+            anchored = true;
+            const id = textId;
+            setTimeout(() => anchorFinal(id), 120);
+          }
+          if (!anchored) scrollBottom();
         };
         const nowTok = Date.now();
         if (nowTok - agentTokAt >= 55) {
@@ -983,19 +1039,20 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         });
       };
       // Тул завершён: гасим пульсацию, показываем результат.
-      const onToolResult = (_call: AgentToolCall, ok: boolean, result: string) => {
+      const onToolResult = (_call: AgentToolCall, ok: boolean, result: string, brokenCall?: boolean) => {
         if (getRun(sid).stop) return;
         const tid = toolIds[toolIdx++];
         if (!tid) return;
-        if (!ok) {
+        if (brokenCall) {
           // Битый вызов (чужое имя инструмента, кривой JSON) — не наша проблема
           // в UI: карточку убираем, модель получает ошибку и шлёт исправленный вызов.
           dispatch({ type: "DELETE_MSG", sessionId: sid, msgId: tid });
           return;
         }
+        // обычный провал команды (exit 1) — это результат, его показываем
         dispatch({
           type: "UPDATE_MSG", sessionId: sid, msgId: tid,
-          patch: { toolState: "done", toolOutput: String(result ?? "").slice(0, 2000) },
+          patch: { toolState: ok ? "done" : "error", toolOutput: String(result ?? "").slice(0, 2000) },
         });
       };
       // Финал: FILE-запись (проекты, plain-путь), [CMD:] фолбэк, закрытие стриминга.
@@ -1061,11 +1118,18 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         closeMsg(thinkId);
         thinkId = null;
         if (textId) {
+          const fid = textId;
           dispatch({
-            type: "UPDATE_MSG", sessionId: sid, msgId: textId,
+            type: "UPDATE_MSG", sessionId: sid, msgId: fid,
             patch: { content: finalText || textAcc || "", streaming: false },
           });
           textId = null;
+          // короткий финальный ответ (не успел заякориться в стриме):
+          // показываем его начало, а не хвост
+          if (!anchored && toolIds.length > 0) {
+            anchored = true;
+            setTimeout(() => anchorFinal(fid), 140);
+          }
         }
       };
       const onError = (err: string) => {
@@ -1080,14 +1144,15 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             patch: { toolState: "error" },
           });
         }
+        // Ошибку в чат не пишем: плашка сверху с кодом. В пузыре остаётся
+        // только то, что модель успела сказать до сбоя.
         if (textId) {
           dispatch({
             type: "UPDATE_MSG", sessionId: sid, msgId: textId,
-            patch: { streaming: false, error: err, content: textAcc || "" },
+            patch: { streaming: false, content: textAcc || "" },
           });
-        } else {
-          dispatch({ type: "ADD_MSG", sessionId: sid, msg: { id: genId(), role: "assistant", content: "", error: err } });
         }
+        showError(err);
       };
 
       // ── Путь А (Android): настоящий function calling — модель вызывает run_command,
@@ -1230,8 +1295,9 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   );
 
   const msgMenu = useCallback(
-    (m: Msg) => {
+    (m: Msg, x?: number, y?: number) => {
       setMsgMenuTarget(m);
+      setMsgMenuAt(x != null && y != null ? { x, y } : null);
     },
     [],
   );
@@ -1421,8 +1487,9 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         if (getRun(sid).stop) return;
         dispatch({
           type: "UPDATE_MSG", sessionId: sid, msgId: aiId,
-          patch: { streaming: false, error: err, content: acc || "" },
+          patch: { streaming: false, content: acc || "" },
         });
+        showError(err);
       },
     }, ctrl.signal, { maxTokens: prefs.ctx, reasoning: prefs.reasoning });
   }, [active, editTarget, editValue, model, dispatch, scrollBottom, prefs.ctx, prefs.reasoning]);
@@ -1635,6 +1702,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             if (stickTimer.current) { clearTimeout(stickTimer.current); stickTimer.current = null; }
           }}
           onScroll={(e) => {
+            if (Date.now() < progUntil.current) return; // это наша прокрутка, не пользователь
             const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
             // «у низа» = меньше 64px до кромки: тогда новые сообщения сами
             // подтягивают чат; выше — листаем спокойно и не дёргается
@@ -1646,6 +1714,12 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           scrollEventThrottle={16}
           keyboardShouldPersistTaps="handled"
           renderItem={({ item: g, index }) => (
+            <View
+              ref={(r) => {
+                const id = g.kind === "chain" ? g.msgs[g.msgs.length - 1]?.id : g.msg?.id;
+                if (id) rowRefs.current[id] = r;
+              }}
+            >
             <MsgRow
               g={g}
               sig={groupSig(g)}
@@ -1657,6 +1731,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               onEdit={startEdit}
               onLongPress={msgMenu}
             />
+            </View>
           )}
         />
         </Animated.View>
@@ -1693,9 +1768,9 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       >
         <Pressable
           onPress={() => {
-            atBottom.current = true;
-            setShowJump(false);
-            listRef.current?.scrollToEnd({ animated: true });
+            doScrollEnd(true);
+            // прячем по факту: если не доехали — onScroll покажет кнопку снова
+            setTimeout(() => setShowJump(false), 140);
           }}
           accessibilityRole="button"
           accessibilityLabel="В самый низ"
@@ -1979,19 +2054,16 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         }}
       />
 
-      {/* ── Message actions sheet (in-app, не системный Alert) ── */}
-      <Sheet visible={!!msgMenuTarget} onClose={() => setMsgMenuTarget(null)} title={msgMenuTarget?.role === "user" ? "Сообщение" : "Ответ"} snapPoints={["auto"]} autoMaxPct={55}>
-        {msgMenuTarget && (
-          <>
-            {msgMenuTarget.role === "assistant" && (msgMenuTarget.error || msgMenuTarget.content) && (
-              <Button title="Повторить запрос" variant="secondary" onPress={() => { const m = msgMenuTarget; setMsgMenuTarget(null); retryMsg(m); }} fullWidth style={{ marginTop: 6 }} />
-            )}
-            <Button title="Копировать" variant="secondary" onPress={() => { copyMsg(msgMenuTarget); setMsgMenuTarget(null); }} fullWidth style={{ marginTop: 6 }} />
-            <Button title="Поделиться" variant="secondary" onPress={() => { shareMsg(msgMenuTarget); setMsgMenuTarget(null); }} fullWidth style={{ marginTop: 6 }} />
-            <Button title="Удалить сообщение" variant="danger" onPress={() => doDeleteMsg(msgMenuTarget)} fullWidth style={{ marginTop: 6 }} />
-          </>
-        )}
-      </Sheet>
+      {/* ── Действия с сообщением — маленькое окно у места удержания ── */}
+      <MsgMenu
+        target={msgMenuTarget}
+        at={msgMenuAt}
+        onClose={() => setMsgMenuTarget(null)}
+        onRetry={(m) => { setMsgMenuTarget(null); retryMsg(m); }}
+        onCopy={(m) => { copyMsg(m); setMsgMenuTarget(null); }}
+        onShare={(m) => { shareMsg(m); setMsgMenuTarget(null); }}
+        onDelete={(m) => { setMsgMenuTarget(null); doDeleteMsg(m); }}
+      />
 
       {/* ── Детали команды/раздумий — bottom-sheet как окно сессии ── */}
       <Sheet visible={!!detailTarget} onClose={() => setDetailTarget(null)} title={detailTarget?.tool ? "Ход выполнения" : "Думаю"} snapPoints={["auto"]} autoMaxPct={60}>
@@ -2267,7 +2339,7 @@ function fileIconName(name?: string): AppIconName {
   return "file";
 }
 
-function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions, onOpenDetail }: { msg: Msg; theme: any; onCopy: () => void; onShare: () => void; onEdit?: () => void; onLongPress?: () => void; showActions?: boolean; onOpenDetail?: (m: Msg) => void }) {
+function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions, onOpenDetail }: { msg: Msg; theme: any; onCopy: () => void; onShare: () => void; onEdit?: () => void; onLongPress?: (e?: any) => void; showActions?: boolean; onOpenDetail?: (m: Msg) => void }) {
   const user = msg.role === "user";
   const align: "flex-end" | "flex-start" = user ? "flex-end" : "flex-start";
   // Kimi: юзер — синяя капсула справа; ассистент — БЕЗ рамки, чистый текст слева
@@ -2291,15 +2363,9 @@ function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions,
   if (!msg.content && !msg.thinking && !msg.tool && !msg.error) {
     return null;
   }
-  if (msg.error && !msg.content) {
-    return (
-      <View style={containerStyle}>
-        <View style={{ padding: 14, borderRadius: 20, borderWidth: 1, borderColor: theme.danger, backgroundColor: theme.surface }}>
-          <Text style={{ color: theme.danger, fontSize: 13 }}>{msg.error}</Text>
-        </View>
-      </View>
-    );
-  }
+  // Старые сообщения с ошибкой в тексте: сама ошибка больше не рисуется —
+  // их показывала плашка, когда они случились.
+  if (msg.error && !msg.content) return null;
   return (
     <View style={containerStyle}>
       <Pressable
@@ -2414,7 +2480,7 @@ const MsgRow = React.memo(
     g: any; sig: string; isLast: boolean; theme: any;
     onDetail: (m: Msg) => void;
     onCopy: (m: Msg) => void; onShare: (m: Msg) => void;
-    onEdit: (m: Msg) => void; onLongPress: (m: Msg) => void;
+    onEdit: (m: Msg) => void; onLongPress: (m: Msg, x?: number, y?: number) => void;
   }) {
     if (g.kind === "chain") {
       const chainText = g.msgs.filter((m: any) => m.thinking).map((m: any) => String(m.thinking)).join("\n\n");
@@ -2457,7 +2523,7 @@ const MsgRow = React.memo(
         onCopy={() => onCopy(msg)}
         onShare={() => onShare(msg)}
         onEdit={() => onEdit(msg)}
-        onLongPress={() => onLongPress(msg)}
+        onLongPress={(e: any) => onLongPress(msg, e?.nativeEvent?.pageX, e?.nativeEvent?.pageY)}
         showActions={showActions}
         onOpenDetail={onDetail}
       />
@@ -2465,3 +2531,110 @@ const MsgRow = React.memo(
   },
   (a, b) => a.sig === b.sig && a.isLast === b.isLast && a.theme === b.theme,
 );
+
+/**
+ * Маленькое окно действий по сообщению — всплывает у места удержания,
+ * а не снизу. У краёв экрана разворачивается внутрь и вверх.
+ */
+const MENU_W = 208;
+const MENU_ROW = 44;
+const MENU_PAD = 6;
+
+function MsgMenu({
+  target, at, onClose, onRetry, onCopy, onShare, onDelete,
+}: {
+  target: Msg | null;
+  at: { x: number; y: number } | null;
+  onClose: () => void;
+  onRetry: (m: Msg) => void;
+  onCopy: (m: Msg) => void;
+  onShare: (m: Msg) => void;
+  onDelete: (m: Msg) => void;
+}) {
+  const { theme } = useApp();
+  const { width: W, height: H } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const a = useRef(new Animated.Value(0)).current;
+  const open = !!target;
+
+  useEffect(() => {
+    Animated.timing(a, {
+      toValue: open ? 1 : 0,
+      duration: open ? 150 : 110,
+      easing: open ? Easing.out(Easing.cubic) : Easing.in(Easing.quad),
+      useNativeDriver: true,
+    }).start();
+  }, [open, a]);
+
+  if (!target) return null;
+
+  const canRetry = target.role === "assistant" && (!!target.content || !!target.error);
+  const rows = [
+    ...(canRetry ? [{ key: "retry", label: "Повторить", icon: "refresh" as AppIconName, danger: false }] : []),
+    { key: "copy", label: "Копировать", icon: "copy" as AppIconName, danger: false },
+    { key: "share", label: "Поделиться", icon: "share" as AppIconName, danger: false },
+    { key: "del", label: "Удалить", icon: "delete" as AppIconName, danger: true },
+  ];
+  const menuH = rows.length * MENU_ROW + MENU_PAD * 2;
+
+  const px = at?.x ?? W / 2;
+  const py = at?.y ?? H / 2;
+  const left = Math.min(Math.max(10, px - MENU_W / 2), W - MENU_W - 10);
+  const below = py + menuH + 24 < H - insets.bottom;
+  const top = below ? py + 10 : Math.max(insets.top + 10, py - menuH - 10);
+
+
+  return (
+    <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+      <Animated.View
+        style={{
+          position: "absolute",
+          left,
+          top,
+          width: MENU_W,
+          paddingVertical: MENU_PAD,
+          borderRadius: 16,
+          backgroundColor: theme.surface,
+          borderWidth: 1,
+          borderColor: theme.border,
+          shadowColor: "#000",
+          shadowOpacity: 0.34,
+          shadowRadius: 20,
+          shadowOffset: { width: 0, height: 10 },
+          elevation: 14,
+          opacity: a,
+          transform: [
+            { scale: a.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] }) },
+            { translateY: a.interpolate({ inputRange: [0, 1], outputRange: [below ? -6 : 6, 0] }) },
+          ],
+        }}
+      >
+        {rows.map((r, i) => (
+          <Pressable
+            key={r.key}
+            onPress={() => {
+              if (r.key === "retry") onRetry(target);
+              else if (r.key === "copy") onCopy(target);
+              else if (r.key === "share") onShare(target);
+              else onDelete(target);
+            }}
+            style={({ pressed }) => ({
+              height: MENU_ROW,
+              paddingHorizontal: 14,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 11,
+              backgroundColor: pressed ? theme.surface2 : "transparent",
+              borderTopWidth: i === 0 ? 0 : 1,
+              borderTopColor: theme.border,
+            })}
+          >
+            <AppIcon name={r.icon} size={17} color={r.danger ? theme.danger : theme.dim} />
+            <Text style={{ color: r.danger ? theme.danger : theme.text, fontSize: 14.5 }}>{r.label}</Text>
+          </Pressable>
+        ))}
+      </Animated.View>
+    </View>
+  );
+}

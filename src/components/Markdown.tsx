@@ -7,7 +7,7 @@
  * цитаты, ссылки, bold/italic/inline-code, таблицы (базово, как текст).
  */
 import React, { useMemo, useState } from "react";
-import { Linking, Pressable, Text, View, ViewStyle } from "react-native";
+import { Linking, Pressable, ScrollView, Text, View, ViewStyle } from "react-native";
 import { AppIcon } from "../design-system/components/AppIcon";
 import { useApp } from "../store/AppStore";
 import { fonts } from "../theme/tokens";
@@ -165,6 +165,93 @@ function CodeBlock({ code, lang, theme }: { code: string; lang: string; theme: a
   );
 }
 
+
+/* ── Таблица ── */
+
+const TBL_FS = 12.5;
+const TBL_LH = 18;
+const TBL_MIN = 84;
+const TBL_MAX = 240;
+const TBL_PAD = 10;
+
+/** Грубая ширина строки в px — для колонок по содержимому. */
+function textW(s: string) {
+  let w = 0;
+  for (const ch of s) w += /[iIl1.,:;'`|!]/.test(ch) ? 4.2 : ch === " " ? 3.6 : 6.9;
+  return w;
+}
+
+/**
+ * Таблица: кегль фиксированный, колонки по содержимому, шире экрана —
+ * горизонтальный скролл. Раньше колонки делились поровну (flex:1) и при
+ * 6+ столбцах кегль падал до 10.5, строки наезжали друг на друга.
+ */
+function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: string }) {
+  const [boxW, setBoxW] = useState(0);
+  const cols = rows[0]?.length ?? 0;
+  const widths = useMemo(() => {
+    const natural: number[] = [];
+    for (let ci = 0; ci < cols; ci++) {
+      const longest = rows.reduce((m, r) => Math.max(m, textW(r[ci] ?? "")), 0);
+      natural.push(Math.min(TBL_MAX, Math.max(TBL_MIN, longest + TBL_PAD * 2 + 2)));
+    }
+    const total = natural.reduce((a, b) => a + b, 0);
+    if (boxW > 0 && total < boxW) {
+      const k = boxW / total;
+      return { list: natural.map((w) => Math.floor(w * k)), total: boxW };
+    }
+    return { list: natural, total };
+  }, [rows, cols, boxW]);
+
+  const [head, ...body] = rows;
+  const cellStyle = (ci: number) => ({
+    width: widths.list[ci],
+    paddingHorizontal: TBL_PAD,
+    paddingVertical: 7,
+    borderRightWidth: ci < cols - 1 ? 1 : 0,
+    borderRightColor: theme.border,
+  });
+
+  return (
+    <View style={{ marginVertical: 8 }} onLayout={(e) => setBoxW(e.nativeEvent.layout.width)}>
+      <View style={{ borderRadius: 16, overflow: "hidden", borderWidth: 1, borderColor: theme.border }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} bounces={false} style={{ maxWidth: "100%" }}>
+          <View style={{ width: widths.total }}>
+            <View style={{ flexDirection: "row", backgroundColor: theme.surface2, borderBottomWidth: 1, borderBottomColor: theme.border }}>
+              {head.map((c, ci) => (
+                <View key={ci} style={cellStyle(ci)}>
+                  <Text style={{ color: theme.text, fontSize: TBL_FS, lineHeight: TBL_LH, fontWeight: "700" }}>
+                    {renderInline(c, theme, `th${uid}${ci}`)}
+                  </Text>
+                </View>
+              ))}
+            </View>
+            {body.map((row, ri) => (
+              <View
+                key={ri}
+                style={{
+                  flexDirection: "row",
+                  backgroundColor: ri % 2 === 1 ? theme.surface : "transparent",
+                  borderBottomWidth: ri < body.length - 1 ? 1 : 0,
+                  borderBottomColor: theme.border,
+                }}
+              >
+                {row.map((c, ci) => (
+                  <View key={ci} style={cellStyle(ci)}>
+                    <Text style={{ color: theme.text, fontSize: TBL_FS, lineHeight: TBL_LH }}>
+                      {renderInline(c, theme, `td${uid}${ri}${ci}`)}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ))}
+          </View>
+        </ScrollView>
+      </View>
+    </View>
+  );
+}
+
 /* ── Компонент ── */
 
 export function RichMarkdown({ content }: { content: string }) {
@@ -279,44 +366,7 @@ export function RichMarkdown({ content }: { content: string }) {
           while (c.length < width) c.push("");
           return c.slice(0, width);
         });
-        const headerRow = norm[0];
-        const bodyRows = norm.slice(1);
-        // ВСЕ колонки — равные (flex:1): строка всегда делится на одинаковые столбцы,
-        // вертикальные линии идут сплошными сверху донизу, независимо от длины текста.
-        // Много колонок — мельче шрифт, но геометрия остаётся ровной (без свайпа).
-        const cellFs = width > 5 ? 10.5 : width > 3 ? 11.5 : 12.5;
-        const cell = (ci: number): ViewStyle => ({
-          flex: 1,
-          paddingHorizontal: 8,
-          paddingVertical: 6,
-          borderRightWidth: ci < width - 1 ? 1 : 0,
-          borderRightColor: theme.border,
-        });
-        out.push(
-          <View
-            key={`tbl${k++}`}
-            style={{ marginVertical: 6, borderRadius: 20, overflow: "hidden" }}
-          >
-            {/* шапка */}
-            <View style={{ flexDirection: "row", backgroundColor: theme.surface2, borderBottomWidth: 1, borderBottomColor: theme.border }}>
-              {headerRow.map((c, ci) => (
-                <View key={ci} style={cell(ci)}>
-                  <Text style={{ color: theme.text, fontSize: cellFs, fontWeight: "700", lineHeight: cellFs + 5 }}>{renderInline(c, theme, `th${k}-${ci}`)}</Text>
-                </View>
-              ))}
-            </View>
-            {/* тело */}
-            {bodyRows.map((row, ri) => (
-              <View key={ri} style={{ flexDirection: "row", backgroundColor: ri % 2 === 1 ? theme.surface : "transparent", borderBottomWidth: ri < bodyRows.length - 1 ? 1 : 0, borderBottomColor: theme.border }}>
-                {row.map((c, ci) => (
-                  <View key={ci} style={cell(ci)}>
-                    <Text style={{ color: theme.text, fontSize: cellFs, lineHeight: cellFs + 5, flexShrink: 1 }}>{renderInline(c, theme, `td${k}-${ri}-${ci}`)}</Text>
-                  </View>
-                ))}
-              </View>
-            ))}
-          </View>,
-        );
+        out.push(<TableNode key={`tbl${k++}`} rows={norm} theme={theme} uid={String(k)} />);
         continue;
       }
 
