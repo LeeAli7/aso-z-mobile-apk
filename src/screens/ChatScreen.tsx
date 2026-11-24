@@ -29,7 +29,7 @@ import Reanimated, { useSharedValue, useAnimatedStyle, withTiming, Easing as REa
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from "expo-speech-recognition";
-import { Svg, Polyline } from "react-native-svg";
+import { Defs, LinearGradient as SvgGradient, Path as SvgPath, Rect as SvgRect, Stop, Svg } from "react-native-svg";
 import { AppIcon, AppIconName } from "../design-system/components/AppIcon";
 import { AttachmentStrip } from "../components/AttachmentStrip";
 import { ModelPickerPopover } from "../components/ModelPickerPopover";
@@ -2120,45 +2120,51 @@ export function ChatScreen({ navigation }: { navigation: any }) {
  * архив → archive, документ/текст → description, остальное → insert-drive-file.
  */
 /**
- * Живая линия уровня для диктовки (вариант А): 40 сэмплов rms с микрофона,
- * зигзаг гаснет к левой кромке, обновление не чаще 22 раз в секунду.
- * Рисуется поверх поля, поэтому текст в поле на время записи прозрачный.
+ * Линия диктовки — вариант A, «гребёнка».
+ *
+ * Слева ничего нет: первые столбики появляются у ПРАВОЙ кромки и с каждым
+ * новым отсчётом дорожка удлиняется влево, пока не упрётся в левый край —
+ * тогда старые столбики уходят за кромку и тают.
+ *
+ * Никакого зигзага «плюс-минус» по сырому rms (он и дрожал от шума):
+ * уровень проходит шумовой порог и сглаживается с разной скоростью на
+ * подъём и спад, поэтому в тишине линия ровная.
  */
 function RecWave({ api, color }: { api: React.MutableRefObject<((v: number) => void) | null>; color: string }) {
-  const [pts, setPts] = useState("");
-  const buf = useRef<number[]>(new Array(40).fill(0));
+  const [path, setPath] = useState("");
+  const buf = useRef<number[]>([]);
   const last = useRef(0);
   const sm = useRef(0);
   const inn = useSharedValue(0);
 
   useEffect(() => {
-    inn.value = withTiming(1, { duration: 180, easing: REasing.out(REasing.cubic) });
+    inn.value = withTiming(1, { duration: 120, easing: REasing.out(REasing.cubic) });
   }, [inn]);
-  const st = useAnimatedStyle(() => ({
-    opacity: inn.value,
-    transform: [{ scaleX: 0.55 + 0.45 * inn.value }],
-  }));
+  const st = useAnimatedStyle(() => ({ opacity: inn.value }));
 
   const push = useCallback((v: number) => {
     const now = Date.now();
-    if (now - last.current < 45) return;
+    if (now - last.current < 45) return; // не чаще ~22 раз в секунду
     last.current = now;
-    const raw = Math.max(0, Math.min(1, (v + 2) / 12));
-    sm.current = sm.current * 0.55 + raw * 0.45;
+
+    let raw = Math.max(0, Math.min(1, (v + 2) / 12));
+    if (raw < 0.06) raw = 0; // шумовой порог: тишина остаётся тишиной
+    const k = raw > sm.current ? 0.45 : 0.22;
+    sm.current = sm.current + (raw - sm.current) * k;
+
     buf.current.push(sm.current);
-    buf.current.shift();
+    if (buf.current.length > MAX_BARS) buf.current.shift();
+
+    // столбики прижаты вправо: первый — у кромки, новые удлиняют дорожку влево
     const n = buf.current.length;
-    setPts(
-      buf.current
-        .map((a, i) => {
-          const env = Math.min(1, i / 4); // слева линия ещё зарождается
-          const sgn = i % 2 === 0 ? 1 : -1;
-          const x = ((i / (n - 1)) * 100).toFixed(2);
-          const y = (22 - sgn * a * 15 * (0.35 + 0.65 * env)).toFixed(1);
-          return `${x},${y}`;
-        })
-        .join(" "),
-    );
+    const d: string[] = [];
+    for (let i = 0; i < n; i += 1) {
+      const v0 = buf.current[n - 1 - i];   // i=0 — самый свежий, он справа
+      const x = 100 - i * BAR_STEP;
+      const h = Math.max(3, 3 + v0 * 30);
+      d.push(`M${x.toFixed(2)} ${(22 - h / 2).toFixed(1)} V${(22 + h / 2).toFixed(1)}`);
+    }
+    setPath(d.join(" "));
   }, []);
 
   useEffect(() => {
@@ -2166,22 +2172,33 @@ function RecWave({ api, color }: { api: React.MutableRefObject<((v: number) => v
     return () => { api.current = null; };
   }, [api, push]);
 
+  // новая запись — с чистого листа, ничего «уже нарисованного»
+  useEffect(() => {
+    buf.current = [];
+    sm.current = 0;
+    setPath("");
+  }, [api]);
+
   return (
     <Reanimated.View style={[StyleSheet.absoluteFill, st]}>
       <Svg width="100%" height="100%" viewBox="0 0 100 44" preserveAspectRatio="none">
-        <Polyline
-          points={pts}
-          fill="none"
-          stroke={color}
-          strokeWidth={1.6}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          vectorEffect="non-scaling-stroke"
-        />
+        <Defs>
+          {/* хвост тает у левой кромки, а не обрывается */}
+          <SvgGradient id="recFade" x1="0" y1="0" x2="1" y2="0">
+            <Stop offset="0" stopColor="#141416" stopOpacity="1" />
+            <Stop offset="0.55" stopColor="#141416" stopOpacity="0.7" />
+            <Stop offset="1" stopColor="#141416" stopOpacity="0" />
+          </SvgGradient>
+        </Defs>
+        <SvgPath d={path} stroke={color} strokeWidth={2} strokeLinecap="round" fill="none" vectorEffect="non-scaling-stroke" />
+        <SvgRect x={0} y={0} width={9} height={44} fill="url(#recFade)" />
       </Svg>
     </Reanimated.View>
   );
 }
+
+const MAX_BARS = 70;   // 70 столбиков × 1.42 = вся ширина капсулы
+const BAR_STEP = 1.42; // шаг в единицах viewBox 0..100
 
 function fileIconName(name?: string): AppIconName {
   const ext = (name ?? "").split(".").pop()?.toLowerCase() ?? "";
