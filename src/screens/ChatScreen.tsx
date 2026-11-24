@@ -1476,6 +1476,251 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         }}
       />
 
+      {/* input.
+        Android: капсулу поднимаем вручную через kbH (Keyboard listeners выше) —
+        манифестный adjustResize не двигает плавающую капсулу при edge-to-edge.
+        iOS: KAV с behavior="padding" сдвигает панель. */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={0}
+        pointerEvents="box-none"
+        style={{
+          position: "absolute", left: 0, right: 0, bottom: 0,
+          backgroundColor: "transparent",
+        }}
+      >
+        {/* Подложка низа: от верха зоны ввода до самого низа экрана, включая
+            полосу ПОД капсулой. Раньше гасла на кромке капсулы — снизу
+            просвечивала переписка. */}
+        <LinearGradient
+          pointerEvents="none"
+          colors={["transparent", theme.bg, theme.bg]}
+          locations={[0, 0.62, 1]}
+          style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }}
+        />
+        <View
+          pointerEvents="box-none"
+          onLayout={(e) => setComposerH(Math.round(e.nativeEvent.layout.height))}
+          style={{
+            backgroundColor: "transparent",
+            paddingHorizontal: 12,
+            paddingBottom: compPadBottom,
+          }}
+        >
+          {/* Полоса 104 px над капсулой есть ВСЕГДА: капсула не прыгает,
+              а лента вложений живёт в обычном потоке и листается вбок. */}
+          <View style={{ height: 104, justifyContent: "flex-end" }}>
+            <Reanimated.View pointerEvents={attachments.length > 0 ? "auto" : "none"} style={stripStyle}>
+              {stripMounted ? (
+                <AttachmentStrip
+                  items={attachments}
+                  theme={theme}
+                  onRemove={(i) => setAttachments((prev) => prev.filter((_, k) => k !== i))}
+                />
+              ) : null}
+            </Reanimated.View>
+          </View>
+
+          <Reanimated.View collapsable={false} style={[{ position: "relative" }, attachLift]}>
+                      {/* капсула ввода: #141416, радиус 26, без стекла и градиентов */}
+          <Glass
+            radius={25}
+            border={false}
+            style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 8, overflow: "hidden" }}
+          >
+            {/* во время диктовки слева не остаётся ничего: кнопка сжимается
+                в ноль, линия начинается от самой кромки капсулы */}
+            <Reanimated.View style={[{ flexShrink: 0 }, leftStyle]}>
+            <Pressable
+              disabled={recording}
+              onPress={() => {
+                const next = !attachOpen;
+                void Haptics.selectionAsync().catch(() => {});
+                setAttachOpen(next);
+                attachProg.value = withTiming(next ? 1 : 0, {
+                  duration: next ? 260 : 200,
+                  easing: next ? REasing.out(REasing.cubic) : REasing.in(REasing.cubic),
+                });
+              }}
+              hitSlop={6}
+              style={({ pressed }) => ({
+                width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center",
+                opacity: pressed ? 0.6 : 1,
+              })}
+              accessibilityLabel="Прикрепить"
+            >
+              {/* плюс поворачивается на 45° и растворяется — на его месте
+                  крест из того же центра, уже красный */}
+              <Reanimated.View style={[{ position: "absolute" }, plusIconStyle]}>
+                <AppIcon name="plus" size={22} color={theme.text} />
+              </Reanimated.View>
+              <Reanimated.View style={[{ position: "absolute" }, closeIconStyle]}>
+                <AppIcon name="close" size={22} color={theme.danger} />
+              </Reanimated.View>
+            </Pressable>
+            </Reanimated.View>
+            {/* поле; на время диктовки текст невидим — поверх идёт линия уровня */}
+            <View style={{ flex: 1 }}>
+            <TextInput
+              value={text}
+              caretHidden={recording}
+              underlineColorAndroid="transparent"
+              /* тап по полю не должен выбрасывать из прочитанного места в самый низ */
+              onChangeText={(v) => {
+                // если пользователь правит текст руками во время диктовки —
+                // дальше распознанное дописывается к НОВОМУ тексту, а не затирает его
+                if (!sttWriting.current) sttBase.current = v;
+                setText(v);
+              }}
+              placeholder={recording ? "" : t("message_placeholder")}
+              placeholderTextColor={theme.mute}
+              multiline
+              textAlignVertical="center"
+              style={{
+                flex: 1, fontSize: 14, backgroundColor: "transparent",
+                color: recording ? "transparent" : theme.text,
+                fontFamily: fonts.sansMedium,
+                textAlignVertical: "center",
+                // web: textarea не центрирует текст вертикально — задаём высоту и паддинги,
+                // чтобы строка (20px) стояла ровно по центру поля 44
+                ...(Platform.OS === "web"
+                  ? { height: 44, lineHeight: 20, paddingTop: 12, paddingBottom: 12, maxHeight: undefined }
+                  : { minHeight: 44, maxHeight: 76, paddingVertical: 0, lineHeight: 20 }),
+              }}
+            />
+            {recording ? (
+              <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                <RecWave api={waveApi} color={theme.text} />
+              </View>
+            ) : null}
+            </View>
+            {recording ? (
+              <Text style={{ fontFamily: fonts.mono, fontSize: 11.5, color: theme.mute }}>
+                {`${Math.floor(recSec / 60)}:${String(recSec % 60).padStart(2, "0")}`}
+              </Text>
+            ) : null}
+            {recording ? (
+              <Pressable
+                onPress={toggleVoice}
+                hitSlop={6}
+                style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.danger, alignItems: "center", justifyContent: "center" }}
+                accessibilityLabel="Остановить запись"
+              >
+                <AppIcon name="stop" size={18} color="#fff" />
+              </Pressable>
+            ) : isStreaming(active?.id) ? (
+              <Pressable
+                onPress={() => {
+                  const s = active?.id;
+                  if (!s) return;
+                  getRun(s).stop = true;
+                  getRun(s).ctrl?.abort();
+                  markStreaming(s, false);
+                }}
+                style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.danger, alignItems: "center", justifyContent: "center" }}
+                accessibilityLabel="Остановить"
+              >
+                <AppIcon name="stop" size={18} color="#fff" />
+              </Pressable>
+            ) : text.trim() ? (
+              <Pressable
+                onPress={send}
+                hitSlop={8}
+                style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.accent, alignItems: "center", justifyContent: "center" }}
+                accessibilityLabel="Отправить"
+              >
+                <AppIcon name="send" size={20} color={theme.onAccent} />
+              </Pressable>
+            ) : (
+              <Pressable
+                onPress={toggleVoice}
+                hitSlop={6}
+                style={{ width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" }}
+                accessibilityLabel="Голосовой ввод"
+              >
+                <AppIcon name={recording ? "stop" : "mic"} size={22} strokeWidth={2.2} color={recording ? theme.danger : theme.text} />
+              </Pressable>
+            )}
+          </Glass>
+          </Reanimated.View>
+
+          {/* Панель «прикрепить»: висит под капсулой абсолютно, высота не анимируется —
+              связка уезжает вверх transform'ом, поэтому layout не пересчитывается.
+              Плитки 92, между ними пусто: переписка просвечивает. */}
+          <Reanimated.View
+            pointerEvents={attachOpen ? "auto" : "none"}
+            collapsable={false}
+            style={{
+              position: "absolute", left: 12, right: 12, bottom: compPadBottom,
+              height: 110, paddingTop: 10, zIndex: 3,
+            }}
+          >
+            <Reanimated.View
+              style={[{ flexDirection: "row", gap: 10 }, attachPanelStyle]}
+            >
+              {[
+                { icon: "camera" as const, label: "Камера", onPress: pickCamera },
+                { icon: "image" as const, label: "Альбом", onPress: pickImage },
+                { icon: "file" as const, label: "Файл", onPress: pickFile },
+              ].map((b) => (
+                <Pressable
+                  key={b.label}
+                  onPress={() => {
+                    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                    closeAttach();
+                    b.onPress();
+                  }}
+                  style={({ pressed }) => ({
+                    flex: 1,
+                    height: 92,
+                    borderRadius: 20,
+                    backgroundColor: pressed ? theme.surface2 : theme.surface,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 10,
+                  })}
+                  accessibilityRole="button"
+                  accessibilityLabel={b.label}
+                >
+                  <AppIcon name={b.icon} size={24} color={theme.text} />
+                  <Text style={{ color: theme.text, fontSize: 13, fontWeight: "500" }}>{b.label}</Text>
+                </Pressable>
+              ))}
+            </Reanimated.View>
+          </Reanimated.View>
+        </View>
+      </KeyboardAvoidingView>
+
+      {/* Боковое меню: перо, отделы, поиск и сессии. */}
+      <DrawerLineArt
+        visible={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        theme={theme}
+        t={t}
+        models={allModels}
+        currentModelName={model?.modelName}
+        modelName={modelName}
+        onSelectModel={(m) => { switchModel(m); setDrawerOpen(false); }}
+        onNewChat={handleNewSession}
+        onNavigate={openDrawerRoute}
+        sessions={chatSessions}
+        cronSessions={cronSessions}
+        onSessionMenu={(s: Session, p?: { x: number; y: number }) => { setSessionMenuPoint(p ?? null); setSessionMenuTarget(s); }}
+        onPin={(s) => {
+          dispatch({ type: "UPDATE_SESSION", sessionId: s.id, patch: { pinned: !s.pinned } });
+          showToast("ok", s.pinned ? "Откреплено" : "Закреплено");
+        }}
+        activeId={active?.id ?? null}
+        onSelectSession={openDrawerSession}
+        search={search}
+        onSearchChange={setSearch}
+        onRename={renameSessionById}
+        onDelete={deleteSessionById}
+      />
+
+
+
+
       {/* ── Выбор модели: окно растёт вверх на месте кнопки, без шторки снизу ── */}
       <ModelPickerPopover
         open={modelPickerOpen}
