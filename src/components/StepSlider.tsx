@@ -121,12 +121,18 @@ export function StepSlider({
         {...pan.panHandlers}
         style={styles.track}
       >
-        <View style={{ height: 4, borderRadius: 2, backgroundColor: "rgba(237,237,239,0.14)" }} />
         <View
           pointerEvents="none"
           style={{
-            position: "absolute", left: PAD, top: 10, height: 4, borderRadius: 2,
-            width: Math.max(0, pos * Math.max(0, w - PAD * 2)),
+            position: "absolute", left: 0, right: 0, top: 10, height: 4, borderRadius: 2,
+            backgroundColor: "rgba(237,237,239,0.14)",
+          }}
+        />
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute", left: 0, top: 10, height: 4, borderRadius: 2,
+            width: Math.max(0, PAD + pos * Math.max(0, w - PAD * 2)),
             backgroundColor: color,
             opacity: ready ? 1 : 0,
           }}

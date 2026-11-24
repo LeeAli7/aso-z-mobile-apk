@@ -67,7 +67,7 @@ class AsoRuntimeService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Агент Aso активен")
             .setContentText("Выполняю команды во встроенном Linux-рантайме")
-            .setSmallIcon(android.R.drawable.stat_sys_warning)
+            .setSmallIcon(R.drawable.aso_notif)
             .setContentIntent(pi)
             .setOngoing(true)
             .build()
