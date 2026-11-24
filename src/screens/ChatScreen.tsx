@@ -164,16 +164,22 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // прогресс морфа кнопка→окно: один shared value на оба, иначе кнопка
   // пропадает мгновенно и окно «появляется поверх» неё
   const pickerProg = useSharedValue(0);
-  const pillFade = useAnimatedStyle(() => ({ opacity: 1 - pickerProg.value }));
   const [chipBox, setChipBox] = useState({ x: 0, y: 0, w: 47, h: 40 });
   const { width: screenW } = useWindowDimensions();
 
-  const openPicker = useCallback(() => {
+  // Кэш габаритов кнопки: measureInWindow — это round-trip в нативный слой,
+  // из-за него окно открывалось на кадр-два позже касания. Меряем на layout.
+  const pillBoxRef = useRef({ x: 0, y: 0, w: 118, h: 40 });
+  const measurePill = useCallback(() => {
     pillRef.current?.measureInWindow((x, y, w, h) => {
-      if (__DEV__) console.log("[morph] anchor", Math.round(x), Math.round(y), Math.round(w), Math.round(h));
-      setPillBox({ x, y, w: w || 118, h: h || 40 });
-      setModelPickerOpen(true);
+      if (!w || !h) return;
+      pillBoxRef.current = { x, y, w, h };
     });
+  }, []);
+  const openPicker = useCallback(() => {
+    // открываем в тот же кадр, геометрия уже известна
+    setPillBox(pillBoxRef.current);
+    setModelPickerOpen(true);
   }, []);
 
   const openBg = useCallback(() => {
@@ -266,12 +272,16 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     // base НЕ фиксируем на isFinal: Android присылает кумулятивный транскрипт,
     // и «промежуточный финал + финал» давал проговорённые слова по 2-3 раза.
   });
-  useSpeechRecognitionEvent("error", () => {
+  useSpeechRecognitionEvent("error", (e: any) => {
+    if (__DEV__) console.log("[stt] error", JSON.stringify(e)?.slice(0, 300));
     recStarting.current = false;
+    recOnRef.current = false;
     setRecording(false);
   });
   useSpeechRecognitionEvent("end", () => {
+    if (__DEV__) console.log("[stt] end");
     recStarting.current = false;
+    recOnRef.current = false;
     setRecording(false);
   });
   // rms с микрофона: 10-20 событий в секунду, рисуем не чаще 22 кадров
@@ -279,8 +289,10 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     waveApi.current?.(Number(e?.value ?? 0));
   });
   const toggleVoice = useCallback(async () => {
-    // Стоп — сразу, без ожиданий.
-    if (recording || recOnRef.current) {
+    // Стоп — сразу, без ожиданий. Единственный источник правды — recording:
+    // если прошлый старт тихо не состоялся, следующий тап должен снова начинать,
+    // а не уходить в «стоп» из-за залипшего флага.
+    if (recording) {
       recOnRef.current = false;
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
       try { ExpoSpeechRecognitionModule.stop(); } catch {}
@@ -1446,9 +1458,10 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             <BgIndicator theme={theme} count={bgCount} onPress={openBg} />
           </View>
           {/* Выбор модели — справа, габариты как у бургера: высота touchTarget, капсула. */}
-          <Reanimated.View style={pillFade}>
+          <View onLayout={measurePill} style={{ opacity: modelPickerOpen ? 0 : 1 }}>
           <Pressable
             ref={pillRef as any}
+            onLayout={measurePill}
             onPress={openPicker}
             accessibilityRole="button"
             accessibilityLabel="Модель"
@@ -1467,7 +1480,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             <Text numberOfLines={1} style={{ color: theme.text, fontSize: 13.5, fontFamily: fonts.sansDemi, maxWidth: 132 }}>{modelName}</Text>
             <AppIcon name="chevron-down" size={13} color={theme.dim} />
           </Pressable>
-          </Reanimated.View>
+          </View>
         </View>
 
       </View>
@@ -1827,7 +1840,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               </Pressable>
             ) : (
               <Pressable
-                onPressIn={toggleVoice}
+                onPress={toggleVoice}
                 hitSlop={6}
                 style={{ width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" }}
                 accessibilityLabel="Голосовой ввод"

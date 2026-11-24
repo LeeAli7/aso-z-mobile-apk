@@ -100,7 +100,7 @@ export function ModelPickerPopover({
   useEffect(() => {
     if (param != null) {
       setCardMounted(true);
-      cardP.value = withTiming(1, { duration: 220, easing: REasing.bezier(0.16, 0.84, 0.24, 1) });
+      cardP.value = withTiming(1, { duration: 260, easing: REasing.bezier(0.16, 0.84, 0.24, 1) });
       return;
     }
     cardP.value = withTiming(0, { duration: 160, easing: REasing.bezier(0.4, 0, 0.6, 1) });
@@ -116,10 +116,13 @@ export function ModelPickerPopover({
     height: anchor.h + (winH - anchor.h) * p.value,
   }));
   const body = useAnimatedStyle(() => ({ opacity: p.value * p.value }));
+  // список и нижняя панель поднимаются вместе с ростом окна, а не появляются готовыми
+  const listRise = useAnimatedStyle(() => ({ transform: [{ translateY: (1 - p.value) * 14 }] }));
+  const footRise = useAnimatedStyle(() => ({ transform: [{ translateY: (1 - p.value) * 22 }] }));
   // карточка выезжает из-под окна: чуть вверх + проявляется
   const card = useAnimatedStyle(() => ({
     opacity: cardP.value,
-    transform: [{ translateY: (1 - cardP.value) * -8 }, { scale: 0.98 + 0.02 * cardP.value }],
+    transform: [{ translateY: (1 - cardP.value) * -12 }, { scale: 0.96 + 0.04 * cardP.value }],
   }));
 
   if (!mounted) return null;
@@ -144,21 +147,22 @@ export function ModelPickerPopover({
           win,
         ]}
       >
+        <Pressable
+          onPress={onClose}
+          style={{ height: HEAD, flexDirection: "row", alignItems: "center", paddingHorizontal: 14, gap: 8 }}
+          accessibilityLabel="Закрыть выбор модели"
+        >
+          <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: theme.accent }} />
+          <Text numberOfLines={1} style={{ flex: 1, color: theme.text, fontSize: 14, fontFamily: fonts.sansDemi }}>
+            {cur?.displayName ?? "Модель"}
+          </Text>
+          <AppIcon name="chevron-down" size={14} color={theme.dim} />
+        </Pressable>
+
         <Reanimated.View style={[{ flex: 1 }, body]}>
           {contentOn ? (
           <>
-          <Pressable
-            onPress={onClose}
-            style={{ height: HEAD, flexDirection: "row", alignItems: "center", paddingHorizontal: 14, gap: 8 }}
-            accessibilityLabel="Закрыть выбор модели"
-          >
-            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: theme.accent }} />
-            <Text numberOfLines={1} style={{ flex: 1, color: theme.text, fontSize: 14, fontFamily: fonts.sansDemi }}>
-              {cur?.displayName ?? "Модель"}
-            </Text>
-            <AppIcon name="chevron-down" size={14} color={theme.dim} />
-          </Pressable>
-
+          <Reanimated.View style={listRise}>
           <View style={{ paddingHorizontal: PAD }}>
             <ScrollView style={{ height: listH }} showsVerticalScrollIndicator={false}>
               {models.length === 0 ? (
@@ -208,7 +212,9 @@ export function ModelPickerPopover({
               )}
             </ScrollView>
           </View>
+          </Reanimated.View>
 
+          <Reanimated.View style={footRise}>
           <View style={{ height: 1, backgroundColor: PICKED, marginHorizontal: PAD }} />
 
           <View style={{ padding: PAD }}>
@@ -261,6 +267,7 @@ export function ModelPickerPopover({
               <Text style={{ color: theme.dim, fontSize: 14 }}>Свой провайдер и модель</Text>
             </Pressable>
           </View>
+          </Reanimated.View>
           </>
           ) : null}
         </Reanimated.View>
