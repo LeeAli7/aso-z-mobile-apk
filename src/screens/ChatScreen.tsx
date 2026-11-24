@@ -516,18 +516,25 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // 1–2 вызовах выше последнего.
   const progUntil = useRef(0);
   const rowRefs = useRef<Record<string, any>>({});
+  // настоящая высота содержимого: по ней доезжаем до низа без промахов
+  const contentH = useRef(0);
 
   /** Прокрутить в самый низ и добрать после раскладки (карточка/картинка выше). */
   const doScrollEnd = (animated = true) => {
     atBottom.current = true;
-    progUntil.current = Date.now() + 420;
+    progUntil.current = Date.now() + 600;
     const l = listRef.current;
     if (!l) return;
-    l.scrollToEnd({ animated });
-    setTimeout(() => {
-      l.scrollToEnd({ animated: false });
-      progUntil.current = Date.now() + 260;
-    }, 90);
+    const end = () => {
+      const h = contentH.current;
+      if (h > 0) l.scrollToOffset({ offset: h, animated: false });
+      else l.scrollToEnd({ animated: false });
+      progUntil.current = Date.now() + 300;
+    };
+    end();
+    // Контент растёт (карточка команды, картинка, строка таблицы) уже после
+    // первого прыжка — добираем до настоящего низа несколько раз.
+    [80, 220, 480].forEach((ms) => setTimeout(end, ms));
   };
 
   /** Финальный ответ: показать его НАЧАЛО и перестать тянуть чат вниз. */
@@ -1683,14 +1690,20 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           }
           /* paddingBottom — только воздух: капсула стоит в потоке ниже списка,
              поэтому прежний composerH + 24 давал пустую полосу над капсулой. */
+          removeClippedSubviews={false}
           contentContainerStyle={{
+            // короткая переписка прижата к капсуле, а не висит сверху с чёрной
+            // дырой под ней; на длинной — flexGrow ни на что не влияет
+            flexGrow: 1,
+            justifyContent: "flex-end",
             padding: 16,
             paddingTop: insets.top + 64,
             // капсула ввода плавает поверх списка: оставляем ровно её высоту,
             // чтобы последнее сообщение можно было доскроллить над капсулой
             paddingBottom: Math.max(composerH, 76) + 4,
           }}
-          onContentSizeChange={() => {
+          onContentSizeChange={(_w, hgt) => {
+            contentH.current = hgt;
             if (!listReady) {
               listRef.current?.scrollToEnd({ animated: false });
               setListReady(true);
@@ -1758,7 +1771,11 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         pointerEvents={showJump ? "auto" : "none"}
         style={{
           position: "absolute", right: 16,
-          bottom: Math.max(composerH, 76) - 80,
+          // над капсулой и над полосой вложений: composerH растёт — кнопка едет
+          // вверх вместе с ней, а zIndex/elevation держат её поверх ввода
+          bottom: attachOpen || attachments.length > 0 ? Math.max(composerH, 76) + 10 : compPadBottom + 92,
+          zIndex: 60,
+          elevation: 20,
           opacity: jumpAnim,
           transform: [
             { translateY: jumpAnim.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) },

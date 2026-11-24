@@ -8,6 +8,7 @@
 import React, { useEffect, useRef } from "react";
 import { Animated, Text, View } from "react-native";
 import Toast, { BaseToastProps } from "react-native-toast-message";
+import { showErrorBanner } from "../../components/ErrorBanner";
 import { AppIcon, AppIconName } from "./AppIcon";
 import { useApp } from "../../store/AppStore";
 import { classifyError, ErrorInfo } from "../../core/errors";
@@ -175,15 +176,15 @@ function kindDuration() {
 }
 
 export function showToast(kind: Kind, text: string) {
-  Toast.show({
-    type: kind,
-    text1: text,
-    position: kind === "err" ? "top" : "bottom",
-    visibilityTime: kind === "err" ? 4000 : 2400,
-  });
+  // Ошибки — это тревога: красный баннер сверху, а не плашка внизу.
+  if (kind === "err") {
+    showErrorBanner(text);
+    return;
+  }
+  Toast.show({ type: kind, text1: text, position: "bottom", visibilityTime: 2400 });
 }
 
 /** Единая точка для ошибок: разбор, короткий текст, код. */
 export function showError(raw: unknown) {
-  showToast("err", String((raw as any)?.message ?? raw ?? ""));
+  showErrorBanner(String((raw as any)?.message ?? raw ?? ""));
 }

@@ -27,6 +27,7 @@ import { OnboardingScreen } from "./src/screens/OnboardingScreen";
 import { TerminalScreen } from "./src/screens/TerminalScreen";
 import { StorageScreen } from "./src/screens/StorageScreen";
 import { ToastHost, showToast } from "./src/design-system/components/Toast";
+import { ErrorBannerHost } from "./src/components/ErrorBanner";
 import { BootSplash } from "./src/components/loaders/BootSplash";
 import { LoaderLab } from "./src/screens/LoaderLab";
 
@@ -110,6 +111,7 @@ function ThemedApp() {
       <StatusBar style={theme.name === "dark" ? "light" : "dark"} />
       <RootNav />
       <ToastHost />
+      <ErrorBannerHost />
     </>
   );
 }
