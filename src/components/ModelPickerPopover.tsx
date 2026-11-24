@@ -71,6 +71,8 @@ export function ModelPickerPopover({
 
   useEffect(() => {
     if (open) {
+      // «всё закрыто» при каждом открытии: карточка параметра не помнит прошлый раз
+      setParam(null);
       setMounted(true);
       p.value = withTiming(1, { duration: 240, easing: REasing.out(REasing.cubic) });
       return;
@@ -80,7 +82,12 @@ export function ModelPickerPopover({
     return () => clearTimeout(id);
   }, [open, p]);
 
+  // окно не должно уезжать за правый край: прижимаем к экрану с полем 8,
+  // иначе у кнопки у края половина окна оказывается за экраном
+  const leftTo = Math.max(8, Math.min(anchor.x + anchor.w - W, screenW - W - 8));
   const win = useAnimatedStyle(() => ({
+    // окно растёт из кнопки и одновременно съезжает влево, если у края экрана
+    left: anchor.x + (leftTo - anchor.x) * p.value,
     width: anchor.w + (W - anchor.w) * p.value,
     height: anchor.h + (winH - anchor.h) * p.value,
     borderRadius: 26 + (20 - 26) * p.value,
@@ -91,7 +98,6 @@ export function ModelPickerPopover({
 
   const cur = models.find((m) => m.modelName === current);
   const ctxIdx = Math.max(0, CTX_STEPS.findIndex((c) => c >= prefs.ctx));
-  const right = screenW - (anchor.x + anchor.w);
 
   return (
     <View style={[StyleSheet.absoluteFill, { zIndex: 30 }]} pointerEvents={open ? "box-none" : "none"}>
@@ -100,7 +106,7 @@ export function ModelPickerPopover({
       {/* ── окно 1: список ── */}
       <Reanimated.View
         style={[
-          { position: "absolute", top: anchor.y, right, backgroundColor: theme.surface2, overflow: "hidden" },
+          { position: "absolute", top: anchor.y, backgroundColor: theme.surface2, overflow: "hidden" },
           win,
         ]}
       >
@@ -222,14 +228,15 @@ export function ModelPickerPopover({
         </Reanimated.View>
       </Reanimated.View>
 
-      {/* ── окно 2: параметр, всегда на месте ── */}
+      {/* ── окно 2: параметр, только когда строка открыта ── */}
+      {param != null ? (
       <Reanimated.View
         style={[{
           opacity: p.value,
           transform: [{ translateY: (1 - p.value) * 6 }],
         }, {
           position: "absolute",
-          right,
+          left: leftTo,
           top: anchor.y + winH + 8,
           width: W,
           borderRadius: 20,
@@ -244,7 +251,7 @@ export function ModelPickerPopover({
           elevation: 12,
         }]}
       >
-        {param == null ? null : param === "reason" ? (
+        {param === "reason" ? (
           <View style={{ paddingHorizontal: 14 }}>
             <StepSlider
               caption="Рассуждение"
@@ -275,6 +282,7 @@ export function ModelPickerPopover({
           </View>
         )}
       </Reanimated.View>
+      ) : null}
     </View>
   );
 }

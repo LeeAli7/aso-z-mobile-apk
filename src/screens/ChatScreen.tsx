@@ -1486,6 +1486,19 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           style={{ flex: 1 }}
           data={chainGroups}
           keyExtractor={(g) => g.id}
+          ListFooterComponent={
+            waitingFirst ? (
+              <View
+                style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6, paddingLeft: 2 }}
+                accessibilityLabel="Агент думает"
+              >
+                <ApertureSpin size={24} color={theme.mute} cycle={1000} />
+                <Text style={{ color: theme.dim, fontSize: 12.5, fontFamily: fonts.sansMedium }}>
+                  Агент думает
+                </Text>
+              </View>
+            ) : null
+          }
           /* paddingBottom — только воздух: капсула стоит в потоке ниже списка,
              поэтому прежний composerH + 24 давал пустую полосу над капсулой. */
           contentContainerStyle={{
@@ -1601,16 +1614,6 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         >
           <ApertureSpin size={34} color={theme.mute} />
         </Animated.View>
-      ) : null}
-
-      {/* ожидание первого токена модели — та же анимация, мелкая, над капсулой */}
-      {waitingFirst ? (
-        <View
-          pointerEvents="none"
-          style={{ position: "absolute", left: 0, right: 0, bottom: Math.max(composerH, 76) + 10, alignItems: "center" }}
-        >
-          <ApertureSpin size={20} color={theme.mute} cycle={960} />
-        </View>
       ) : null}
 
       {/* кнопка «в самый низ» — появляется, когда пролистали вверх */}

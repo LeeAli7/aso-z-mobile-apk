@@ -99,7 +99,10 @@ export function BgTasksPopover({
   }, [pulse]);
   const dotStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
 
+  // окно прижато к правому краю экрана, но никогда не выезжает за него
+  const leftTo = Math.max(8, Math.min(anchor.x + anchor.w - W, screenW - W - 8));
   const win = useAnimatedStyle(() => ({
+    left: anchor.x + (leftTo - anchor.x) * p.value,
     width: anchor.w + (W - anchor.w) * p.value,
     height: anchor.h + (winH - anchor.h) * p.value,
     borderRadius: 20,
@@ -116,7 +119,6 @@ export function BgTasksPopover({
           {
             position: "absolute",
             top: anchor.y,
-            right: screenW - (anchor.x + anchor.w),
             backgroundColor: theme.surface2,
             overflow: "hidden",
           },
