@@ -68,7 +68,7 @@ export const APP_ICON_NAMES = [
 export type AppIconName = (typeof APP_ICON_NAMES)[number];
 
 /** Толщина обводки набора — одна на всё приложение. */
-const STROKE_DEFAULT = 2;
+const STROKE_DEFAULT = 2.4;
 
 const MATERIAL_TO_APP: Record<string, AppIconName> = {
   menu: "menu",

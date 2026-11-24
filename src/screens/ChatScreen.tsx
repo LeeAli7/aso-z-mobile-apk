@@ -31,6 +31,7 @@ import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from "expo-spe
 import { Svg, Polyline } from "react-native-svg";
 import { AppIcon, AppIconName } from "../design-system/components/AppIcon";
 import { AttachmentStrip } from "../components/AttachmentStrip";
+import { ModelPickerPopover } from "../components/ModelPickerPopover";
 import { ApertureSpin } from "../design-system/components/ApertureMark";
 
 import { useApp, genId, Msg, Session } from "../store/AppStore";
@@ -260,8 +261,16 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       } catch {}
       const lang = state.lang === "en" ? "en-US" : "ru-RU";
       try {
+        // клавиатура должна уйти: иначе капсула уезжает вниз под неё
+        Keyboard.dismiss();
         sttBase.current = text.trim();
-        ExpoSpeechRecognitionModule.start({ lang, interimResults: true, continuous: false } as any);
+        ExpoSpeechRecognitionModule.start({
+          lang,
+          interimResults: true,
+          continuous: false,
+          // без этого флага модуль не шлёт volumechange вообще — линия стояла ровной
+          volumeChangeEventOptions: { enabled: true, intervalMillis: 100 },
+        } as any);
         closeAttach();
         void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
         setRecording(true);
@@ -281,7 +290,6 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   const [showJump, setShowJump] = useState(false);
   const jumpAnim = useRef(new Animated.Value(0)).current;
   // Плюс → красный крест: поворот 0→45° и смена цвета.
-  const attachAnim = useRef(new Animated.Value(0)).current;
   // панель вложений: прогресс живёт на UI-потоке. Раньше высоту вёл
   // Animated с useNativeDriver:false — каждый кадр пересобирал 200 полосок
   // подложки и перекладывал список, отсюда рывки.
@@ -299,6 +307,34 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     opacity: attachProg.value,
     transform: [{ translateY: (1 - attachProg.value) * 8 }],
   }));
+  // Плюс и крест живут на ОДНОМ значении attachProg. Раньше их вело отдельное
+  // Animated.Value: после серии нажатий крест оставался при закрытой панели,
+  // а панель висела с pointerEvents="none". Рассогласоваться теперь нечему.
+  const plusIconStyle = useAnimatedStyle(() => ({
+    opacity: recording ? 0 : 1 - attachProg.value,
+    transform: [{ rotate: `${45 * attachProg.value}deg` }],
+  }));
+  const closeIconStyle = useAnimatedStyle(() => ({
+    opacity: recording ? 0 : attachProg.value,
+    transform: [{ rotate: `${-45 + 45 * attachProg.value}deg` }],
+  }));
+  // Лента вложений появляется и исчезает сама, вне потока — капсулу не сдвигает.
+  const stripProg = useSharedValue(0);
+  const [stripMounted, setStripMounted] = useState(false);
+  useEffect(() => {
+    if (attachments.length > 0) {
+      setStripMounted(true);
+      stripProg.value = withTiming(1, { duration: 220, easing: REasing.out(REasing.cubic) });
+      return;
+    }
+    stripProg.value = withTiming(0, { duration: 160, easing: REasing.in(REasing.cubic) });
+    const id = setTimeout(() => setStripMounted(false), 190);
+    return () => clearTimeout(id);
+  }, [attachments.length, stripProg]);
+  const stripStyle = useAnimatedStyle(() => ({
+    opacity: stripProg.value,
+    transform: [{ translateY: (1 - stripProg.value) * 10 }],
+  }));
 
   /** Закрыть панель откуда угодно (тайл, выбор файла, клавиатура).
    *  Раньше тайлы звали только setAttachOpen(false), а анимация оставалась
@@ -307,13 +343,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   const closeAttach = useCallback(() => {
     setAttachOpen(false);
     attachProg.value = withTiming(0, { duration: 200, easing: REasing.in(REasing.cubic) });
-    Animated.timing(attachAnim, {
-      toValue: 0,
-      duration: 220,
-      easing: Easing.in(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
-  }, [attachProg, attachAnim]);
+  }, [attachProg]);
 
   const active = state.sessions.find((s) => s.id === state.activeSessionId) ?? null;
   const allModels = [...state.models, ...state.customModels];
@@ -1597,14 +1627,20 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               locations={[0, 1]}
               style={{ position: "absolute", left: -12, right: -12, top: -96, bottom: 0 }}
             />
-            {/* вложения — НАД капсулой: блок 72, внутри фото или иконка типа, имя снизу */}
-            {attachments.length > 0 && (
-              <AttachmentStrip
-                items={attachments}
-                theme={theme}
-                onRemove={(i) => setAttachments((prev) => prev.filter((_, k) => k !== i))}
-              />
-            )}
+            {/* вложения — над капсулой, ВНЕ потока: появление и снятие капсулу
+                не сдвигают, лента мягко проявляется и гаснет на своём месте */}
+            <Reanimated.View
+              pointerEvents={attachments.length > 0 ? "auto" : "none"}
+              style={[{ position: "absolute", left: 0, right: 0, bottom: 68 }, stripStyle]}
+            >
+              {stripMounted ? (
+                <AttachmentStrip
+                  items={attachments}
+                  theme={theme}
+                  onRemove={(i) => setAttachments((prev) => prev.filter((_, k) => k !== i))}
+                />
+              ) : null}
+            </Reanimated.View>
           {/* капсула ввода: #141416, радиус 26, без стекла и градиентов */}
           <Glass
             radius={25}
@@ -1624,12 +1660,6 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                   duration: next ? 260 : 200,
                   easing: next ? REasing.out(REasing.cubic) : REasing.in(REasing.cubic),
                 });
-                Animated.timing(attachAnim, {
-                  toValue: next ? 1 : 0,
-                  duration: next ? 280 : 220,
-                  easing: next ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
-                  useNativeDriver: true,
-                }).start();
               }}
               hitSlop={6}
               style={({ pressed }) => ({
@@ -1640,24 +1670,12 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             >
               {/* плюс поворачивается на 45° и растворяется — на его месте
                   крест из того же центра, уже красный */}
-              <Animated.View
-                style={{
-                  position: "absolute",
-                  opacity: attachAnim.interpolate({ inputRange: [0, 1], outputRange: recording ? [0, 0] : [1, 0] }),
-                  transform: [{ rotate: attachAnim.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "45deg"] }) }],
-                }}
-              >
+              <Reanimated.View style={[{ position: "absolute" }, plusIconStyle]}>
                 <AppIcon name="plus" size={22} color={theme.text} />
-              </Animated.View>
-              <Animated.View
-                style={{
-                  position: "absolute",
-                  opacity: recording ? 0 : attachAnim,
-                  transform: [{ rotate: attachAnim.interpolate({ inputRange: [0, 1], outputRange: ["-45deg", "0deg"] }) }],
-                }}
-              >
+              </Reanimated.View>
+              <Reanimated.View style={[{ position: "absolute" }, closeIconStyle]}>
                 <AppIcon name="close" size={22} color={theme.danger} />
-              </Animated.View>
+              </Reanimated.View>
             </Pressable>
             </Reanimated.View>
             {/* поле; на время диктовки текст невидим — поверх идёт линия уровня */}
@@ -1752,7 +1770,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             pointerEvents={attachOpen ? "auto" : "none"}
             collapsable={false}
             style={{
-              position: "absolute", left: 0, right: 0, bottom: compPadBottom,
+              position: "absolute", left: 12, right: 12, bottom: compPadBottom,
               height: 110, paddingTop: 10, zIndex: 3,
             }}
           >
@@ -1772,7 +1790,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                     b.onPress();
                   }}
                   style={({ pressed }) => ({
-                    flex: 1,
+                    width: 92,
                     height: 92,
                     borderRadius: 20,
                     backgroundColor: pressed ? theme.surface2 : theme.surface,
@@ -1821,39 +1839,20 @@ export function ChatScreen({ navigation }: { navigation: any }) {
 
 
 
-      {/* ── Выбор модели: снизу, как панель вложений ── */}
-      <Sheet
-        visible={modelPickerOpen}
+      {/* ── Выбор модели: окно растёт вверх на месте кнопки, без шторки снизу ── */}
+      <ModelPickerPopover
+        open={modelPickerOpen}
+        models={allModels.map((m) => ({ modelName: m.modelName, provider: m.providerId, displayName: m.displayName } as any))}
+        current={model?.modelName}
+        onSelect={(m: any) => {
+          const found = allModels.find((x) => x.modelName === m.modelName);
+          if (found) switchModel(found);
+          setModelPickerOpen(false);
+        }}
         onClose={() => setModelPickerOpen(false)}
-        title="Модель"
-        snapPoints={["auto"]}
-        autoMaxPct={65}
-      >
-        {allModels.length === 0 && (
-          <Text style={{ color: theme.dim, fontSize: 13, paddingVertical: 14 }}>Модели не подключены</Text>
-        )}
-        {allModels.map((m) => (
-          <Pressable
-            key={m.modelName}
-            onPress={() => {
-              switchModel(m);
-              setModelPickerOpen(false);
-            }}
-            style={({ pressed }) => ({
-              flexDirection: "row",
-              alignItems: "center",
-              paddingVertical: 14,
-              opacity: pressed ? 0.8 : 1,
-            })}
-          >
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: theme.text, fontSize: 15, fontWeight: "600" }}>{m.displayName}</Text>
-              <Text style={{ color: theme.dim, fontSize: 11.5, marginTop: 2, fontFamily: fonts.mono }}>{m.modelName}</Text>
-            </View>
-            {m.modelName === model?.modelName && <AppIcon name="check" size={18} color={theme.text} />}
-          </Pressable>
-        ))}
-      </Sheet>
+        theme={theme}
+        top={insets.top + 6}
+      />
 
       {/* ── Message actions sheet (in-app, не системный Alert) ── */}
       <Sheet visible={!!msgMenuTarget} onClose={() => setMsgMenuTarget(null)} title={msgMenuTarget?.role === "user" ? "Сообщение" : "Ответ"} snapPoints={["auto"]} autoMaxPct={55}>

@@ -15,7 +15,7 @@
  * Движок не тронут: чистый UI поверх loadJobs + пропсов.
  */
 import React, { useCallback, useEffect, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppIcon } from "../design-system/components/AppIcon";
 import { Sheet } from "../design-system/components/Sheet";
@@ -72,8 +72,10 @@ export function BgTasksSheet({
     refresh();
   }, [visible, refresh]);
   const enabled = jobs.filter((j) => j.enabled);
-  const all: BgTask[] = [...reg];
+  // «stream» — это текущий ответ модели, а не фоновый процесс: в окне ему не место
+  const all: BgTask[] = reg.filter((x) => x.kind !== "stream");
   for (const task of tasks) {
+    if (task.kind === "stream") continue;
     if (!all.some((x) => x.id === task.id)) all.push(task);
   }
   for (const j of enabled) {
@@ -95,26 +97,41 @@ export function BgTasksSheet({
       {all.length === 0 ? (
         <Text style={{ color: theme.dim, fontSize: 12.5 }}>{t("bg_empty") ?? "Фоновых задач нет."}</Text>
       ) : (
-        all.map((task) => (
-          <View
-            key={task.id}
-            style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: theme.border }}
-          >
-            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: task.kind === "stream" ? theme.accent : theme.ok }} />
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: theme.text, fontSize: 13, fontWeight: "600" }}>{task.title}</Text>
-              {task.sub ? <Text style={{ color: theme.mute, fontSize: 10.5, fontFamily: "monospace", marginTop: 1 }}>{task.sub}</Text> : null}
+        [
+          { kind: "runtime", label: "Рантайм" },
+          { kind: "delegation", label: "Делегация" },
+          { kind: "cron", label: "Автозадачи" },
+        ].map((group) => {
+          const rows = all.filter((x) => x.kind === group.kind);
+          if (rows.length === 0) return null;
+          return (
+            <View key={group.kind}>
+              <Text style={{ color: theme.mute, fontSize: 11, letterSpacing: 0.7, marginTop: 14, marginBottom: 4, fontFamily: "MiSansLatin-Medium" }}>
+                {group.label.toUpperCase()}
+              </Text>
+              {rows.map((task) => (
+                <View
+                  key={task.id}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 9, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border }}
+                >
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.ok }} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: theme.text, fontSize: 13, fontFamily: "MiSansLatin-Medium" }}>{task.title}</Text>
+                    {task.sub ? <Text style={{ color: theme.mute, fontSize: 10.5, fontFamily: "GeistMono", marginTop: 1 }}>{task.sub}</Text> : null}
+                  </View>
+                  {onOpen ? (
+                    <Pressable onPress={() => onOpen(task)} hitSlop={8} style={{ padding: 6 }}>
+                      <AppIcon name="eye" size={17} color={theme.dim} />
+                    </Pressable>
+                  ) : null}
+                  <Pressable onPress={() => void stopTask(task)} hitSlop={8} style={{ padding: 6 }} accessibilityLabel="Остановить задачу">
+                    <AppIcon name="stop" size={15} color={theme.danger} />
+                  </Pressable>
+                </View>
+              ))}
             </View>
-            {onOpen ? (
-              <Pressable onPress={() => onOpen(task)} hitSlop={8} style={{ padding: 6 }}>
-                <AppIcon name="eye" size={17} color={theme.accentHi} />
-              </Pressable>
-            ) : null}
-            <Pressable onPress={() => void stopTask(task)} hitSlop={8} style={{ padding: 6 }} accessibilityLabel="Остановить задачу">
-              <AppIcon name="stop" size={15} color={theme.danger} />
-            </Pressable>
-          </View>
-        ))
+          );
+        })
       )}
       <View style={{ height: insets.bottom + 8 }} />
     </Sheet>
@@ -137,8 +154,8 @@ export function BgIndicator({
       onPress={onPress}
       hitSlop={8}
       style={{
-        width: 44, height: 44, borderRadius: 22,
-        flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5,
+        width: 47, height: 40, borderRadius: 20,
+        flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
         marginRight: 8,
         backgroundColor: theme.surface,
       }}
