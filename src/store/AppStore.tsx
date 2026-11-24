@@ -329,6 +329,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!state.ready) return;
+    // Пока идёт стрим — не пишем: JSON.stringify всех сессий на JS-потоке
+    // подвешивал интерфейс прямо во время ответа. Запишем после завершения.
+    if (state.sessions.some((x) => x.messages.some((m) => m.streaming))) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
       try {

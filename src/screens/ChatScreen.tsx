@@ -380,6 +380,10 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // Плавное открытие сессии: список монтируется целиком, потом один прыжок
   // в низ без анимации и мягкое проявление — без поэтапного дёрганья.
   const listFade = useRef(new Animated.Value(1)).current;
+  // Шторка переключения сессии: сам чат не гасим (переключение мгновенное),
+  // но пока список доезжает — показываем знак, чтобы не было «щелчка».
+  const [switchOn, setSwitchOn] = useState(false);
+  const switchFade = useRef(new Animated.Value(0)).current;
   const [listReady, setListReady] = useState(false);
   const [showJump, setShowJump] = useState(false);
   const jumpAnim = useRef(new Animated.Value(0)).current;
@@ -533,11 +537,21 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // экрана: сообщения уже в памяти, поэтому прыгаем в низ в тот же кадр.
   useEffect(() => {
     setListReady(true);
-    const id = setTimeout(() => {
-      listRef.current?.scrollToEnd({ animated: false });
-    }, 0);
-    return () => clearTimeout(id);
-  }, [active?.id]);
+    listRef.current?.scrollToEnd({ animated: false });
+    setSwitchOn(true);
+    switchFade.setValue(0);
+    Animated.timing(switchFade, {
+      toValue: 1, duration: 110, easing: Easing.out(Easing.quad), useNativeDriver: true,
+    }).start();
+    const t = setTimeout(() => {
+      Animated.timing(switchFade, {
+        toValue: 0, duration: 170, easing: Easing.in(Easing.quad), useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) setSwitchOn(false);
+      });
+    }, 170);
+    return () => clearTimeout(t);
+  }, [active?.id, switchFade]);
 
   useEffect(() => {
     Animated.timing(jumpAnim, {
@@ -854,6 +868,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       let textAcc = "";
       let thinkId: string | null = null;
       let textId: string | null = null;
+      let agentTokAt = 0;
+      let agentTokTimer: ReturnType<typeof setTimeout> | null = null;
       const toolIds: string[] = [];
       let toolIdx = 0;
       const written: string[] = [];
@@ -873,13 +889,28 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         if (getRun(sid).stop) return;
         acc += tok;
         textAcc += tok;
-        if (!textId) {
-          textId = genId();
-          dispatch({ type: "ADD_MSG", sessionId: sid, msg: { id: textId, role: "assistant", content: textAcc, streaming: true } });
-        } else {
-          dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: textId, patch: { content: textAcc } });
+        // как и в обычном пути: экран не чаще ~18 раз в секунду, иначе
+        // каждый токен перерисовывал весь чат и интерфейс подвисал
+        const paintText = () => {
+          if (!textId) {
+            textId = genId();
+            dispatch({ type: "ADD_MSG", sessionId: sid, msg: { id: textId, role: "assistant", content: textAcc, streaming: true } });
+          } else {
+            dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: textId, patch: { content: textAcc } });
+          }
+          scrollBottom();
+        };
+        const nowTok = Date.now();
+        if (nowTok - agentTokAt >= 55) {
+          agentTokAt = nowTok;
+          paintText();
+        } else if (!agentTokTimer) {
+          agentTokTimer = setTimeout(() => {
+            agentTokTimer = null;
+            agentTokAt = Date.now();
+            paintText();
+          }, 55);
         }
-        scrollBottom();
         // fallback (plain-путь): агент написал [FILE:]/[CMD:] текстом — карточка как в Kimi
         if (proj) {
           const fm = acc.match(/\[FILE:\s*([^\n\]]+)\]/);
@@ -1329,20 +1360,41 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     dispatch({ type: "ADD_MSG", sessionId: sid, msg: { id: aiId, role: "assistant", content: "", streaming: true } });
 
     let acc = "";
+    // Токены приходят десятками в секунду. Раньше каждый токен перерисовывал
+    // весь чат (и все markdown-блоки) — кнопки переставали отвечать. Теперь
+    // экран обновляется не чаще ~18 раз в секунду, а хвост добирается таймером.
+    let lastTokAt = 0;
+    let tokTimer: ReturnType<typeof setTimeout> | null = null;
+    const flushTok = () => {
+      if (getRun(sid).stop) return;
+      dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: aiId, patch: { content: acc } });
+      scrollBottom();
+    };
     const ctrl = new AbortController();
     getRun(sid).ctrl = ctrl;
     await streamChat(model, history, {
       onToken: (tok) => {
         if (getRun(sid).stop) return;
         acc += tok;
-        dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: aiId, patch: { content: acc } });
-        scrollBottom();
+        const now = Date.now();
+        if (now - lastTokAt >= 55) {
+          lastTokAt = now;
+          flushTok();
+        } else if (!tokTimer) {
+          tokTimer = setTimeout(() => {
+            tokTimer = null;
+            lastTokAt = Date.now();
+            flushTok();
+          }, 55);
+        }
       },
       onThinking: (thinking) => {
         if (getRun(sid).stop) return;
+        if (tokTimer) { clearTimeout(tokTimer); tokTimer = null; }
         dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: aiId, patch: { thinking } });
       },
       onDone: (clean) => {
+        if (tokTimer) { clearTimeout(tokTimer); tokTimer = null; }
         markStreaming(sid, false);
         if (getRun(sid).stop && !clean) return;
         dispatch({
@@ -1351,6 +1403,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         });
       },
       onError: (err) => {
+        if (tokTimer) { clearTimeout(tokTimer); tokTimer = null; }
         markStreaming(sid, false);
         if (getRun(sid).stop) return;
         dispatch({
@@ -1579,74 +1632,38 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           }}
           scrollEventThrottle={16}
           keyboardShouldPersistTaps="handled"
-          renderItem={({ item: g, index }) => {
-            if (g.kind === "chain") {
-              // единый блок: раздумья + команды накапливаются внутри (как в QIWI)
-              const onDetail = (m: Msg) => setDetailTarget(m);
-              // ВАЖНО: хронологический порядок сообщений как есть — думалка → команда →
-              // думалка → команда (никакой перегруппировки: всё должно быть на своих местах)
-              // Один блок «Думаю» на всю цепочку: раньше на каждую реплику
-              // выводился свой блок подряд — выглядело как «Думаю, Думаю, Думаю».
-              const chainText = g.msgs
-                .filter((m) => m.thinking)
-                .map((m) => String(m.thinking))
-                .join("\n\n");
-              const chainTools = g.msgs.filter((m) => m.tool);
-              const anyStreaming = g.msgs.some((m) => m.streaming);
-              const firstThink = g.msgs.find((m) => m.thinking);
-              return (
-                <View style={{ width: "94%", alignSelf: "flex-start", marginBottom: 10 }}>
-                  {/* Никакой карточки-рамки: цепочка «Думаю + инструменты» живёт
-                      прямо на фоне чата. Раньше это был Glass с заливкой и
-                      обводкой — прямоугольник перекрывал задний фон рядом с капсулой. */}
-                  <View style={{ width: "100%", paddingLeft: 4, paddingRight: 4 }}>
-                    {chainText ? (
-                      <ThinkingBlock
-                        text={chainText}
-                        status={anyStreaming ? "thinking" : "done"}
-                        theme={theme}
-                        onOpen={() => firstThink && onDetail(firstThink)}
-                        bare
-                      />
-                    ) : null}
-                    {chainTools.map((m) => (
-                      <ToolCard
-                        key={m.id}
-                        tool={String(m.tool)}
-                        state={m.toolState ?? "loading"}
-                        output={m.toolOutput}
-                        theme={theme}
-                        onOpen={() => onDetail(m)}
-                        bare
-                      />
-                    ))}
-                  </View>
-                </View>
-              );
-            }
-            const msg = g.msg;
-            // Действия — только у последнего сообщения чата: раньше панель висела
-            // под каждой репликой и читалась как часть ответа агента.
-            const showActions = index === chainGroups.length - 1 && !msg.tool;
-            return (
-              <Bubble
-                msg={msg}
-                theme={theme}
-                onCopy={() => copyMsg(msg)}
-                onShare={() => shareMsg(msg)}
-                onEdit={() => startEdit(msg)}
-                onLongPress={() => msgMenu(msg)}
-                showActions={showActions}
-                onOpenDetail={setDetailTarget}
-              />
-            );
-          }}
+          renderItem={({ item: g, index }) => (
+            <MsgRow
+              g={g}
+              sig={groupSig(g)}
+              isLast={index === chainGroups.length - 1}
+              theme={theme}
+              onDetail={setDetailTarget}
+              onCopy={copyMsg}
+              onShare={shareMsg}
+              onEdit={startEdit}
+              onLongPress={msgMenu}
+            />
+          )}
         />
         </Animated.View>
       )}
 
       {/* streaming-индикатор намеренно убран: ни «обрабатываю запрос…», ни точек —
           пользователь попросил чистый чат. Раздумья видны в блоке ThinkingBlock. */}
+
+      {/* переключение сессии: знак по центру, фон не затемняем */}
+      {switchOn ? (
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+            alignItems: "center", justifyContent: "center", opacity: switchFade,
+          }}
+        >
+          <ApertureSpin size={30} color={theme.text} cycle={1080} min={0.14} />
+        </Animated.View>
+      ) : null}
 
       {/* кнопка «в самый низ» — появляется, когда пролистали вверх */}
       <Animated.View
@@ -2362,3 +2379,76 @@ function EmptyChat({ theme, topInset }: { theme: any; topInset?: number }) {
     </View>
   );
 }
+
+/** Подпись группы для memo: перерисовываем ряд только если поменялся смысл. */
+function groupSig(g: any): string {
+  if (g.kind === "chain") {
+    return "c:" + g.msgs.map((m: any) => `${m.id}:${(m.thinking || "").length}:${m.tool || ""}:${m.toolState || ""}:${(m.toolOutput || "").length}`).join(",");
+  }
+  const m = g.msg;
+  return `b:${m.id}:${(m.content || "").length}:${m.streaming ? 1 : 0}:${(m.thinking || "").length}:${m.error ? 1 : 0}:${(m.image ? 1 : 0)}`;
+}
+
+/**
+ * Один ряд чата. Мемоизирован: во время стрима каждый токен создаёт новые
+ * объекты групп, но перерисовывается только ряд, у которого изменился текст.
+ * Без этого каждый токен перерисовывал весь чат и кнопки отвечали через секунду.
+ */
+const MsgRow = React.memo(
+  function MsgRow({
+    g, isLast, theme, onDetail, onCopy, onShare, onEdit, onLongPress,
+  }: {
+    g: any; sig: string; isLast: boolean; theme: any;
+    onDetail: (m: Msg) => void;
+    onCopy: (m: Msg) => void; onShare: (m: Msg) => void;
+    onEdit: (m: Msg) => void; onLongPress: (m: Msg) => void;
+  }) {
+    if (g.kind === "chain") {
+      const chainText = g.msgs.filter((m: any) => m.thinking).map((m: any) => String(m.thinking)).join("\n\n");
+      const chainTools = g.msgs.filter((m: any) => m.tool);
+      const anyStreaming = g.msgs.some((m: any) => m.streaming);
+      const firstThink = g.msgs.find((m: any) => m.thinking);
+      return (
+        <View style={{ width: "94%", alignSelf: "flex-start", marginBottom: 10 }}>
+          <View style={{ width: "100%", paddingLeft: 4, paddingRight: 4 }}>
+            {chainText ? (
+              <ThinkingBlock
+                text={chainText}
+                status={anyStreaming ? "thinking" : "done"}
+                theme={theme}
+                onOpen={() => firstThink && onDetail(firstThink)}
+                bare
+              />
+            ) : null}
+            {chainTools.map((m: any) => (
+              <ToolCard
+                key={m.id}
+                tool={String(m.tool)}
+                state={m.toolState ?? "loading"}
+                output={m.toolOutput}
+                theme={theme}
+                onOpen={() => onDetail(m)}
+                bare
+              />
+            ))}
+          </View>
+        </View>
+      );
+    }
+    const msg = g.msg;
+    const showActions = isLast && !msg.tool;
+    return (
+      <Bubble
+        msg={msg}
+        theme={theme}
+        onCopy={() => onCopy(msg)}
+        onShare={() => onShare(msg)}
+        onEdit={() => onEdit(msg)}
+        onLongPress={() => onLongPress(msg)}
+        showActions={showActions}
+        onOpenDetail={onDetail}
+      />
+    );
+  },
+  (a, b) => a.sig === b.sig && a.isLast === b.isLast && a.theme === b.theme,
+);
