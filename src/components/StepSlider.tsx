@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Reanimated, {
@@ -53,16 +53,20 @@ export function StepSlider({
   const pos = useSharedValue(steps.length > 1 ? value / (steps.length - 1) : 0);
   const rootRef = useRef<View>(null);
 
-  const commit = useCallback(
-    (i: number) => {
-      if (i !== last.current) {
-        last.current = i;
-        void Haptics.selectionAsync().catch(() => {});
-        onCommit(i);
-      }
-    },
-    [onCommit],
-  );
+  // колбэк в ref: сам жест НЕ пересоздаётся при каждом шаге, иначе
+  // RNGH пересобирает обработчик посреди протяжки и ползунок «дёргается»
+  const cbRef = useRef(onCommit);
+  cbRef.current = onCommit;
+  const countRef = useRef(steps.length);
+  countRef.current = steps.length;
+
+  const commit = useCallback((i: number) => {
+    if (i !== last.current) {
+      last.current = i;
+      void Haptics.selectionAsync().catch(() => {});
+      cbRef.current(i);
+    }
+  }, []);
 
   // значение пришло снаружи (загрузились настройки модели) — головка едет туда
   useEffect(() => {
@@ -73,19 +77,25 @@ export function StepSlider({
 
   const span = () => Math.max(1, wRef.current - 2 * PAD);
 
-  const pan = Gesture.Pan()
-    .minDistance(0)
-    .onBegin((e) => {
-      const i = Math.max(0, Math.min(steps.length - 1, Math.round((e.x - PAD) / span() * (steps.length - 1))));
-      pos.value = withTiming(i / (steps.length - 1), { duration: 90 });
-      runOnJS(commit)(i);
-    })
-    .onUpdate((e) => {
-      const t = Math.max(0, Math.min(1, (e.x - PAD) / span()));
-      const i = Math.round(t * (steps.length - 1));
-      pos.value = i / (steps.length - 1);
-      runOnJS(commit)(i);
-    });
+  const pan = useMemo(
+    () =>
+      Gesture.Pan()
+        .minDistance(0)
+        .onBegin((e) => {
+          const n = countRef.current;
+          const i = Math.max(0, Math.min(n - 1, Math.round((e.x - PAD) / span() * (n - 1))));
+          pos.value = withTiming(i / (n - 1), { duration: 90 });
+          runOnJS(commit)(i);
+        })
+        .onUpdate((e) => {
+          const n = countRef.current;
+          const t = Math.max(0, Math.min(1, (e.x - PAD) / span()));
+          const i = Math.round(t * (n - 1));
+          pos.value = i / (n - 1);
+          runOnJS(commit)(i);
+        }),
+    [commit, pos],
+  );
 
   const fill = useAnimatedStyle(() => ({ width: pos.value * (w - 2 * PAD) }));
   const knob = useAnimatedStyle(() => ({ transform: [{ translateX: pos.value * (w - 2 * PAD) }] }));
