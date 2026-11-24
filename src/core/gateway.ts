@@ -132,10 +132,9 @@ export async function streamChat(
     max_tokens: opts?.maxTokens ?? 8192,
     stream: true,
   };
-  // Уровень рассуждения шлём только тем моделям, у которых он заявлен в caps:
-  // остальные провайдеры отвечают 400 на незнакомое поле.
+  // «Выкл» — поля в запросе нет вообще: так ни один провайдер не пострадает.
   const eff = opts?.reasoning ?? 0;
-  if (eff > 0 && (model.caps ?? []).includes("reasoning")) {
+  if (eff > 0) {
     payload.reasoning_effort = ["", "low", "medium", "high"][eff];
   }
   const headers: Record<string, string> = {

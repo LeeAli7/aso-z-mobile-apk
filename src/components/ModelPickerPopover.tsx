@@ -38,13 +38,15 @@ function StepSlider({
 }) {
   const [w, setW] = useState(0);
   const wRef = useRef(0);
+  const vRef = useRef(value);
+  vRef.current = value;
   const set = (x: number) => {
     if (wRef.current <= 0) return;
     const pad = 9;
     const inner = Math.max(1, wRef.current - pad * 2);
     const t = Math.min(1, Math.max(0, (x - pad) / inner));
     const i = Math.round(t * (steps.length - 1));
-    if (i !== value) onChange(i);
+    if (i !== vRef.current) onChange(i);
   };
   const pan = useRef(
     PanResponder.create({
@@ -137,9 +139,8 @@ export function ModelPickerPopover({
   const [mounted, setMounted] = useState(open);
   const p = useSharedValue(0);
 
-  const canReason = caps.includes("reasoning");
   const listH = Math.min(4, Math.max(1, models.length)) * 44 + 8;
-  const paramsH = canReason ? 56 : 0;
+  const paramsH = 56;
   const targetH = 52 + listH + paramsH + 56 + 44 + 10;
   const targetW = 300;
 
@@ -266,15 +267,13 @@ export function ModelPickerPopover({
           <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.border, marginTop: 4 }} />
 
           <View style={{ paddingHorizontal: 16 }}>
-            {canReason ? (
-              <StepSlider
-                label="Рассуждение"
-                value={prefs.reasoning}
-                steps={[...REASONING_LABELS]}
-                theme={theme}
-                onChange={(i) => onPrefs({ ...prefs, reasoning: i as ModelPrefs["reasoning"] })}
-              />
-            ) : null}
+            <StepSlider
+              label="Рассуждение"
+              value={prefs.reasoning}
+              steps={[...REASONING_LABELS]}
+              theme={theme}
+              onChange={(i) => onPrefs({ ...prefs, reasoning: i as ModelPrefs["reasoning"] })}
+            />
             <StepSlider
               label="Контекст"
               value={Math.max(0, CTX_STEPS.findIndex((c) => c >= prefs.ctx))}
