@@ -94,11 +94,20 @@ export function loadModels(): ModelInfo[] {
  * Использует fetch + ReadableStream (RN 0.7x/0.8x поддерживает).
  * signal — для отмены из UI (кнопка «Стоп»); таймаут 30 с — встроенный.
  */
+/** Настройки конкретного запроса: потолок ответа и уровень рассуждения. */
+export type ChatOpts = {
+  /** max_tokens: 8192 по умолчанию, если пользователь не поднял ползунок */
+  maxTokens?: number;
+  /** 0 — выкл, 1..3 → reasoning_effort low/medium/high */
+  reasoning?: 0 | 1 | 2 | 3;
+};
+
 export async function streamChat(
   model: ModelInfo,
   messages: ChatMessage[],
   callbacks: StreamCallbacks,
   signal?: AbortSignal,
+  opts?: ChatOpts,
 ): Promise<void> {
   // Объединяем внешний signal (кнопка «Стоп») — БЕЗ авто-таймаута: пользователь сам
   // останавливает, когда захочет (раньше 180 с обрывали длинные reasoning-ответы).
@@ -116,13 +125,19 @@ export async function streamChat(
   if (Platform.OS === "web") {
     endpoint = `${config.apiBase}/api/mobile/gw?url=${encodeURIComponent(endpoint)}`;
   }
-  const payload = {
+  const payload: Record<string, unknown> = {
     model: model.apiModel ?? model.modelName,
     messages,
     temperature: model.temperature ?? 0.7,
-    max_tokens: 8192,
+    max_tokens: opts?.maxTokens ?? 8192,
     stream: true,
   };
+  // Уровень рассуждения шлём только тем моделям, у которых он заявлен в caps:
+  // остальные провайдеры отвечают 400 на незнакомое поле.
+  const eff = opts?.reasoning ?? 0;
+  if (eff > 0 && (model.caps ?? []).includes("reasoning")) {
+    payload.reasoning_effort = ["", "low", "medium", "high"][eff];
+  }
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     // Нужен browser-like UA: иначе Cloudflare на upstream режет запросы

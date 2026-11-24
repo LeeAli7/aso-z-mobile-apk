@@ -32,6 +32,7 @@ import { Svg, Polyline } from "react-native-svg";
 import { AppIcon, AppIconName } from "../design-system/components/AppIcon";
 import { AttachmentStrip } from "../components/AttachmentStrip";
 import { ModelPickerPopover } from "../components/ModelPickerPopover";
+import { DEFAULT_PREFS, loadPrefs, savePrefs, type ModelPrefs } from "../core/modelPrefs";
 import { ApertureSpin } from "../design-system/components/ApertureMark";
 
 import { useApp, genId, Msg, Session } from "../store/AppStore";
@@ -348,6 +349,26 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   const active = state.sessions.find((s) => s.id === state.activeSessionId) ?? null;
   const allModels = [...state.models, ...state.customModels];
   const model = allModels.find((m) => m.modelName === active?.modelId) ?? allModels[0];
+  // Рассуждение и контекст — свои у каждой модели, живут в AsyncStorage.
+  const [prefs, setPrefs] = useState<ModelPrefs>(DEFAULT_PREFS);
+  useEffect(() => {
+    let alive = true;
+    const name = model?.modelName;
+    if (!name) return;
+    void loadPrefs(name).then((p) => {
+      if (alive) setPrefs(p);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [model?.modelName]);
+  const applyPrefs = useCallback(
+    (p: ModelPrefs) => {
+      setPrefs(p);
+      if (model?.modelName) void savePrefs(model.modelName, p);
+    },
+    [model?.modelName],
+  );
   // встроенных моделей больше нет: пока своя не добавлена — «Модель», а не «Aso»
   const modelName = model?.displayName ?? "Модель";
   // Активный vibe-проект сессии (контекст агента).
@@ -998,10 +1019,10 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           onThinking,
           onDone: (clean) => { void finalize(clean || acc); },
           onError,
-        }, ctrl.signal);
+        }, ctrl.signal, { maxTokens: prefs.ctx, reasoning: prefs.reasoning });
       }
     },
-    [active, dispatch, model, setActive, scrollBottom, attachments, runSlashCommand, streamingSessions],
+    [active, dispatch, model, setActive, scrollBottom, attachments, runSlashCommand, streamingSessions, prefs.ctx, prefs.reasoning],
   );
 
   // ── Cron-раннер автозадач (P2.2) ──
@@ -1250,8 +1271,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           patch: { streaming: false, error: err, content: acc || "" },
         });
       },
-    }, ctrl.signal);
-  }, [active, editTarget, editValue, model, dispatch, scrollBottom]);
+    }, ctrl.signal, { maxTokens: prefs.ctx, reasoning: prefs.reasoning });
+  }, [active, editTarget, editValue, model, dispatch, scrollBottom, prefs.ctx, prefs.reasoning]);
 
   const confirmRename = useCallback(() => {
     if (!renameTarget) return;
@@ -1852,6 +1873,13 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         onClose={() => setModelPickerOpen(false)}
         theme={theme}
         top={insets.top + 6}
+        prefs={prefs}
+        caps={(model?.caps ?? []) as string[]}
+        onPrefs={applyPrefs}
+        onAdd={() => {
+          setModelPickerOpen(false);
+          navigation.navigate("Providers");
+        }}
       />
 
       {/* ── Message actions sheet (in-app, не системный Alert) ── */}
