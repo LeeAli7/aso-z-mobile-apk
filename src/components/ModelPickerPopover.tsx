@@ -132,7 +132,13 @@ export function ModelPickerPopover({
       {/* ── окно 1: список ── */}
       <Reanimated.View
         style={[
-          { position: "absolute", top: anchor.y, backgroundColor: theme.surface2, overflow: "hidden" },
+          {
+            position: "absolute", top: anchor.y,
+            // стартовые размеры = кнопка: пока Reanimated не применил стиль
+            // (на Android это кадр-два), окно не должно мелькать во весь экран
+            left: anchor.x, width: anchor.w, height: anchor.h,
+            backgroundColor: theme.surface2, overflow: "hidden",
+          },
           win,
         ]}
       >

@@ -224,6 +224,18 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   const sttBase = useRef("");
   const [recSec, setRecSec] = useState(0);
   const waveApi = useRef<((v: number) => void) | null>(null);
+  // запись уже включена визуально (линия/таймер), даже если разрешение ещё спрашивается
+  const recOnRef = useRef(false);
+  const permRef = useRef<boolean | null>(null);
+  const voiceCfgRef = useRef<any>(null);
+  useEffect(() => {
+    void (async () => {
+      try {
+        const { loadVoiceConfig } = await import("../core/voice");
+        voiceCfgRef.current = await loadVoiceConfig();
+      } catch { /* настроек нет — стартуем с дефолтами */ }
+    })();
+  }, []);
   // 0 — обычная капсула, 1 — диктовка: левая кнопка сжата, линия во всю ширину
   const recProg = useSharedValue(0);
   useEffect(() => {
@@ -273,51 +285,70 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     return () => clearInterval(id);
   }, [recording]);
   const toggleVoice = useCallback(async () => {
+    // Стоп — сразу, без ожиданий.
+    if (recording || recOnRef.current) {
+      recOnRef.current = false;
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      try { ExpoSpeechRecognitionModule.stop(); } catch {}
+      setRecording(false);
+      return;
+    }
+    if (recStarting.current) return;
+    recStarting.current = true;
+    recOnRef.current = true;
+
+    // Отклик не ждёт разрешений и конфига: вибро, клавиатура вниз, линия и
+    // таймер стартуют в тот же кадр. Раньше кнопка «думала» 200–400 мс,
+    // потому что до setRecording(true) шли динамический импорт и чтение настроек.
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    Keyboard.dismiss();
+    sttBase.current = text.trim();
+    setRecSec(0);
+    setRecording(true);
+    closeAttach();
+
+    const rollback = (msg: string) => {
+      recOnRef.current = false;
+      recStarting.current = false;
+      setRecording(false);
+      if (msg) showToast("err", msg);
+    };
+
     try {
-      if (recording) {
-        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-        try { ExpoSpeechRecognitionModule.stop(); } catch {}
-        setRecording(false);
-        return;
+      let voice = voiceCfgRef.current;
+      if (!voice) {
+        const { loadVoiceConfig } = await import("../core/voice");
+        voice = await loadVoiceConfig().catch(() => null);
+        voiceCfgRef.current = voice;
       }
-      if (recStarting.current) return;
-      // кнопка микрофона подчиняется настройке «Голосовой ввод»
-      const { loadVoiceConfig } = await import("../core/voice");
-      const voice = await loadVoiceConfig().catch(() => null);
       if (voice && !voice.sttEnabled) {
-        showToast("err", "Голосовой ввод выключен в настройках");
+        rollback("Голосовой ввод выключен в настройках");
         return;
       }
-      recStarting.current = true;
-      try {
+      // разрешение спрашиваем один раз за жизнь экрана
+      if (permRef.current !== true) {
         const perm: any = await ExpoSpeechRecognitionModule.requestPermissionsAsync().catch(() => null);
         const granted = perm == null ? true : (perm.granted ?? perm.status === "granted");
+        permRef.current = granted;
         if (!granted) {
-          showToast("err", "Нет доступа к микрофону");
-          recStarting.current = false;
+          rollback("Нет доступа к микрофону");
           return;
         }
-      } catch {}
-      const lang = state.lang === "en" ? "en-US" : "ru-RU";
-      try {
-        // клавиатура должна уйти: иначе капсула уезжает вниз под неё
-        Keyboard.dismiss();
-        sttBase.current = text.trim();
-        ExpoSpeechRecognitionModule.start({
-          lang,
-          interimResults: true,
-          continuous: false,
-          // без этого флага модуль не шлёт volumechange вообще — линия стояла ровной
-          volumeChangeEventOptions: { enabled: true, intervalMillis: 100 },
-        } as any);
-        closeAttach();
-        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-        setRecording(true);
-      } catch (e: any) {
-        showToast("err", String(e?.message || e));
-        recStarting.current = false;
       }
-    } catch {}
+      if (!recOnRef.current) return; // успели остановить, пока шёл запрос
+      const lang = state.lang === "en" ? "en-US" : "ru-RU";
+      ExpoSpeechRecognitionModule.start({
+        lang,
+        interimResults: true,
+        continuous: false,
+        // без этого флага модуль не шлёт volumechange вообще — линия стояла ровной
+        volumeChangeEventOptions: { enabled: true, intervalMillis: 100 },
+      } as any);
+    } catch (e: any) {
+      rollback(String(e?.message || e));
+    } finally {
+      recStarting.current = false;
+    }
   }, [recording, state.lang, text]);
   const listRef = useRef<FlatList<any>>(null);
   // Плавное открытие сессии: список монтируется целиком, потом один прыжок
