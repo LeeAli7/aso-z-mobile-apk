@@ -71,6 +71,7 @@ export function ModelPickerPopover({
   const localP = useSharedValue(0);
   const p = progress ?? localP;
   const cardP = useSharedValue(0);
+  const [contentOn, setContentOn] = useState(false);
 
   const rows = models.length;
   const listH = rows > 4 ? LIST_MAX : Math.max(1, rows) * ROW;
@@ -82,8 +83,10 @@ export function ModelPickerPopover({
       setParam(null);
       setMounted(true);
       // рост из кнопки: чуть длиннее и с мягким «выходом», чтобы не дёргалось
+      setContentOn(false);
+      const cid = setTimeout(() => setContentOn(true), 80);
       p.value = withTiming(1, { duration: 300, easing: REasing.bezier(0.16, 0.84, 0.24, 1) });
-      return;
+      return () => clearTimeout(cid);
     }
     // закрытие: карточка уезжает первой, окно возвращается в кнопку
     setParam(null);
@@ -111,7 +114,6 @@ export function ModelPickerPopover({
     left: anchor.x + (leftTo - anchor.x) * p.value,
     width: anchor.w + (W - anchor.w) * p.value,
     height: anchor.h + (winH - anchor.h) * p.value,
-    borderRadius: 26 + (20 - 26) * p.value,
   }));
   const body = useAnimatedStyle(() => ({ opacity: p.value * p.value }));
   // карточка выезжает из-под окна: чуть вверх + проявляется
@@ -136,13 +138,15 @@ export function ModelPickerPopover({
             position: "absolute", top: anchor.y,
             // стартовые размеры = кнопка: пока Reanimated не применил стиль
             // (на Android это кадр-два), окно не должно мелькать во весь экран
-            left: anchor.x, width: anchor.w, height: anchor.h,
+            left: anchor.x, width: anchor.w, height: anchor.h, borderRadius: 20,
             backgroundColor: theme.surface2, overflow: "hidden",
           },
           win,
         ]}
       >
         <Reanimated.View style={[{ flex: 1 }, body]}>
+          {contentOn ? (
+          <>
           <Pressable
             onPress={onClose}
             style={{ height: HEAD, flexDirection: "row", alignItems: "center", paddingHorizontal: 14, gap: 8 }}
@@ -257,6 +261,8 @@ export function ModelPickerPopover({
               <Text style={{ color: theme.dim, fontSize: 14 }}>Свой провайдер и модель</Text>
             </Pressable>
           </View>
+          </>
+          ) : null}
         </Reanimated.View>
       </Reanimated.View>
 

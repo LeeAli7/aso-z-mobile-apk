@@ -33,6 +33,7 @@ import { Defs, LinearGradient as SvgGradient, Path as SvgPath, Rect as SvgRect, 
 import { AppIcon, AppIconName } from "../design-system/components/AppIcon";
 import { AttachmentStrip } from "../components/AttachmentStrip";
 import { ModelPickerPopover } from "../components/ModelPickerPopover";
+import RecTimer from "../components/RecTimer";
 import { DEFAULT_PREFS, loadPrefs, savePrefs, type ModelPrefs } from "../core/modelPrefs";
 import { ApertureSpin } from "../design-system/components/ApertureMark";
 
@@ -169,6 +170,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
 
   const openPicker = useCallback(() => {
     pillRef.current?.measureInWindow((x, y, w, h) => {
+      if (__DEV__) console.log("[morph] anchor", Math.round(x), Math.round(y), Math.round(w), Math.round(h));
       setPillBox({ x, y, w: w || 118, h: h || 40 });
       setModelPickerOpen(true);
     });
@@ -222,7 +224,6 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // Текст, который был в поле до старта записи. Android присылает interim-результат
   // ЦЕЛИКОМ на каждое обновление; дописывание «prev + txt» давало слова по 2-3 раза.
   const sttBase = useRef("");
-  const [recSec, setRecSec] = useState(0);
   const waveApi = useRef<((v: number) => void) | null>(null);
   // запись уже включена визуально (линия/таймер), даже если разрешение ещё спрашивается
   const recOnRef = useRef(false);
@@ -277,13 +278,6 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   useSpeechRecognitionEvent("volumechange", (e: any) => {
     waveApi.current?.(Number(e?.value ?? 0));
   });
-  // таймер записи
-  useEffect(() => {
-    if (!recording) return;
-    setRecSec(0);
-    const id = setInterval(() => setRecSec((v) => v + 1), 1000);
-    return () => clearInterval(id);
-  }, [recording]);
   const toggleVoice = useCallback(async () => {
     // Стоп — сразу, без ожиданий.
     if (recording || recOnRef.current) {
@@ -303,7 +297,6 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     Keyboard.dismiss();
     sttBase.current = text.trim();
-    setRecSec(0);
     setRecording(true);
     closeAttach();
 
@@ -1799,11 +1792,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               </View>
             ) : null}
             </View>
-            {recording ? (
-              <Text style={{ fontFamily: fonts.mono, fontSize: 11.5, color: theme.mute }}>
-                {`${Math.floor(recSec / 60)}:${String(recSec % 60).padStart(2, "0")}`}
-              </Text>
-            ) : null}
+            {recording ? <RecTimer color={theme.mute} fontFamily={fonts.mono} /> : null}
             {recording ? (
               <Pressable
                 onPress={toggleVoice}
@@ -1838,7 +1827,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               </Pressable>
             ) : (
               <Pressable
-                onPress={toggleVoice}
+                onPressIn={toggleVoice}
                 hitSlop={6}
                 style={{ width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" }}
                 accessibilityLabel="Голосовой ввод"
