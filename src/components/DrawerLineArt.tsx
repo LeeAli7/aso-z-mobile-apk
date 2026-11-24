@@ -116,14 +116,12 @@ export function DrawerLineArt({
       setLeaving(false);
       slide.stopAnimation();
       slide.setValue(HIDE);
-      requestAnimationFrame(() => {
-        Animated.timing(slide, {
-          toValue: 0,
-          duration: 260,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }).start();
-      });
+      Animated.timing(slide, {
+        toValue: 0,
+        duration: 260,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
     } else if (!leavingRef.current) {
       slide.setValue(HIDE);
     }
@@ -163,9 +161,22 @@ export function DrawerLineArt({
     </Pressable>
   );
 
+  // Панель показываем сразу, список сессий — следующим кадром. Иначе на
+  // открытии монтируется весь список (иконки, строки) и панель «думает».
+  const [listOn, setListOn] = useState(false);
+  useEffect(() => {
+    if (!visible) { setListOn(false); return; }
+    const t = setTimeout(() => setListOn(true), 40);
+    return () => clearTimeout(t);
+  }, [visible]);
+
+  if (!visible && !leaving) return null;
+
   return (
-    <Modal visible={visible || leaving} transparent animationType="none" onRequestClose={animateClose} statusBarTranslucent>
-      <View style={{ flex: 1 }}>
+    <View
+      pointerEvents={visible || leaving ? "auto" : "none"}
+      style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 90, elevation: 24 }}
+    >
         <Animated.View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: theme.scrim, opacity: backdropOpacity.interpolate({ inputRange: [0, 1], outputRange: [0, theme.name === "dark" ? 0.72 : 0.28] }) }}>
           <Pressable style={{ flex: 1 }} onPress={animateClose} accessibilityLabel="Закрыть" />
         </Animated.View>
@@ -260,7 +271,16 @@ export function DrawerLineArt({
               />
             </View>
 
-            {[
+            {!listOn ? (
+              <View style={{ paddingTop: 14 }}>
+                {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+                  <View key={i} style={{ height: 44, paddingHorizontal: 22, justifyContent: "center" }}>
+                    <View style={{ height: 11, borderRadius: 6, backgroundColor: theme.card, width: `${68 - i * 6}%` }} />
+                  </View>
+                ))}
+              </View>
+            ) : null}
+            {listOn && [
               { key: "chats", title: "", list: sessions },
               { key: "cron", title: "Кроны", list: cronSessions },
             ].map((section) => (
@@ -305,7 +325,6 @@ export function DrawerLineArt({
             ))}
           </ScrollView>
         </Animated.View>
-      </View>
-    </Modal>
+    </View>
   );
 }

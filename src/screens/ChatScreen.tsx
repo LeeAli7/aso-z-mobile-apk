@@ -384,6 +384,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // но пока список доезжает — показываем знак, чтобы не было «щелчка».
   const [switchOn, setSwitchOn] = useState(false);
   const switchFade = useRef(new Animated.Value(0)).current;
+  // лоадер уже показан вручную (тап по сессии) — не проигрывать появление заново
+  const switchInstant = useRef(false);
   const [listReady, setListReady] = useState(false);
   const [showJump, setShowJump] = useState(false);
   const jumpAnim = useRef(new Animated.Value(0)).current;
@@ -538,18 +540,21 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   useEffect(() => {
     setListReady(true);
     listRef.current?.scrollToEnd({ animated: false });
-    setSwitchOn(true);
-    switchFade.setValue(0);
-    Animated.timing(switchFade, {
-      toValue: 1, duration: 110, easing: Easing.out(Easing.quad), useNativeDriver: true,
-    }).start();
+    if (!switchInstant.current) {
+      setSwitchOn(true);
+      switchFade.setValue(0);
+      Animated.timing(switchFade, {
+        toValue: 1, duration: 110, easing: Easing.out(Easing.quad), useNativeDriver: true,
+      }).start();
+    }
+    switchInstant.current = false;
     const t = setTimeout(() => {
       Animated.timing(switchFade, {
         toValue: 0, duration: 170, easing: Easing.in(Easing.quad), useNativeDriver: true,
       }).start(({ finished }) => {
         if (finished) setSwitchOn(false);
       });
-    }, 170);
+    }, 90);
     return () => clearTimeout(t);
   }, [active?.id, switchFade]);
 
@@ -1251,10 +1256,18 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   }, [newSession, setActive]);
 
   const openDrawerSession = useCallback((sid: string) => {
-    setActive(sid);
     setDrawerOpen(false);
     setText("");
-  }, [setActive]);
+    if (sid === active?.id) return;
+    // Ответ на тап — в этом же кадре: знак уже на экране. Сама смена сессии
+    // (рендер сотен сообщений) уходит на следующий кадр и идёт ПОД лоадером.
+    switchInstant.current = true;
+    setSwitchOn(true);
+    switchFade.setValue(1);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => setActive(sid));
+    });
+  }, [setActive, active?.id, switchFade]);
 
   const openDrawerRoute = useCallback((route: string) => {
     setDrawerOpen(false);
