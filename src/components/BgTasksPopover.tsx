@@ -109,7 +109,7 @@ export function BgTasksPopover({
   if (!mounted) return null;
 
   return (
-    <View style={StyleSheet.absoluteFill} pointerEvents={open ? "box-none" : "none"}>
+    <View style={[StyleSheet.absoluteFill, { zIndex: 30 }]} pointerEvents={open ? "box-none" : "none"}>
       <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Закрыть фоновые процессы" />
       <Reanimated.View
         style={[

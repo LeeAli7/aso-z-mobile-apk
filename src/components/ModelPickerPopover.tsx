@@ -94,7 +94,7 @@ export function ModelPickerPopover({
   const right = screenW - (anchor.x + anchor.w);
 
   return (
-    <View style={StyleSheet.absoluteFill} pointerEvents={open ? "box-none" : "none"}>
+    <View style={[StyleSheet.absoluteFill, { zIndex: 30 }]} pointerEvents={open ? "box-none" : "none"}>
       <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Закрыть выбор модели" />
 
       {/* ── окно 1: список ── */}
