@@ -1698,7 +1698,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           <Glass
             radius={25}
             border={false}
-            style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 8, overflow: "hidden" }}
+            style={{ flexDirection: "row", alignItems: "flex-end", gap: 8, padding: 8, overflow: "hidden" }}
           >
             {/* во время диктовки слева не остаётся ничего: кнопка сжимается
                 в ноль, линия начинается от самой кромки капсулы */}
