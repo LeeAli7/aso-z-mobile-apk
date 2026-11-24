@@ -381,6 +381,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // в низ без анимации и мягкое проявление — без поэтапного дёрганья.
   const listFade = useRef(new Animated.Value(0)).current;
   const loaderFade = useRef(new Animated.Value(1)).current;
+  const waitFade = useRef(new Animated.Value(0)).current;
   const [listReady, setListReady] = useState(false);
   const [loaderOn, setLoaderOn] = useState(true);
   const [showJump, setShowJump] = useState(false);
@@ -516,6 +517,17 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     const m = last as any;
     return last.role === "assistant" && !m.content && !m.thinking && !m.tool;
   }, [active, streamingSessions]);
+
+  // знак ожидания: появляется, пока модель не выдала первый токен, и тихо
+  // уходит, как только пошёл текст — без скачка раскладки
+  useEffect(() => {
+    Animated.timing(waitFade, {
+      toValue: waitingFirst ? 1 : 0,
+      duration: waitingFirst ? 200 : 180,
+      easing: waitingFirst ? Easing.out(Easing.cubic) : Easing.in(Easing.quad),
+      useNativeDriver: true,
+    }).start();
+  }, [waitingFirst, waitFade]);
 
   /* плавный переход «ожидание → чат»: список проявляется, капсула ожидания
      в это же время растворяется. Раньше лоадер исчезал одним кадром. */
@@ -1546,21 +1558,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           style={{ flex: 1 }}
           data={chainGroups}
           keyExtractor={(g) => g.id}
-          ListFooterComponent={
-            waitingFirst ? (
-              <View
-                style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6, paddingLeft: 2 }}
-                accessibilityLabel="Агент думает"
-              >
-                {/* тот же почерк, что в сплэше при запуске: створки встают
-                    по одной, шаг 70 мс — только здесь бесконечной очередью */}
-                <ApertureSpin size={26} color={theme.text} cycle={1080} min={0.14} />
-                <Text style={{ color: theme.dim, fontSize: 12.5, fontFamily: fonts.sansMedium }}>
-                  Агент думает
-                </Text>
-              </View>
-            ) : null
-          }
+          ListFooterComponent={null}
           /* paddingBottom — только воздух: капсула стоит в потоке ниже списка,
              поэтому прежний composerH + 24 давал пустую полосу над капсулой. */
           contentContainerStyle={{
@@ -1675,6 +1673,21 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           }}
         >
           <ApertureSpin size={34} color={theme.mute} />
+        </Animated.View>
+      ) : null}
+
+      {/* ожидание первого токена: наш знак по центру, створки встают по одной */}
+      {waitingFirst ? (
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+            alignItems: "center", justifyContent: "center",
+            opacity: waitFade,
+          }}
+          accessibilityLabel="Агент думает"
+        >
+          <ApertureSpin size={64} color={theme.text} cycle={1080} min={0.14} />
         </Animated.View>
       ) : null}
 
