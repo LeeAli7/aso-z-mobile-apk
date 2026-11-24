@@ -103,6 +103,9 @@ export function StepSlider({
 
   const n = steps.length;
   const knob = PAD + pos * Math.max(0, w - PAD * 2);
+  // пока дорожка не измерена, головка и заливка невидимы: иначе первый кадр
+  // рисует их у левого края, и ползунок «прыгает» из нуля в значение
+  const ready = w > 0;
 
   return (
     <View>
@@ -125,6 +128,7 @@ export function StepSlider({
             position: "absolute", left: PAD, top: 10, height: 4, borderRadius: 2,
             width: Math.max(0, pos * Math.max(0, w - PAD * 2)),
             backgroundColor: color,
+            opacity: ready ? 1 : 0,
           }}
         />
         <View
@@ -132,6 +136,7 @@ export function StepSlider({
           style={{
             position: "absolute", top: 3, left: knob - PAD, width: 18, height: 18, borderRadius: 9,
             backgroundColor: text,
+            opacity: ready ? 1 : 0,
           }}
         />
       </View>

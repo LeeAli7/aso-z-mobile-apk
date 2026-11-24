@@ -233,6 +233,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   const waveApi = useRef<((v: number) => void) | null>(null);
   // запись уже включена визуально (линия/таймер), даже если разрешение ещё спрашивается
   const recOnRef = useRef(false);
+  const sttRetry = useRef(0);
+  const sttTimer = useRef<any>(null);
   const permRef = useRef<boolean | null>(null);
   const voiceCfgRef = useRef<any>(null);
   useEffect(() => {
@@ -261,6 +263,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // в это окно не должен считаться частью распознанной фразы.
   const sttWriting = useRef(false);
   useSpeechRecognitionEvent("result", (e: any) => {
+    sttRetry.current = 0;
     const txt = String(e?.results?.[0]?.transcript ?? "").trim();
     if (!txt) return;
     const base = sttBase.current.trim();
@@ -272,8 +275,31 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     // base НЕ фиксируем на isFinal: Android присылает кумулятивный транскрипт,
     // и «промежуточный финал + финал» давал проговорённые слова по 2-3 раза.
   });
+  // Android часто отдаёт no-speech сразу после старта (микрофон ещё не открылся,
+  // аудиофокус держит прошлая сессия). В этом случае не рвём запись, а
+  // перезапускаем распознавание — иначе кнопка «отменяется» сама.
+  const sttStart = useCallback(() => {
+    const lang = state.lang === "en" ? "en-US" : "ru-RU";
+    ExpoSpeechRecognitionModule.start({
+      lang,
+      interimResults: true,
+      continuous: false,
+      volumeChangeEventOptions: { enabled: true, intervalMillis: 100 },
+    } as any);
+  }, [state.lang]);
+
   useSpeechRecognitionEvent("error", (e: any) => {
     if (__DEV__) console.log("[stt] error", JSON.stringify(e)?.slice(0, 300));
+    const code = String(e?.error ?? "");
+    if (recOnRef.current && code === "no-speech" && sttRetry.current < 3) {
+      sttRetry.current += 1;
+      clearTimeout(sttTimer.current);
+      sttTimer.current = setTimeout(() => {
+        if (!recOnRef.current) return;
+        try { sttStart(); } catch { /* следующий тап начнёт заново */ }
+      }, 220);
+      return;
+    }
     recStarting.current = false;
     recOnRef.current = false;
     setRecording(false);
@@ -294,6 +320,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     // а не уходить в «стоп» из-за залипшего флага.
     if (recording) {
       recOnRef.current = false;
+      clearTimeout(sttTimer.current);
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
       try { ExpoSpeechRecognitionModule.stop(); } catch {}
       setRecording(false);
@@ -341,14 +368,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         }
       }
       if (!recOnRef.current) return; // успели остановить, пока шёл запрос
-      const lang = state.lang === "en" ? "en-US" : "ru-RU";
-      ExpoSpeechRecognitionModule.start({
-        lang,
-        interimResults: true,
-        continuous: false,
-        // без этого флага модуль не шлёт volumechange вообще — линия стояла ровной
-        volumeChangeEventOptions: { enabled: true, intervalMillis: 100 },
-      } as any);
+      sttRetry.current = 0;
+      sttStart();
     } catch (e: any) {
       rollback(String(e?.message || e));
     } finally {

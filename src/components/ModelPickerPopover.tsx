@@ -65,13 +65,13 @@ export function ModelPickerPopover({
   /** прогресс морфа, общий с кнопкой: кнопка гаснет ровно на столько же */
   progress?: SharedValue<number>;
 }) {
-  const [mounted, setMounted] = useState(open);
+  const [lastParam, setLastParam] = useState<"reason" | "ctx" | null>(null);
   const [param, setParam] = useState<"reason" | "ctx" | null>(null);
   const [cardMounted, setCardMounted] = useState(false);
   const localP = useSharedValue(0);
   const p = progress ?? localP;
   const cardP = useSharedValue(0);
-  const [contentOn, setContentOn] = useState(false);
+  const [contentOn, setContentOn] = useState(true);
 
   const rows = models.length;
   const listH = rows > 4 ? LIST_MAX : Math.max(1, rows) * ROW;
@@ -81,24 +81,20 @@ export function ModelPickerPopover({
     if (open) {
       // «всё закрыто» при каждом открытии: карточка параметра не помнит прошлый раз
       setParam(null);
-      setMounted(true);
       // рост из кнопки: чуть длиннее и с мягким «выходом», чтобы не дёргалось
-      setContentOn(false);
-      const cid = setTimeout(() => setContentOn(true), 80);
       p.value = withTiming(1, { duration: 300, easing: REasing.bezier(0.16, 0.84, 0.24, 1) });
-      return () => clearTimeout(cid);
+      return;
     }
     // закрытие: карточка уезжает первой, окно возвращается в кнопку
     setParam(null);
     p.value = withTiming(0, { duration: 240, easing: REasing.bezier(0.4, 0, 0.6, 1) });
-    const id = setTimeout(() => setMounted(false), 260);
-    return () => clearTimeout(id);
   }, [open, p]);
 
   // окно не должно уезжать за правый край: прижимаем к экрану с полем 8,
   // иначе у кнопки у края половина окна оказывается за экраном
   useEffect(() => {
     if (param != null) {
+      setLastParam(param);
       setCardMounted(true);
       cardP.value = withTiming(1, { duration: 260, easing: REasing.bezier(0.16, 0.84, 0.24, 1) });
       return;
@@ -115,6 +111,7 @@ export function ModelPickerPopover({
     width: anchor.w + (W - anchor.w) * p.value,
     height: anchor.h + (winH - anchor.h) * p.value,
   }));
+  const shell = useAnimatedStyle(() => ({ opacity: p.value > 0.001 ? 1 : 0 }));
   const body = useAnimatedStyle(() => ({ opacity: p.value * p.value }));
   // список и нижняя панель поднимаются вместе с ростом окна, а не появляются готовыми
   const listRise = useAnimatedStyle(() => ({ transform: [{ translateY: (1 - p.value) * 14 }] }));
@@ -125,13 +122,14 @@ export function ModelPickerPopover({
     transform: [{ translateY: (1 - cardP.value) * -12 }, { scale: 0.96 + 0.04 * cardP.value }],
   }));
 
-  if (!mounted) return null;
-
   const cur = models.find((m) => m.modelName === current);
   const ctxIdx = Math.max(0, CTX_STEPS.findIndex((c) => c >= prefs.ctx));
 
   return (
-    <View style={[StyleSheet.absoluteFill, { zIndex: 30 }]} pointerEvents={open ? "box-none" : "none"}>
+    <Reanimated.View
+      style={[StyleSheet.absoluteFill, { zIndex: 30 }, shell]}
+      pointerEvents={open ? "box-none" : "none"}
+    >
       <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Закрыть выбор модели" />
 
       {/* ── окно 1: список ── */}
@@ -294,7 +292,7 @@ export function ModelPickerPopover({
           elevation: 12,
         }]}
       >
-        {param === "reason" ? (
+        {(param ?? lastParam) === "reason" ? (
           <View style={{ paddingHorizontal: 14 }}>
             <StepSlider
               caption="Рассуждение"
@@ -326,6 +324,6 @@ export function ModelPickerPopover({
         )}
       </Reanimated.View>
       ) : null}
-    </View>
+    </Reanimated.View>
   );
 }
