@@ -19,6 +19,7 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
   AppState } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
@@ -43,7 +44,8 @@ import { registerBg, unregisterBg } from "../core/background";
 import { claimDueJobs, setJobResult } from "../core/cron";
 import { runSelfReview } from "../core/selfImprove";
 import { DrawerLineArt } from "../components/DrawerLineArt";
-import { BgTasksSheet, BgIndicator, BgTask } from "../components/BgTasksSheet";
+import { BgIndicator } from "../components/BgTasksSheet";
+import { BgTasksPopover, type PopoverTask } from "../components/BgTasksPopover";
 import { renderMarkdown } from "../components/Markdown";
 import { ThinkingBlock } from "../components/kimi/ThinkingBlock";
 import { ToolCard } from "../components/kimi/ToolCard";
@@ -95,7 +97,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     // шторка фоновых: стрим активной сессии — тоже фоновая задача
     setBgTasks((p) => {
       const rest = p.filter((x) => x.id !== "stream:" + sid);
-      if (on) return [...rest, { id: "stream:" + sid, kind: "stream", title: "Ответ агента" } as BgTask];
+      if (on) return [...rest, { id: "stream:" + sid, kind: "stream", label: "Ответ агента", startedAt: Date.now() } as PopoverTask];
       return rest;
     });
     // единый реестр фоновых: индикатор и кнопка «стоп» видят стрим из движка
@@ -154,8 +156,43 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   const [projects, setProjects] = useState<VibeProject[]>([]);
   // шторка фоновых процессов (рантайм/cron/делегация) — открывается только при наличии запущенных
   const [bgOpen, setBgOpen] = useState(false);
-  const [bgTasks, setBgTasks] = useState<BgTask[]>([]);
+  const [bgTasks, setBgTasks] = useState<PopoverTask[]>([]);
   const [bgCount, setBgCount] = useState(0);
+  // Прямоугольники кнопок в координатах экрана: окна растут ИЗ них, поэтому
+  // кнопка не остаётся висеть «под окном» — она же и превращается в окно.
+  const pillRef = useRef<View>(null);
+  const chipRef = useRef<View>(null);
+  const [pillBox, setPillBox] = useState({ x: 0, y: 0, w: 118, h: 40 });
+  const [chipBox, setChipBox] = useState({ x: 0, y: 0, w: 47, h: 40 });
+  const { width: screenW } = useWindowDimensions();
+
+  const openPicker = useCallback(() => {
+    pillRef.current?.measureInWindow((x, y, w, h) => {
+      setPillBox({ x, y, w: w || 118, h: h || 40 });
+      setModelPickerOpen(true);
+    });
+  }, []);
+
+  const openBg = useCallback(() => {
+    chipRef.current?.measureInWindow((x, y, w, h) => {
+      setChipBox({ x, y, w: w || 47, h: h || 40 });
+      setBgOpen(true);
+    });
+    void (async () => {
+      try {
+        const { listRunning } = await import("../core/background");
+        const reg = await listRunning();
+        const extra = reg.filter((t) => t.kind !== "stream");
+        setBgTasks((prev) => {
+          const ids = new Set(extra.map((t) => t.id));
+          const keep = prev.filter((t) => t.kind === "stream" || !ids.has(t.id));
+          return [...keep, ...extra];
+        });
+      } catch {
+        /* реестр недоступен — показываем то, что уже знаем */
+      }
+    })();
+  }, []);
 
   // Индикатор фоновых задач: раньше считал только стримы чата,
   // а runtime/cron делегирование из реестра не попадали в цифру.
@@ -1375,28 +1412,34 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           style={{
             flexDirection: "row", alignItems: "center",
             backgroundColor: "transparent",
-            paddingHorizontal: 10, paddingTop: insets.top + 6, paddingBottom: 6,
+            paddingHorizontal: 12, paddingTop: insets.top + 6, paddingBottom: 6,
           }}
         >
           <IconButton name="menu" size={20} onPress={() => setDrawerOpen(true)} accessibilityLabel={t("sessions")} />
           <View pointerEvents="box-none" style={{ flex: 1 }} />
-          <BgIndicator theme={theme} count={bgCount} onPress={() => setBgOpen(true)} />
+          <View ref={chipRef} collapsable={false} style={{ opacity: bgOpen ? 0 : 1 }}>
+            <BgIndicator theme={theme} count={bgCount} onPress={openBg} />
+          </View>
           {/* Выбор модели — справа, габариты как у бургера: высота touchTarget, капсула. */}
           <Pressable
-            onPress={() => setModelPickerOpen(true)}
+            ref={pillRef as any}
+            onPress={openPicker}
             accessibilityRole="button"
             accessibilityLabel="Модель"
+            hitSlop={{ top: 2, bottom: 2 }}
             style={({ pressed }) => ({
-              height: touchTarget,
+              opacity: modelPickerOpen ? 0 : 1,
+              height: 40,
               flexDirection: "row",
               alignItems: "center",
-              gap: 6,
-              paddingHorizontal: 16,
-              borderRadius: touchTarget / 2,
-              backgroundColor: pressed ? theme.surface2 : theme.surface,
+              gap: 8,
+              paddingHorizontal: 14,
+              borderRadius: 26,
+              backgroundColor: modelPickerOpen ? theme.surface2 : pressed ? theme.surface2 : theme.surface,
             })}
           >
-            <Text numberOfLines={1} style={{ color: theme.text, fontSize: 13.5, fontWeight: "600", maxWidth: 150 }}>{modelName}</Text>
+            <View style={{ width: 5, height: 5, borderRadius: 2, backgroundColor: theme.text }} />
+            <Text numberOfLines={1} style={{ color: theme.text, fontSize: 13.5, fontFamily: fonts.sansDemi, maxWidth: 132 }}>{modelName}</Text>
             <AppIcon name="chevron-down" size={13} color={theme.dim} />
           </Pressable>
         </View>
@@ -1405,465 +1448,42 @@ export function ChatScreen({ navigation }: { navigation: any }) {
 
       {/* шторка фоновых процессов — только когда есть запущенные (рантайм/cron/делегация).
           Состояние стриминга видно по кнопке в капсуле внизу, там же стоп. */}
-      <BgTasksSheet
-        visible={bgOpen}
-        onClose={() => setBgOpen(false)}
-        theme={theme}
-        t={t}
+      {/* окно фоновых процессов: чип растёт в панель на своём месте */}
+      <BgTasksPopover
+        open={bgOpen}
         tasks={bgTasks}
-        onStop={(task) => {
-          // стоп фоновой: рантайм-сессия / стрим активной сессии
-          if (task.kind === "runtime") {
-            const sid = Number(task.id.replace(/^runtime:/, "").replace("rt:", ""));
-            if (!Number.isNaN(sid)) {
+        theme={theme}
+        anchor={chipBox}
+        screenW={screenW}
+        onClose={() => setBgOpen(false)}
+        onStopAll={() => {
+          void (async () => {
+            const { stopBg } = await import("../core/background");
+            for (const t of bgTasks) {
               try {
-                const { killSession } = require("../core/runtime");
-                void killSession(sid).catch(() => {});
-              } catch {}
+                await stopBg(t.kind, t.id);
+              } catch {
+                /* уже остановлено */
+              }
             }
-            setBgTasks((p) => p.filter((x) => x.id !== task.id));
-          } else if (task.kind === "stream") {
-            const s = active?.id;
-            if (s) {
-              getRun(s).stop = true;
-              getRun(s).ctrl?.abort();
-              markStreaming(s, false);
-            }
-            setBgTasks((p) => p.filter((x) => x.id !== task.id));
-          } else {
+            setBgTasks((p) => p.filter((t) => t.kind === "stream"));
             setBgOpen(false);
-          }
+          })();
         }}
         onOpen={(task) => {
-          // тап по фоновой задаче — открыть то место, где она живёт
           setBgOpen(false);
-          if (task.kind === "stream") {
-            const sid = task.id.replace("stream:", "");
-            if (sid) setActive(sid);
-          } else if (task.kind === "cron") {
-            navigation.navigate("AgentSettings");
-          } else if (task.kind === "runtime") {
-            navigation.navigate("Terminal");
-          }
+          if (task.kind === "cron") navigation.navigate("AgentSettings");
         }}
       />
-
-      {/* messages — контент скроллится ПОД плавающей шапкой */}
-      {(!active || active.messages.length === 0) ? (
-        <EmptyChat theme={theme} topInset={insets.top} />
-      ) : (
-        <Animated.View style={{ flex: 1, opacity: listFade }}>
-        <FlatList<Group>
-          ref={listRef}
-          style={{ flex: 1 }}
-          data={chainGroups}
-          keyExtractor={(g) => g.id}
-          /* paddingBottom — только воздух: капсула стоит в потоке ниже списка,
-             поэтому прежний composerH + 24 давал пустую полосу над капсулой. */
-          contentContainerStyle={{
-            padding: 16,
-            paddingTop: insets.top + 64,
-            // капсула ввода плавает поверх списка: оставляем ровно её высоту,
-            // чтобы последнее сообщение можно было доскроллить над капсулой
-            paddingBottom: Math.max(composerH, 76) + 4,
-          }}
-          onContentSizeChange={() => {
-            if (!listReady) {
-              // всё уже в дереве — один прыжок в самый низ без анимации,
-              // затем мягкое проявление: никакого поэтапного доезжания
-              listRef.current?.scrollToEnd({ animated: false });
-              setListReady(true);
-              crossFade(0);
-            } else {
-              stickBottom();
-            }
-          }}
-          onScrollBeginDrag={() => {
-            if (stickTimer.current) { clearTimeout(stickTimer.current); stickTimer.current = null; }
-          }}
-          onScroll={(e) => {
-            const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-            // «у низа» = меньше 64px до кромки: тогда новые сообщения сами
-            // подтягивают чат; выше — листаем спокойно и не дёргается
-            const dist = contentSize.height - layoutMeasurement.height - contentOffset.y;
-            const near = dist <= 64;
-            atBottom.current = near;
-            setShowJump((prev) => prev === !near ? prev : !near);
-          }}
-          scrollEventThrottle={16}
-          keyboardShouldPersistTaps="handled"
-          renderItem={({ item: g, index }) => {
-            if (g.kind === "chain") {
-              // единый блок: раздумья + команды накапливаются внутри (как в QIWI)
-              const onDetail = (m: Msg) => setDetailTarget(m);
-              // ВАЖНО: хронологический порядок сообщений как есть — думалка → команда →
-              // думалка → команда (никакой перегруппировки: всё должно быть на своих местах)
-              // Один блок «Думаю» на всю цепочку: раньше на каждую реплику
-              // выводился свой блок подряд — выглядело как «Думаю, Думаю, Думаю».
-              const chainText = g.msgs
-                .filter((m) => m.thinking)
-                .map((m) => String(m.thinking))
-                .join("\n\n");
-              const chainTools = g.msgs.filter((m) => m.tool);
-              const anyStreaming = g.msgs.some((m) => m.streaming);
-              const firstThink = g.msgs.find((m) => m.thinking);
-              return (
-                <View style={{ width: "94%", alignSelf: "flex-start", marginBottom: 10 }}>
-                  {/* Никакой карточки-рамки: цепочка «Думаю + инструменты» живёт
-                      прямо на фоне чата. Раньше это был Glass с заливкой и
-                      обводкой — прямоугольник перекрывал задний фон рядом с капсулой. */}
-                  <View style={{ width: "100%", paddingLeft: 4, paddingRight: 4 }}>
-                    {chainText ? (
-                      <ThinkingBlock
-                        text={chainText}
-                        status={anyStreaming ? "thinking" : "done"}
-                        theme={theme}
-                        onOpen={() => firstThink && onDetail(firstThink)}
-                        bare
-                      />
-                    ) : null}
-                    {chainTools.map((m) => (
-                      <ToolCard
-                        key={m.id}
-                        tool={String(m.tool)}
-                        state={m.toolState ?? "loading"}
-                        output={m.toolOutput}
-                        theme={theme}
-                        onOpen={() => onDetail(m)}
-                        bare
-                      />
-                    ))}
-                  </View>
-                </View>
-              );
-            }
-            const msg = g.msg;
-            // Действия — только у последнего сообщения чата: раньше панель висела
-            // под каждой репликой и читалась как часть ответа агента.
-            const showActions = index === chainGroups.length - 1 && !msg.tool;
-            return (
-              <Bubble
-                msg={msg}
-                theme={theme}
-                onCopy={() => copyMsg(msg)}
-                onShare={() => shareMsg(msg)}
-                onEdit={() => startEdit(msg)}
-                onLongPress={() => msgMenu(msg)}
-                showActions={showActions}
-                onOpenDetail={setDetailTarget}
-              />
-            );
-          }}
-        />
-        </Animated.View>
-      )}
-
-      {/* streaming-индикатор намеренно убран: ни «обрабатываю запрос…», ни точек —
-          пользователь попросил чистый чат. Раздумья видны в блоке ThinkingBlock. */}
-
-      {/* экран ожидания: подъём сессии — «role swap» по центру */}
-      {loaderOn && !!active && active.messages.length > 0 ? (
-        <Animated.View
-          pointerEvents="none"
-          style={{
-            position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
-            alignItems: "center", justifyContent: "center",
-            opacity: loaderFade,
-          }}
-        >
-          <ApertureSpin size={34} color={theme.mute} />
-        </Animated.View>
-      ) : null}
-
-      {/* ожидание первого токена модели — та же анимация, мелкая, над капсулой */}
-      {waitingFirst ? (
-        <View
-          pointerEvents="none"
-          style={{ position: "absolute", left: 0, right: 0, bottom: Math.max(composerH, 76) + 10, alignItems: "center" }}
-        >
-          <ApertureSpin size={20} color={theme.mute} cycle={960} />
-        </View>
-      ) : null}
-
-      {/* кнопка «в самый низ» — появляется, когда пролистали вверх */}
-      <Animated.View
-        pointerEvents={showJump ? "auto" : "none"}
-        style={{
-          position: "absolute", right: 16,
-          bottom: Math.max(composerH, 76) - 80,
-          opacity: jumpAnim,
-          transform: [
-            { translateY: jumpAnim.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) },
-            { scale: jumpAnim.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) },
-          ],
-        }}
-      >
-        <Pressable
-          onPress={() => {
-            atBottom.current = true;
-            setShowJump(false);
-            listRef.current?.scrollToEnd({ animated: true });
-          }}
-          accessibilityRole="button"
-          accessibilityLabel="В самый низ"
-          style={({ pressed }) => ({
-            width: 44, height: 44, borderRadius: 22,
-            alignItems: "center", justifyContent: "center",
-            backgroundColor: pressed ? theme.surface2 : theme.surface,
-          })}
-        >
-          <AppIcon name="chevron-down" size={20} color={theme.text} />
-        </Pressable>
-      </Animated.View>
-
-      {/* input.
-        Android: капсулу поднимаем вручную через kbH (Keyboard listeners выше) —
-        манифестный adjustResize не двигает плавающую капсулу при edge-to-edge.
-        iOS: KAV с behavior="padding" сдвигает панель. */}
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={0}
-        pointerEvents="box-none"
-        style={{
-          position: "absolute", left: 0, right: 0, bottom: 0,
-          backgroundColor: "transparent",
-        }}
-      >
-        <View
-          pointerEvents="box-none"
-          onLayout={(e) => setComposerH(Math.round(e.nativeEvent.layout.height))}
-          style={{
-            backgroundColor: "transparent",
-            paddingHorizontal: 12, paddingTop: 96,
-            paddingBottom: compPadBottom,
-          }}
-        >
-          {/* Подложка: настоящий градиент вместо 200 полосок по 1 px — именно они
-              просвечивали полосами в зазорах между плитками панели. Привязан к низу
-              связки, то есть гаснет ровно на нижней кромке капсулы и ниже не идёт. */}
-          <Reanimated.View collapsable={false} style={[{ position: "relative" }, attachLift]}>
-            <LinearGradient
-              pointerEvents="none"
-              colors={["transparent", theme.bg]}
-              locations={[0, 1]}
-              style={{ position: "absolute", left: -12, right: -12, top: -96, bottom: 0 }}
-            />
-            {/* вложения — над капсулой, ВНЕ потока: появление и снятие капсулу
-                не сдвигают, лента мягко проявляется и гаснет на своём месте */}
-            <Reanimated.View
-              pointerEvents={attachments.length > 0 ? "auto" : "none"}
-              style={[{ position: "absolute", left: 0, right: 0, bottom: 68 }, stripStyle]}
-            >
-              {stripMounted ? (
-                <AttachmentStrip
-                  items={attachments}
-                  theme={theme}
-                  onRemove={(i) => setAttachments((prev) => prev.filter((_, k) => k !== i))}
-                />
-              ) : null}
-            </Reanimated.View>
-          {/* капсула ввода: #141416, радиус 26, без стекла и градиентов */}
-          <Glass
-            radius={25}
-            border={false}
-            style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 8, overflow: "hidden" }}
-          >
-            {/* во время диктовки слева не остаётся ничего: кнопка сжимается
-                в ноль, линия начинается от самой кромки капсулы */}
-            <Reanimated.View style={[{ flexShrink: 0 }, leftStyle]}>
-            <Pressable
-              disabled={recording}
-              onPress={() => {
-                const next = !attachOpen;
-                void Haptics.selectionAsync().catch(() => {});
-                setAttachOpen(next);
-                attachProg.value = withTiming(next ? 1 : 0, {
-                  duration: next ? 260 : 200,
-                  easing: next ? REasing.out(REasing.cubic) : REasing.in(REasing.cubic),
-                });
-              }}
-              hitSlop={6}
-              style={({ pressed }) => ({
-                width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center",
-                opacity: pressed ? 0.6 : 1,
-              })}
-              accessibilityLabel="Прикрепить"
-            >
-              {/* плюс поворачивается на 45° и растворяется — на его месте
-                  крест из того же центра, уже красный */}
-              <Reanimated.View style={[{ position: "absolute" }, plusIconStyle]}>
-                <AppIcon name="plus" size={22} color={theme.text} />
-              </Reanimated.View>
-              <Reanimated.View style={[{ position: "absolute" }, closeIconStyle]}>
-                <AppIcon name="close" size={22} color={theme.danger} />
-              </Reanimated.View>
-            </Pressable>
-            </Reanimated.View>
-            {/* поле; на время диктовки текст невидим — поверх идёт линия уровня */}
-            <View style={{ flex: 1 }}>
-            <TextInput
-              value={text}
-              caretHidden={recording}
-              underlineColorAndroid="transparent"
-              /* тап по полю не должен выбрасывать из прочитанного места в самый низ */
-              onChangeText={(v) => {
-                // если пользователь правит текст руками во время диктовки —
-                // дальше распознанное дописывается к НОВОМУ тексту, а не затирает его
-                if (!sttWriting.current) sttBase.current = v;
-                setText(v);
-              }}
-              placeholder={recording ? "" : t("message_placeholder")}
-              placeholderTextColor={theme.mute}
-              multiline
-              textAlignVertical="center"
-              style={{
-                flex: 1, fontSize: 14, backgroundColor: "transparent",
-                color: recording ? "transparent" : theme.text,
-                fontFamily: fonts.sansMedium,
-                textAlignVertical: "center",
-                // web: textarea не центрирует текст вертикально — задаём высоту и паддинги,
-                // чтобы строка (20px) стояла ровно по центру поля 44
-                ...(Platform.OS === "web"
-                  ? { height: 44, lineHeight: 20, paddingTop: 12, paddingBottom: 12, maxHeight: undefined }
-                  : { minHeight: 44, maxHeight: 76, paddingVertical: 0, lineHeight: 20 }),
-              }}
-            />
-            {recording ? (
-              <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-                <RecWave api={waveApi} color={theme.text} />
-              </View>
-            ) : null}
-            </View>
-            {recording ? (
-              <Text style={{ fontFamily: fonts.mono, fontSize: 11.5, color: theme.mute }}>
-                {`${Math.floor(recSec / 60)}:${String(recSec % 60).padStart(2, "0")}`}
-              </Text>
-            ) : null}
-            {recording ? (
-              <Pressable
-                onPress={toggleVoice}
-                hitSlop={6}
-                style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.danger, alignItems: "center", justifyContent: "center" }}
-                accessibilityLabel="Остановить запись"
-              >
-                <AppIcon name="stop" size={18} color="#fff" />
-              </Pressable>
-            ) : isStreaming(active?.id) ? (
-              <Pressable
-                onPress={() => {
-                  const s = active?.id;
-                  if (!s) return;
-                  getRun(s).stop = true;
-                  getRun(s).ctrl?.abort();
-                  markStreaming(s, false);
-                }}
-                style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.danger, alignItems: "center", justifyContent: "center" }}
-                accessibilityLabel="Остановить"
-              >
-                <AppIcon name="stop" size={18} color="#fff" />
-              </Pressable>
-            ) : text.trim() ? (
-              <Pressable
-                onPress={send}
-                hitSlop={8}
-                style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.accent, alignItems: "center", justifyContent: "center" }}
-                accessibilityLabel="Отправить"
-              >
-                <AppIcon name="send" size={20} color={theme.onAccent} />
-              </Pressable>
-            ) : (
-              <Pressable
-                onPress={toggleVoice}
-                hitSlop={6}
-                style={{ width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" }}
-                accessibilityLabel="Голосовой ввод"
-              >
-                <AppIcon name={recording ? "stop" : "mic"} size={22} strokeWidth={2.2} color={recording ? theme.danger : theme.text} />
-              </Pressable>
-            )}
-          </Glass>
-          </Reanimated.View>
-
-          {/* Панель «прикрепить»: висит под капсулой абсолютно, высота не анимируется —
-              связка уезжает вверх transform'ом, поэтому layout не пересчитывается.
-              Плитки 92, между ними пусто: переписка просвечивает. */}
-          <Reanimated.View
-            pointerEvents={attachOpen ? "auto" : "none"}
-            collapsable={false}
-            style={{
-              position: "absolute", left: 12, right: 12, bottom: compPadBottom,
-              height: 110, paddingTop: 10, zIndex: 3,
-            }}
-          >
-            <Reanimated.View
-              style={[{ flexDirection: "row", gap: 10 }, attachPanelStyle]}
-            >
-              {[
-                { icon: "camera" as const, label: "Камера", onPress: pickCamera },
-                { icon: "image" as const, label: "Альбом", onPress: pickImage },
-                { icon: "file" as const, label: "Файл", onPress: pickFile },
-              ].map((b) => (
-                <Pressable
-                  key={b.label}
-                  onPress={() => {
-                    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                    closeAttach();
-                    b.onPress();
-                  }}
-                  style={({ pressed }) => ({
-                    width: 92,
-                    height: 92,
-                    borderRadius: 20,
-                    backgroundColor: pressed ? theme.surface2 : theme.surface,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 10,
-                  })}
-                  accessibilityRole="button"
-                  accessibilityLabel={b.label}
-                >
-                  <AppIcon name={b.icon} size={24} color={theme.text} />
-                  <Text style={{ color: theme.text, fontSize: 13, fontWeight: "500" }}>{b.label}</Text>
-                </Pressable>
-              ))}
-            </Reanimated.View>
-          </Reanimated.View>
-        </View>
-      </KeyboardAvoidingView>
-
-      {/* Боковое меню: перо, отделы, поиск и сессии. */}
-      <DrawerLineArt
-        visible={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        theme={theme}
-        t={t}
-        models={allModels}
-        currentModelName={model?.modelName}
-        modelName={modelName}
-        onSelectModel={(m) => { switchModel(m); setDrawerOpen(false); }}
-        onNewChat={handleNewSession}
-        onNavigate={openDrawerRoute}
-        sessions={chatSessions}
-        cronSessions={cronSessions}
-        onSessionMenu={(s: Session, p?: { x: number; y: number }) => { setSessionMenuPoint(p ?? null); setSessionMenuTarget(s); }}
-        onPin={(s) => {
-          dispatch({ type: "UPDATE_SESSION", sessionId: s.id, patch: { pinned: !s.pinned } });
-          showToast("ok", s.pinned ? "Откреплено" : "Закреплено");
-        }}
-        activeId={active?.id ?? null}
-        onSelectSession={openDrawerSession}
-        search={search}
-        onSearchChange={setSearch}
-        onRename={renameSessionById}
-        onDelete={deleteSessionById}
-      />
-
-
 
       {/* ── Выбор модели: окно растёт вверх на месте кнопки, без шторки снизу ── */}
       <ModelPickerPopover
         open={modelPickerOpen}
-        models={allModels.map((m) => ({ modelName: m.modelName, provider: m.providerId, displayName: m.displayName } as any))}
+        models={allModels.map((m) => ({
+          modelName: m.modelName,
+          providerName: (m as any).providerName ?? m.providerId,
+          displayName: m.displayName,
+        }))}
         current={model?.modelName}
         onSelect={(m: any) => {
           const found = allModels.find((x) => x.modelName === m.modelName);
@@ -1872,9 +1492,9 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         }}
         onClose={() => setModelPickerOpen(false)}
         theme={theme}
-        top={insets.top + 6}
+        anchor={pillBox}
+        screenW={screenW}
         prefs={prefs}
-        caps={(model?.caps ?? []) as string[]}
         onPrefs={applyPrefs}
         onAdd={() => {
           setModelPickerOpen(false);
