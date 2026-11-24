@@ -62,7 +62,7 @@ export function ModelPickerPopover({
   onAdd: () => void;
 }) {
   const [mounted, setMounted] = useState(open);
-  const [param, setParam] = useState<"reason" | "ctx">("reason");
+  const [param, setParam] = useState<"reason" | "ctx" | null>(null);
   const p = useSharedValue(0);
 
   const rows = models.length;
@@ -178,7 +178,7 @@ export function ModelPickerPopover({
               return (
                 <Pressable
                   key={key}
-                  onPress={() => setParam(key)}
+                  onPress={() => setParam((p) => (p === key ? null : key))}
                   style={({ pressed }) => ({
                     height: FOOT,
                     borderRadius: 12,
@@ -244,15 +244,18 @@ export function ModelPickerPopover({
           elevation: 12,
         }]}
       >
-        {param === "reason" ? (
+        {param == null ? null : param === "reason" ? (
           <View style={{ paddingHorizontal: 14 }}>
             <StepSlider
               caption="Рассуждение"
               steps={[...REASONING_LABELS]}
-              value={prefs.reasoning}
-              onCommit={(i) => onPrefs({ ...prefs, reasoning: i as ModelPrefs["reasoning"] })}
-              theme={theme}
+              index={prefs.reasoning}
+              value={REASONING_LABELS[prefs.reasoning] ?? "Выкл"}
               note="Больше шагов — дольше ответ"
+              color={theme.text}
+              text={theme.text}
+              dim={theme.dim}
+              onCommit={(i) => onPrefs({ ...prefs, reasoning: i as ModelPrefs["reasoning"] })}
             />
           </View>
         ) : (
@@ -260,10 +263,13 @@ export function ModelPickerPopover({
             <StepSlider
               caption="Контекст"
               steps={[...CTX_LABELS]}
-              value={ctxIdx}
-              onCommit={(i) => onPrefs({ ...prefs, ctx: CTX_STEPS[i] })}
-              theme={theme}
+              index={ctxIdx}
+              value={CTX_LABELS[ctxIdx] ?? ""}
               labelsMode="ends"
+              color={theme.text}
+              text={theme.text}
+              dim={theme.dim}
+              onCommit={(i) => onPrefs({ ...prefs, ctx: CTX_STEPS[i] })}
               note={`Потолок ответа — ${CTX_LABELS[ctxIdx]} токенов`}
             />
           </View>

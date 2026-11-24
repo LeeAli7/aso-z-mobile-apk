@@ -1476,6 +1476,175 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         }}
       />
 
+      {/* messages — контент скроллится ПОД плавающей шапкой */}
+      {(!active || active.messages.length === 0) ? (
+        <EmptyChat theme={theme} topInset={insets.top} />
+      ) : (
+        <Animated.View style={{ flex: 1, opacity: listFade }}>
+        <FlatList<Group>
+          ref={listRef}
+          style={{ flex: 1 }}
+          data={chainGroups}
+          keyExtractor={(g) => g.id}
+          /* paddingBottom — только воздух: капсула стоит в потоке ниже списка,
+             поэтому прежний composerH + 24 давал пустую полосу над капсулой. */
+          contentContainerStyle={{
+            padding: 16,
+            paddingTop: insets.top + 64,
+            // капсула ввода плавает поверх списка: оставляем ровно её высоту,
+            // чтобы последнее сообщение можно было доскроллить над капсулой
+            paddingBottom: Math.max(composerH, 76) + 4,
+          }}
+          onContentSizeChange={() => {
+            if (!listReady) {
+              // всё уже в дереве — один прыжок в самый низ без анимации,
+              // затем мягкое проявление: никакого поэтапного доезжания
+              listRef.current?.scrollToEnd({ animated: false });
+              setListReady(true);
+              crossFade(0);
+            } else {
+              stickBottom();
+            }
+          }}
+          onScrollBeginDrag={() => {
+            if (stickTimer.current) { clearTimeout(stickTimer.current); stickTimer.current = null; }
+          }}
+          onScroll={(e) => {
+            const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+            // «у низа» = меньше 64px до кромки: тогда новые сообщения сами
+            // подтягивают чат; выше — листаем спокойно и не дёргается
+            const dist = contentSize.height - layoutMeasurement.height - contentOffset.y;
+            const near = dist <= 64;
+            atBottom.current = near;
+            setShowJump((prev) => prev === !near ? prev : !near);
+          }}
+          scrollEventThrottle={16}
+          keyboardShouldPersistTaps="handled"
+          renderItem={({ item: g, index }) => {
+            if (g.kind === "chain") {
+              // единый блок: раздумья + команды накапливаются внутри (как в QIWI)
+              const onDetail = (m: Msg) => setDetailTarget(m);
+              // ВАЖНО: хронологический порядок сообщений как есть — думалка → команда →
+              // думалка → команда (никакой перегруппировки: всё должно быть на своих местах)
+              // Один блок «Думаю» на всю цепочку: раньше на каждую реплику
+              // выводился свой блок подряд — выглядело как «Думаю, Думаю, Думаю».
+              const chainText = g.msgs
+                .filter((m) => m.thinking)
+                .map((m) => String(m.thinking))
+                .join("\n\n");
+              const chainTools = g.msgs.filter((m) => m.tool);
+              const anyStreaming = g.msgs.some((m) => m.streaming);
+              const firstThink = g.msgs.find((m) => m.thinking);
+              return (
+                <View style={{ width: "94%", alignSelf: "flex-start", marginBottom: 10 }}>
+                  {/* Никакой карточки-рамки: цепочка «Думаю + инструменты» живёт
+                      прямо на фоне чата. Раньше это был Glass с заливкой и
+                      обводкой — прямоугольник перекрывал задний фон рядом с капсулой. */}
+                  <View style={{ width: "100%", paddingLeft: 4, paddingRight: 4 }}>
+                    {chainText ? (
+                      <ThinkingBlock
+                        text={chainText}
+                        status={anyStreaming ? "thinking" : "done"}
+                        theme={theme}
+                        onOpen={() => firstThink && onDetail(firstThink)}
+                        bare
+                      />
+                    ) : null}
+                    {chainTools.map((m) => (
+                      <ToolCard
+                        key={m.id}
+                        tool={String(m.tool)}
+                        state={m.toolState ?? "loading"}
+                        output={m.toolOutput}
+                        theme={theme}
+                        onOpen={() => onDetail(m)}
+                        bare
+                      />
+                    ))}
+                  </View>
+                </View>
+              );
+            }
+            const msg = g.msg;
+            // Действия — только у последнего сообщения чата: раньше панель висела
+            // под каждой репликой и читалась как часть ответа агента.
+            const showActions = index === chainGroups.length - 1 && !msg.tool;
+            return (
+              <Bubble
+                msg={msg}
+                theme={theme}
+                onCopy={() => copyMsg(msg)}
+                onShare={() => shareMsg(msg)}
+                onEdit={() => startEdit(msg)}
+                onLongPress={() => msgMenu(msg)}
+                showActions={showActions}
+                onOpenDetail={setDetailTarget}
+              />
+            );
+          }}
+        />
+        </Animated.View>
+      )}
+
+      {/* streaming-индикатор намеренно убран: ни «обрабатываю запрос…», ни точек —
+          пользователь попросил чистый чат. Раздумья видны в блоке ThinkingBlock. */}
+
+      {/* экран ожидания: подъём сессии — «role swap» по центру */}
+      {loaderOn && !!active && active.messages.length > 0 ? (
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+            alignItems: "center", justifyContent: "center",
+            opacity: loaderFade,
+          }}
+        >
+          <ApertureSpin size={34} color={theme.mute} />
+        </Animated.View>
+      ) : null}
+
+      {/* ожидание первого токена модели — та же анимация, мелкая, над капсулой */}
+      {waitingFirst ? (
+        <View
+          pointerEvents="none"
+          style={{ position: "absolute", left: 0, right: 0, bottom: Math.max(composerH, 76) + 10, alignItems: "center" }}
+        >
+          <ApertureSpin size={20} color={theme.mute} cycle={960} />
+        </View>
+      ) : null}
+
+      {/* кнопка «в самый низ» — появляется, когда пролистали вверх */}
+      <Animated.View
+        pointerEvents={showJump ? "auto" : "none"}
+        style={{
+          position: "absolute", right: 16,
+          bottom: Math.max(composerH, 76) - 80,
+          opacity: jumpAnim,
+          transform: [
+            { translateY: jumpAnim.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) },
+            { scale: jumpAnim.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) },
+          ],
+        }}
+      >
+        <Pressable
+          onPress={() => {
+            atBottom.current = true;
+            setShowJump(false);
+            listRef.current?.scrollToEnd({ animated: true });
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="В самый низ"
+          style={({ pressed }) => ({
+            width: 44, height: 44, borderRadius: 22,
+            alignItems: "center", justifyContent: "center",
+            backgroundColor: pressed ? theme.surface2 : theme.surface,
+          })}
+        >
+          <AppIcon name="chevron-down" size={20} color={theme.text} />
+        </Pressable>
+      </Animated.View>
+
+
       {/* input.
         Android: капсулу поднимаем вручную через kbH (Keyboard listeners выше) —
         манифестный adjustResize не двигает плавающую капсулу при edge-to-edge.
@@ -1507,21 +1676,21 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             paddingBottom: compPadBottom,
           }}
         >
-          {/* Полоса 104 px над капсулой есть ВСЕГДА: капсула не прыгает,
-              а лента вложений живёт в обычном потоке и листается вбок. */}
-          <View style={{ height: 104, justifyContent: "flex-end" }}>
-            <Reanimated.View pointerEvents={attachments.length > 0 ? "auto" : "none"} style={stripStyle}>
-              {stripMounted ? (
-                <AttachmentStrip
-                  items={attachments}
-                  theme={theme}
-                  onRemove={(i) => setAttachments((prev) => prev.filter((_, k) => k !== i))}
-                />
-              ) : null}
-            </Reanimated.View>
-          </View>
-
           <Reanimated.View collapsable={false} style={[{ position: "relative" }, attachLift]}>
+            {/* Полоса 104 px над капсулой: лента живёт в обычном потоке (листается
+                вбок) и уезжает вверх ВМЕСТЕ с капсулой — раньше при открытой панели
+                вложения оставались под ней. */}
+            <View style={{ height: 104, justifyContent: "flex-end" }}>
+              <Reanimated.View pointerEvents={attachments.length > 0 ? "auto" : "none"} style={stripStyle}>
+                {stripMounted ? (
+                  <AttachmentStrip
+                    items={attachments}
+                    theme={theme}
+                    onRemove={(i) => setAttachments((prev) => prev.filter((_, k) => k !== i))}
+                  />
+                ) : null}
+              </Reanimated.View>
+            </View>
                       {/* капсула ввода: #141416, радиус 26, без стекла и градиентов */}
           <Glass
             radius={25}
