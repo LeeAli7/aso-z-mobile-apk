@@ -2643,7 +2643,7 @@ function MsgMenu({
           shadowRadius: 20,
           shadowOffset: { width: 0, height: 10 },
           elevation: 14,
-          transformOrigin: [ox, oy],
+          transformOrigin: [ox, oy, 0],
           opacity: a,
           transform: [
             { scale: a.interpolate({ inputRange: [0, 1], outputRange: [0.72, 1] }) },
