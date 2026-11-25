@@ -6,8 +6,9 @@
  * Поддерживает: код-блоки (с кнопкой копирования), заголовки, списки,
  * цитаты, ссылки, bold/italic/inline-code, таблицы (базово, как текст).
  */
-import React, { useMemo, useRef, useState } from "react";
-import { Linking, PanResponder, Pressable, ScrollView, Text, View, ViewStyle } from "react-native";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Animated, Linking, PanResponder, Pressable, ScrollView, Text, View, ViewStyle } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import { AppIcon } from "../design-system/components/AppIcon";
 import { useApp } from "../store/AppStore";
 import { fonts } from "../theme/tokens";
@@ -328,7 +329,9 @@ function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: st
       PanResponder.create({
         onStartShouldSetPanResponderCapture: () => true,
         onMoveShouldSetPanResponderCapture: () => true,
-        onShouldBlockNativeResponder: () => true,
+        // false — критично: по вертикали жест должен остаться у нативного
+        // списка, иначе мы двигаем его вручную и он дёргается.
+        onShouldBlockNativeResponder: () => false,
         onPanResponderGrant: () => {
           axis.current = null;
           baseX.current = posX.current;
@@ -346,6 +349,7 @@ function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: st
             const nx = Math.min(maxX, Math.max(0, baseX.current - g.dx));
             posX.current = nx;
             sref.current?.scrollTo({ x: nx, animated: false });
+            setFades(nx);
           } else if (axis.current === "y") {
             emitTablePan("move", g.dy - lastDy.current);
             lastDy.current = g.dy;
@@ -361,6 +365,16 @@ function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: st
       }),
     [maxX],
   );
+
+  const fadeL = useRef(new Animated.Value(0)).current;
+  const fadeR = useRef(new Animated.Value(0)).current;
+  const setFades = (x: number) => {
+    Animated.timing(fadeL, { toValue: x > 4 ? 1 : 0, duration: 140, useNativeDriver: true }).start();
+    Animated.timing(fadeR, { toValue: x < maxX - 4 ? 1 : 0, duration: 140, useNativeDriver: true }).start();
+  };
+  useEffect(() => {
+    setFades(posX.current);
+  }, [maxX]);
 
   const [head, ...body] = rows;
   const cellStyle = (ci: number) => ({
@@ -390,6 +404,7 @@ function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: st
           scrollEventThrottle={16}
           onScroll={(e) => {
             posX.current = e.nativeEvent.contentOffset.x;
+            setFades(posX.current);
           }}
           style={{ maxWidth: "100%" }}
         >
@@ -424,6 +439,29 @@ function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: st
             ))}
           </View>
         </ScrollView>
+        {/* края уходят в темноту, как верх и низ экрана: намёк, что таблица шире */}
+        <Animated.View
+          pointerEvents="none"
+          style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 26, opacity: fadeL }}
+        >
+          <LinearGradient
+            colors={[theme.bg, theme.bg + "00"]}
+            start={{ x: 0, y: 0.5 }}
+            end={{ x: 1, y: 0.5 }}
+            style={{ flex: 1 }}
+          />
+        </Animated.View>
+        <Animated.View
+          pointerEvents="none"
+          style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 26, opacity: fadeR }}
+        >
+          <LinearGradient
+            colors={[theme.bg + "00", theme.bg]}
+            start={{ x: 0, y: 0.5 }}
+            end={{ x: 1, y: 0.5 }}
+            style={{ flex: 1 }}
+          />
+        </Animated.View>
       </View>
     </View>
   );
