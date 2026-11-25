@@ -11,6 +11,7 @@ import { normalizeChatUrl } from "./url";
 import { Platform } from "react-native";
 import { config } from "./env";
 import { executeTool, toolNames } from "./tools";
+import { sanitizeToolHistory } from "./history";
 
 export interface ModelInfo {
   /** Уникальный ключ модели (напр. "sys:deepseek-v4-flash-free" или кастомный). */
@@ -450,7 +451,9 @@ export async function streamAgentChat(
     else signal.addEventListener("abort", () => ctrl.abort(), { once: true });
   }
 
-  let messages: any[] = [...initialMessages];
+  // пары assistant.tool_calls ↔ tool должны быть целыми, иначе провайдер
+  // отвечает 400 «role 'tool' must be a response to a preceding message…»
+  let messages: any[] = sanitizeToolHistory([...initialMessages] as any[]);
   {
     // п.9 промпта перечислял инструменты статично — модель звала выключенные
     // и получала отказ. Подставляем фактический список доступных тулов.

@@ -43,6 +43,7 @@ import { ApertureSpin } from "../design-system/components/ApertureMark";
 import { useApp, genId, Msg, Session } from "../store/AppStore";
 import { ModelInfo, streamChat, streamAgentChat, ChatMessage, ChatPart, AgentToolCall } from "../core/gateway";
 import { buildAttachmentParts } from "../core/attachments";
+import { sanitizeToolHistory } from "../core/history";
 import { getToolDefsGated } from "../core/tools";
 import { registerBg, unregisterBg } from "../core/background";
 import { claimDueJobs, setJobResult } from "../core/cron";
@@ -848,12 +849,6 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       // targetSession: крон-запуски идут в СВОЮ сессию, а не в открытую
       let sid = opts?.sessionId ?? active?.id;
       if (!content || isStreaming(sid)) return;
-      if (!model) {
-        // встроенные модели удалены: пока своя не добавлена — объясняем, что делать
-        showToast("err", "Нет модели — добавьте свою в Настройки → Провайдеры");
-        return;
-      }
-
       if (!sid) {
         sid = genId();
         dispatch({ type: "ADD_SESSION", session: {
@@ -882,9 +877,21 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         }
       }
 
+      // Сообщение уходит в чат ДО любых проверок модели и сети: даже если
+      // дальше ошибка, текст пользователя уже виден в переписке.
       dispatch({ type: "ADD_MSG", sessionId: sid, msg: { id: genId(), role: "user", content, ...(attachments.length ? { attachments: [...attachments] } : {}) } });
       setAttachments([]);
       setText("");
+
+      if (!model) {
+        // встроенные модели удалены: пока своя не добавлена — отвечаем в чате
+        dispatch({
+          type: "ADD_MSG", sessionId: sid,
+          msg: { id: genId(), role: "assistant", content: "Нет подключённой модели — добавьте свою в Настройки → Провайдеры." },
+        });
+        return;
+      }
+
       markStreaming(sid, true);
       getRun(sid).stop = false;
       // отправил сообщение — принудительно вниз, даже если читал историю выше
@@ -1241,13 +1248,15 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               // она пойдёт модели целиком — агент ПОМНИТ выполненные команды.
               // Обрезаем: не тащим системный промпт и гигантские выводы.
               if (Array.isArray(messages) && messages.length > 0) {
-                const trimmed = messages
-                  .filter((m) => m.role !== "system")
-                  .slice(-30)
-                  .map((m) => {
-                    const c = typeof m.content === "string" ? m.content : "";
-                    return c.length > 6000 ? { ...m, content: c.slice(0, 6000) + "\n…(обрезано)" } : m;
-                  });
+                const trimmed = sanitizeToolHistory(
+                  messages
+                    .filter((m) => m.role !== "system")
+                    .slice(-30)
+                    .map((m) => {
+                      const c = typeof m.content === "string" ? m.content : "";
+                      return c.length > 6000 ? { ...m, content: c.slice(0, 6000) + "\n…(обрезано)" } : m;
+                    }),
+                );
                 dispatch({ type: "UPDATE_SESSION", sessionId: sid, patch: { agentHistory: trimmed } });
               }
               // ── Self-improve (P1.3): после сложного хода (2+ тула) тихо анализируем ──
