@@ -50,7 +50,7 @@ import { runSelfReview } from "../core/selfImprove";
 import { DrawerLineArt } from "../components/DrawerLineArt";
 import { BgIndicator } from "../components/BgTasksSheet";
 import { BgTasksPopover, type PopoverTask } from "../components/BgTasksPopover";
-import { renderMarkdown } from "../components/Markdown";
+import { renderMarkdown, inlineFormulaText } from "../components/Markdown";
 import { ThinkingBlock } from "../components/kimi/ThinkingBlock";
 import { ToolCard } from "../components/kimi/ToolCard";
 import { fonts } from "../theme/tokens";
@@ -535,6 +535,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // 1–2 вызовах выше последнего.
   const progUntil = useRef(0);
   const rowRefs = useRef<Record<string, any>>({});
+  const rowY = useRef<Record<string, number>>({});
   // настоящая высота содержимого: по ней доезжаем до низа без промахов
   const contentH = useRef(0);
 
@@ -559,25 +560,25 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   /** Финальный ответ: показать его НАЧАЛО и перестать тянуть чат вниз. */
   const anchorFinal = (id: string) => {
     atBottom.current = false;
-    const node = rowRefs.current[id];
-    const inner: any = (listRef.current as any)?.getInnerViewNode?.();
-    if (!node || !inner || !UIManager?.measureLayout) {
+    // Позицию строки знаем из onLayout: на Fabric UIManager.measureLayout
+    // недоступен, из-за чего раньше срабатывал fallback и экран уезжал в конец.
+    const jump = (animated: boolean) => {
+      const y = rowY.current[id];
+      if (y == null) return false;
+      progUntil.current = Date.now() + 600;
+      listRef.current?.scrollToOffset({ offset: Math.max(0, y - 88), animated });
+      return true;
+    };
+    if (!jump(true)) {
       doScrollEnd(true);
       return;
     }
-    try {
-      UIManager.measureLayout(
-        findNodeHandle(node) as any,
-        findNodeHandle(inner) as any,
-        () => doScrollEnd(true),
-        (_x: number, y: number) => {
-          progUntil.current = Date.now() + 500;
-          listRef.current?.scrollToOffset({ offset: Math.max(0, y - 88), animated: true });
-        },
-      );
-    } catch {
-      doScrollEnd(true);
-    }
+    // ответ ещё дописывается — возвращаемся к его началу, если уехали
+    [160, 380].forEach((ms) =>
+      setTimeout(() => {
+        if (!atBottom.current) jump(false);
+      }, ms),
+    );
   };
 
   const stickBottom = (force = false) => {
@@ -1761,6 +1762,10 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                 const id = g.kind === "chain" ? g.msgs[g.msgs.length - 1]?.id : g.msg?.id;
                 if (id) rowRefs.current[id] = r;
               }}
+              onLayout={(e) => {
+                const id = g.kind === "chain" ? g.msgs[g.msgs.length - 1]?.id : g.msg?.id;
+                if (id) rowY.current[id] = e.nativeEvent.layout.y;
+              }}
             >
             <MsgRow
               g={g}
@@ -2125,7 +2130,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             ) : null}
             {detailTarget.thinking ? (
               <Text selectable style={{ color: theme.dim, fontFamily: fonts.mono, fontSize: 12.5, lineHeight: 19 }}>
-                {detailTarget.thinking.trim()}
+                {inlineFormulaText(detailTarget.thinking.trim())}
               </Text>
             ) : null}
           </>
