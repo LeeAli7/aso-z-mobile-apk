@@ -106,7 +106,7 @@ const GREEK: Record<string, string> = {
 const SYMBOLS: Record<string, string> = {
   cdot: "·", times: "×", div: "÷", pm: "±", mp: "∓", to: "→", rightarrow: "→", leftarrow: "←",
   Rightarrow: "⇒", le: "≤", leq: "≤", ge: "≥", geq: "≥", neq: "≠", ne: "≠", approx: "≈",
-  equiv: "≡", infty: "∞", degree: "°", circ: "∘", ang: "∠", perp: "⊥", parallel: "∥",
+  equiv: "≡", infty: "∞", degree: "°", circ: "°", ang: "∠", perp: "⊥", parallel: "∥",
   sum: "∑", prod: "∏", int: "∫", sqrt: "√", partial: "∂", nabla: "∇", in: "∈", notin: "∉",
   cup: "∪", cap: "∩", subset: "⊂", supset: "⊃", forall: "∀", exists: "∃", percent: "%",
 };
@@ -114,20 +114,26 @@ const SYMBOLS: Record<string, string> = {
 /** Превратить тело формулы в юникод: индексы, греческий, знаки, без служебных команд. */
 export function formulaToText(src: string): string {
   let s = String(src || "").trim();
-  // \ce{H2O}, \mathrm{...}, \text{...} — оставляем только содержимое
-  s = s.replace(/\\(?:ce|mathrm|text|textbf|mathbf|mathit|operatorname)\s*\{([^{}]*)\}/g, "$1");
   s = s.replace(/\\frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, "($1)/($2)");
   s = s.replace(/\\sqrt\s*\{([^{}]*)\}/g, "√($1)");
   // служебные: пробелы, тонкие пробелы, скобки-разделители
   s = s.replace(/\\(left|right|big|Big|bigl|bigr|!|,|;|:| )/g, "");
-  // греческие и символы
-  s = s.replace(/\\([A-Za-z]+)/g, (m, name: string) => GREEK[name] ?? SYMBOLS[name] ?? name);
+  // греческие и символы — ДО \text{...}: иначе «\text{C}\equiv\text{C}»
+  // склеивался в «CequivC» — имя команды прилипало к соседней букве
+  s = s.replace(
+    /\\(?!(?:ce|mathrm|text|textbf|mathbf|mathit|operatorname)\b)([A-Za-z]+)/g,
+    (m, name: string) => GREEK[name] ?? SYMBOLS[name] ?? name,
+  );
+  // \ce{H2O}, \mathrm{...}, \text{...} — оставляем только содержимое
+  s = s.replace(/\\(?:ce|mathrm|text|textbf|mathbf|mathit|operatorname)\s*\{([^{}]*)\}/g, "$1");
   // индексы: _{...} / _x и ^{...} / ^x
   const conv = (chunk: string, tbl: Record<string, string>) =>
     chunk.split("").map((c) => tbl[c] ?? c).join("");
   s = s.replace(/_\{([^{}]*)\}/g, (_m, g: string) => conv(g, SUB));
   s = s.replace(/\^\{([^{}]*)\}/g, (_m, g: string) => conv(g, SUP));
   s = s.replace(/_([A-Za-z0-9+\-=()])/g, (_m, g: string) => conv(g, SUB));
+  // ^\circ / ^° — «в степени» без группы: 109,5^\circ → 109,5°
+  s = s.replace(/\^\s*([°∘])/g, "$1");
   s = s.replace(/\^([A-Za-z0-9+\-=()])/g, (_m, g: string) => conv(g, SUP));
   // хвосты: пустые группы, двойные пробелы
   s = s.replace(/[{}]/g, "").replace(/\s{2,}/g, " ").trim();
@@ -150,6 +156,13 @@ const looksLikeFormula = (body: string) => {
   if (!hasLetter) return false;
   return /[A-ZА-Я]/.test(t) || /[0-9]/.test(t) || /[-+=(]/.test(t);
 };
+
+/** Заменить $...$ на юникод в произвольной строке (для мест без markdown-рендера). */
+export function inlineFormulaText(text: string): string {
+  return String(text || "").replace(/\$([^$\n]{1,200})\$/g, (m, body: string) =>
+    looksLikeFormula(body) ? formulaToText(body) : m,
+  );
+}
 
 /* ── Inline-разбор: **bold**, *italic*, `code`, [text](url), $формула$ ── */
 
@@ -327,40 +340,33 @@ function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: st
   const pan = useMemo(
     () =>
       PanResponder.create({
-        onStartShouldSetPanResponderCapture: () => true,
-        onMoveShouldSetPanResponderCapture: () => true,
-        // false — критично: по вертикали жест должен остаться у нативного
-        // списка, иначе мы двигаем его вручную и он дёргается.
+        // Забираем касание сразу: иначе вертикальный список «залипает» и
+        // таблица не едет вообще. Вертикаль при этом не блокируем —
+        // onShouldBlockNativeResponder: false даёт списку нативную инерцию.
+        onStartShouldSetPanResponderCapture: () => maxX > 0,
+        onMoveShouldSetPanResponderCapture: () => maxX > 0,
+        // По вертикали нативный список работает сам (инерция, плавность) —
+        // мы не блокируем его события и не скроллим вручную.
         onShouldBlockNativeResponder: () => false,
         onPanResponderGrant: () => {
-          axis.current = null;
           baseX.current = posX.current;
           lastDy.current = 0;
-          emitTablePan("start");
         },
         onPanResponderMove: (_e, g) => {
-          if (!axis.current) {
-            if (Math.abs(g.dx) > 6 || Math.abs(g.dy) > 6) {
-              axis.current = Math.abs(g.dx) > Math.abs(g.dy) ? "x" : "y";
-            }
-          }
-          if (axis.current === "x") {
-            if (maxX <= 0) return;
-            const nx = Math.min(maxX, Math.max(0, baseX.current - g.dx));
-            posX.current = nx;
-            sref.current?.scrollTo({ x: nx, animated: false });
-            setFades(nx);
-          } else if (axis.current === "y") {
-            emitTablePan("move", g.dy - lastDy.current);
-            lastDy.current = g.dy;
-          }
+          if (maxX <= 0) return;
+          const nx = Math.min(maxX, Math.max(0, baseX.current - g.dx));
+          posX.current = nx;
+          sref.current?.scrollTo({ x: nx, animated: false });
         },
         onPanResponderRelease: (_e, g) => {
-          emitTablePan("end", 0, g.vy);
+          if (maxX <= 0) return;
+          // инерция: докручиваем по скорости, как у нативного скролла
+          const proj = Math.min(maxX, Math.max(0, posX.current - g.vx * 180));
+          sref.current?.scrollTo({ x: proj, animated: true });
+          posX.current = proj;
+          setFades(proj);
         },
-        onPanResponderTerminate: () => {
-          emitTablePan("end", 0, 0);
-        },
+        onPanResponderTerminate: () => {},
         onPanResponderTerminationRequest: () => false,
       }),
     [maxX],
@@ -392,7 +398,13 @@ function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: st
       {...pan.panHandlers}
     >
       <View
-        style={{ borderRadius: 16, overflow: "hidden", borderWidth: 1, borderColor: theme.border }}
+        style={{
+          borderRadius: 16,
+          overflow: "hidden",
+          borderTopWidth: 1,
+          borderBottomWidth: 1,
+          borderColor: theme.border,
+        }}
         onLayout={(e) => setViewW(e.nativeEvent.layout.width)}
       >
         <ScrollView
@@ -445,7 +457,7 @@ function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: st
           style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 26, opacity: fadeL }}
         >
           <LinearGradient
-            colors={[theme.bg, theme.bg + "00"]}
+            colors={[theme.bg, "rgba(0,0,0,0)"]}
             start={{ x: 0, y: 0.5 }}
             end={{ x: 1, y: 0.5 }}
             style={{ flex: 1 }}
@@ -456,7 +468,7 @@ function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: st
           style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 26, opacity: fadeR }}
         >
           <LinearGradient
-            colors={[theme.bg + "00", theme.bg]}
+            colors={["rgba(0,0,0,0)", theme.bg]}
             start={{ x: 0, y: 0.5 }}
             end={{ x: 1, y: 0.5 }}
             style={{ flex: 1 }}

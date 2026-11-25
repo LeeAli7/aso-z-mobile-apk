@@ -50,7 +50,7 @@ import { runSelfReview } from "../core/selfImprove";
 import { DrawerLineArt } from "../components/DrawerLineArt";
 import { BgIndicator } from "../components/BgTasksSheet";
 import { BgTasksPopover, type PopoverTask } from "../components/BgTasksPopover";
-import { renderMarkdown } from "../components/Markdown";
+import { renderMarkdown, inlineFormulaText } from "../components/Markdown";
 import { ThinkingBlock } from "../components/kimi/ThinkingBlock";
 import { ToolCard } from "../components/kimi/ToolCard";
 import { fonts } from "../theme/tokens";
@@ -169,7 +169,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // пропадает мгновенно и окно «появляется поверх» неё
   const pickerProg = useSharedValue(0);
   const [chipBox, setChipBox] = useState({ x: 0, y: 0, w: 47, h: 40 });
-  const { width: screenW } = useWindowDimensions();
+  const { width: screenW, height: screenH } = useWindowDimensions();
 
   // Кэш габаритов кнопки: measureInWindow — это round-trip в нативный слой,
   // из-за него окно открывалось на кадр-два позже касания. Меряем на layout.
@@ -284,12 +284,24 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // перезапускаем распознавание — иначе кнопка «отменяется» сама.
   const sttStart = useCallback(() => {
     const lang = state.lang === "en" ? "en-US" : "ru-RU";
-    ExpoSpeechRecognitionModule.start({
-      lang,
-      interimResults: true,
-      continuous: false,
-      volumeChangeEventOptions: { enabled: true, intervalMillis: 100 },
-    } as any);
+    // В dev-клиенте нативного модуля может не быть (APK собран без него) —
+    // тогда ExpoSpeechRecognitionModule приходит пустым и вызов падает.
+    if (!ExpoSpeechRecognitionModule || typeof ExpoSpeechRecognitionModule.start !== "function") {
+      if (__DEV__) console.log("[stt] модуль распознавания недоступен в этой сборке");
+      showToast("err", "Голосовой ввод недоступен в этой сборке");
+      return;
+    }
+    try {
+      ExpoSpeechRecognitionModule.start({
+        lang,
+        interimResults: true,
+        continuous: false,
+        volumeChangeEventOptions: { enabled: true, intervalMillis: 100 },
+      } as any);
+    } catch (e) {
+      if (__DEV__) console.log("[stt] start failed", String(e));
+      showToast("err", String(e));
+    }
   }, [state.lang]);
 
   useSpeechRecognitionEvent("error", (e: any) => {
@@ -382,6 +394,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   }, [recording, state.lang, text]);
   const listRef = useRef<FlatList<any>>(null);
   const listOffsetY = useRef(0);
+  const listH = useRef(0);
 
   // Вертикаль по таблице больше не ведём вручную: жест остаётся у списка,
   // иначе прокрутка дёргалась на каждом кадре.
@@ -522,6 +535,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // 1–2 вызовах выше последнего.
   const progUntil = useRef(0);
   const rowRefs = useRef<Record<string, any>>({});
+  const rowY = useRef<Record<string, number>>({});
   // настоящая высота содержимого: по ней доезжаем до низа без промахов
   const contentH = useRef(0);
 
@@ -546,25 +560,25 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   /** Финальный ответ: показать его НАЧАЛО и перестать тянуть чат вниз. */
   const anchorFinal = (id: string) => {
     atBottom.current = false;
-    const node = rowRefs.current[id];
-    const inner: any = (listRef.current as any)?.getInnerViewNode?.();
-    if (!node || !inner || !UIManager?.measureLayout) {
+    // Позицию строки знаем из onLayout: на Fabric UIManager.measureLayout
+    // недоступен, из-за чего раньше срабатывал fallback и экран уезжал в конец.
+    const jump = (animated: boolean) => {
+      const y = rowY.current[id];
+      if (y == null) return false;
+      progUntil.current = Date.now() + 600;
+      listRef.current?.scrollToOffset({ offset: Math.max(0, y - 88), animated });
+      return true;
+    };
+    if (!jump(true)) {
       doScrollEnd(true);
       return;
     }
-    try {
-      UIManager.measureLayout(
-        findNodeHandle(node) as any,
-        findNodeHandle(inner) as any,
-        () => doScrollEnd(true),
-        (_x: number, y: number) => {
-          progUntil.current = Date.now() + 500;
-          listRef.current?.scrollToOffset({ offset: Math.max(0, y - 88), animated: true });
-        },
-      );
-    } catch {
-      doScrollEnd(true);
-    }
+    // ответ ещё дописывается — возвращаемся к его началу, если уехали
+    [160, 380].forEach((ms) =>
+      setTimeout(() => {
+        if (!atBottom.current) jump(false);
+      }, ms),
+    );
   };
 
   const stickBottom = (force = false) => {
@@ -598,7 +612,11 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // экрана: сообщения уже в памяти, поэтому прыгаем в низ в тот же кадр.
   useEffect(() => {
     setListReady(true);
-    listRef.current?.scrollToEnd({ animated: false });
+    listRef.current?.scrollToEnd({ animated: true });
+    // высота контента в момент вызова ещё старая — добираем после раскладки
+    [60, 180, 420].forEach((d) =>
+      setTimeout(() => listRef.current?.scrollToEnd({ animated: false }), d),
+    );
     if (!switchInstant.current) {
       setSwitchOn(true);
       switchFade.setValue(0);
@@ -1690,10 +1708,12 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           ListFooterComponent={
             waitingFirst ? (
               <View
-                style={{ flexDirection: "row", alignItems: "center", gap: 9, paddingTop: 10, paddingLeft: 2 }}
+                style={{ flexDirection: "row", alignItems: "center", paddingTop: 10, paddingLeft: 2 }}
                 accessibilityLabel="Агент думает"
               >
-                <ApertureSpin size={22} color={theme.text} cycle={1080} min={0.14} />
+                <View style={{ marginRight: 9 }}>
+                  <ApertureSpin size={22} color={theme.text} cycle={1080} min={0.14} />
+                </View>
                 <WaitLabel active={waitingFirst} />
               </View>
             ) : null
@@ -1703,10 +1723,13 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           removeClippedSubviews={false}
           contentContainerStyle={{
             padding: 16,
-            paddingTop: insets.top + 64,
+            paddingTop: insets.top + 96,
             // капсула ввода плавает поверх списка: оставляем ровно её высоту,
             // чтобы последнее сообщение можно было доскроллить над капсулой
-            paddingBottom: Math.max(composerH, 76) + 4,
+            paddingBottom: compPadBottom + 80,
+          }}
+          onLayout={(e) => {
+            listH.current = e.nativeEvent.layout.height;
           }}
           onContentSizeChange={(_w, hgt) => {
             contentH.current = hgt;
@@ -1738,6 +1761,10 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               ref={(r) => {
                 const id = g.kind === "chain" ? g.msgs[g.msgs.length - 1]?.id : g.msg?.id;
                 if (id) rowRefs.current[id] = r;
+              }}
+              onLayout={(e) => {
+                const id = g.kind === "chain" ? g.msgs[g.msgs.length - 1]?.id : g.msg?.id;
+                if (id) rowY.current[id] = e.nativeEvent.layout.y;
               }}
             >
             <MsgRow
@@ -2103,7 +2130,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             ) : null}
             {detailTarget.thinking ? (
               <Text selectable style={{ color: theme.dim, fontFamily: fonts.mono, fontSize: 12.5, lineHeight: 19 }}>
-                {detailTarget.thinking.trim()}
+                {inlineFormulaText(detailTarget.thinking.trim())}
               </Text>
             ) : null}
           </>
@@ -2364,6 +2391,7 @@ function fileIconName(name?: string): AppIconName {
   if (["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "md", "rtf", "odt", "ods", "odp", "csv"].includes(ext)) return "file";
   return "file";
 }
+
 
 function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions, onOpenDetail }: { msg: Msg; theme: any; onCopy: () => void; onShare: () => void; onEdit?: () => void; onLongPress?: (e?: any) => void; showActions?: boolean; onOpenDetail?: (m: Msg) => void }) {
   const user = msg.role === "user";
