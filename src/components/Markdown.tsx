@@ -327,40 +327,32 @@ function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: st
   const pan = useMemo(
     () =>
       PanResponder.create({
-        onStartShouldSetPanResponderCapture: () => true,
-        onMoveShouldSetPanResponderCapture: () => true,
-        // false — критично: по вертикали жест должен остаться у нативного
-        // списка, иначе мы двигаем его вручную и он дёргается.
+        // Забираем касание сразу — иначе вертикальный список успевает
+        // «залипнуть» и таблица едет только с третьей попытки.
+        onStartShouldSetPanResponderCapture: () => maxX > 0,
+        onMoveShouldSetPanResponderCapture: () => maxX > 0,
+        // По вертикали нативный список работает сам (инерция, плавность) —
+        // мы не блокируем его события и не скроллим вручную.
         onShouldBlockNativeResponder: () => false,
         onPanResponderGrant: () => {
-          axis.current = null;
           baseX.current = posX.current;
           lastDy.current = 0;
-          emitTablePan("start");
         },
         onPanResponderMove: (_e, g) => {
-          if (!axis.current) {
-            if (Math.abs(g.dx) > 6 || Math.abs(g.dy) > 6) {
-              axis.current = Math.abs(g.dx) > Math.abs(g.dy) ? "x" : "y";
-            }
-          }
-          if (axis.current === "x") {
-            if (maxX <= 0) return;
-            const nx = Math.min(maxX, Math.max(0, baseX.current - g.dx));
-            posX.current = nx;
-            sref.current?.scrollTo({ x: nx, animated: false });
-            setFades(nx);
-          } else if (axis.current === "y") {
-            emitTablePan("move", g.dy - lastDy.current);
-            lastDy.current = g.dy;
-          }
+          if (maxX <= 0) return;
+          const nx = Math.min(maxX, Math.max(0, baseX.current - g.dx));
+          posX.current = nx;
+          sref.current?.scrollTo({ x: nx, animated: false });
         },
         onPanResponderRelease: (_e, g) => {
-          emitTablePan("end", 0, g.vy);
+          if (maxX <= 0) return;
+          // инерция: докручиваем по скорости, как у нативного скролла
+          const proj = Math.min(maxX, Math.max(0, posX.current - g.vx * 180));
+          sref.current?.scrollTo({ x: proj, animated: true });
+          posX.current = proj;
+          setFades(proj);
         },
-        onPanResponderTerminate: () => {
-          emitTablePan("end", 0, 0);
-        },
+        onPanResponderTerminate: () => {},
         onPanResponderTerminationRequest: () => false,
       }),
     [maxX],

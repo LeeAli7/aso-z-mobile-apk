@@ -284,12 +284,24 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // перезапускаем распознавание — иначе кнопка «отменяется» сама.
   const sttStart = useCallback(() => {
     const lang = state.lang === "en" ? "en-US" : "ru-RU";
-    ExpoSpeechRecognitionModule.start({
-      lang,
-      interimResults: true,
-      continuous: false,
-      volumeChangeEventOptions: { enabled: true, intervalMillis: 100 },
-    } as any);
+    // В dev-клиенте нативного модуля может не быть (APK собран без него) —
+    // тогда ExpoSpeechRecognitionModule приходит пустым и вызов падает.
+    if (!ExpoSpeechRecognitionModule || typeof ExpoSpeechRecognitionModule.start !== "function") {
+      if (__DEV__) console.log("[stt] модуль распознавания недоступен в этой сборке");
+      showToast("err", "Голосовой ввод недоступен в этой сборке");
+      return;
+    }
+    try {
+      ExpoSpeechRecognitionModule.start({
+        lang,
+        interimResults: true,
+        continuous: false,
+        volumeChangeEventOptions: { enabled: true, intervalMillis: 100 },
+      } as any);
+    } catch (e) {
+      if (__DEV__) console.log("[stt] start failed", String(e));
+      showToast("err", String(e));
+    }
   }, [state.lang]);
 
   useSpeechRecognitionEvent("error", (e: any) => {
@@ -1690,10 +1702,12 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           ListFooterComponent={
             waitingFirst ? (
               <View
-                style={{ flexDirection: "row", alignItems: "center", gap: 9, paddingTop: 10, paddingLeft: 2 }}
+                style={{ flexDirection: "row", alignItems: "center", paddingTop: 10, paddingLeft: 2 }}
                 accessibilityLabel="Агент думает"
               >
-                <ApertureSpin size={22} color={theme.text} cycle={1080} min={0.14} />
+                <View style={{ marginRight: 9 }}>
+                  <ApertureSpin size={22} color={theme.text} cycle={1080} min={0.14} />
+                </View>
                 <WaitLabel active={waitingFirst} />
               </View>
             ) : null
@@ -2365,6 +2379,37 @@ function fileIconName(name?: string): AppIconName {
   return "file";
 }
 
+/**
+ * Плавное проявление стрима: текст не выскакивает рывком по токену, а
+ * проявляется — при каждом приросте opacity уходит в 0.55 и возвращается
+ * за 160 мс. Вёрстку не двигает, только прозрачность.
+ */
+function StreamReveal({
+  len,
+  streaming,
+  children,
+}: {
+  len: number;
+  streaming?: boolean;
+  children: React.ReactNode;
+}) {
+  const op = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (!streaming) {
+      op.setValue(1);
+      return;
+    }
+    op.setValue(0.52);
+    Animated.timing(op, {
+      toValue: 1,
+      duration: 170,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start();
+  }, [len, streaming, op]);
+  return <Animated.View style={{ opacity: op }}>{children}</Animated.View>;
+}
+
 function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions, onOpenDetail }: { msg: Msg; theme: any; onCopy: () => void; onShare: () => void; onEdit?: () => void; onLongPress?: (e?: any) => void; showActions?: boolean; onOpenDetail?: (m: Msg) => void }) {
   const user = msg.role === "user";
   const align: "flex-end" | "flex-start" = user ? "flex-end" : "flex-start";
@@ -2446,7 +2491,9 @@ function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions,
               <Text style={{ color: theme.danger, fontSize: 13 }}>{msg.error}</Text>
             </View>
           ) : null}
-          {renderMarkdown(msg.content, theme)}
+          <StreamReveal len={msg.content?.length ?? 0} streaming={!!msg.streaming}>
+            {renderMarkdown(msg.content, theme)}
+          </StreamReveal>
         </View>
       )}
       </Pressable>

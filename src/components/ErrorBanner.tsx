@@ -94,7 +94,7 @@ export function ErrorBannerHost() {
           position: "absolute",
           left: 0,
           right: 0,
-          top: insets.top + 46,
+          top: 0,
           opacity: slide,
           transform: [
             { translateY: slide.interpolate({ inputRange: [0, 1], outputRange: [-(h + 40), 0] }) },
@@ -112,6 +112,7 @@ export function ErrorBannerHost() {
             shadowRadius: 18,
             shadowOffset: { width: 0, height: 10 },
             elevation: 20,
+            paddingTop: insets.top + 10,
           }}
         >
           <View style={{ flexDirection: "row", alignItems: "flex-start", paddingLeft: 18, paddingRight: 10, paddingTop: 16 }}>
