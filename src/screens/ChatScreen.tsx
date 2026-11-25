@@ -185,6 +185,9 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // пропадает мгновенно и окно «появляется поверх» неё
   const pickerProg = useSharedValue(0);
   const [chipBox, setChipBox] = useState({ x: 0, y: 0, w: 47, h: 40 });
+  // морф чип→окно: один прогресс на кнопку и окно (как у выбора модели)
+  const bgProg = useSharedValue(0);
+  const chipStyle = useAnimatedStyle(() => ({ opacity: 1 - bgProg.value }));
   const { width: screenW, height: screenH } = useWindowDimensions();
 
   // Кэш габаритов кнопки: measureInWindow — это round-trip в нативный слой,
@@ -202,11 +205,25 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     setModelPickerOpen(true);
   }, []);
 
-  const openBg = useCallback(() => {
+  // Кэш габаритов чипа — как у пилюли модели: measureInWindow давал
+  // открытие на кадр-два позже касания, из-за этого окно «дёргалось».
+  const chipBoxRef = useRef({ x: 0, y: 0, w: 47, h: 40 });
+  const measureChip = useCallback(() => {
     chipRef.current?.measureInWindow((x, y, w, h) => {
-      setChipBox({ x, y, w: w || 47, h: h || 40 });
-      setBgOpen(true);
+      if (!w || !h) return;
+      chipBoxRef.current = { x, y, w, h };
     });
+  }, []);
+
+  const closeBg = useCallback(() => {
+    bgProg.value = withTiming(0, { duration: 170, easing: REasing.bezier(0.4, 0, 0.6, 1) });
+    setTimeout(() => setBgOpen(false), 40);
+  }, []);
+
+  const openBg = useCallback(() => {
+    setChipBox(chipBoxRef.current);
+    bgProg.value = withTiming(1, { duration: 240, easing: REasing.bezier(0.16, 0.84, 0.24, 1) });
+    setBgOpen(true);
     void (async () => {
       try {
         const { listRunning } = await import("../core/background");
@@ -1647,9 +1664,9 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         >
           <IconButton name="menu" size={20} onPress={() => setDrawerOpen(true)} accessibilityLabel={t("sessions")} />
           <View pointerEvents="box-none" style={{ flex: 1 }} />
-          <View ref={chipRef} collapsable={false} style={{ opacity: bgOpen ? 0 : 1 }}>
+          <Reanimated.View ref={chipRef as any} collapsable={false} onLayout={measureChip} style={chipStyle}>
             <BgIndicator theme={theme} count={bgCount} onPress={openBg} />
-          </View>
+          </Reanimated.View>
           {/* Выбор модели — справа, габариты как у бургера: высота touchTarget, капсула. */}
           <View onLayout={measurePill} style={{ opacity: modelPickerOpen ? 0 : 1 }}>
           <Pressable
@@ -1687,24 +1704,49 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         theme={theme}
         anchor={chipBox}
         screenW={screenW}
-        onClose={() => setBgOpen(false)}
+        progress={bgProg}
+        onClose={closeBg}
         onStopAll={() => {
           void (async () => {
             const { stopBg } = await import("../core/background");
+            const failed: string[] = [];
             for (const t of bgTasks) {
+              if (t.kind === "stream") continue;
+              let ok = false;
               try {
-                await stopBg(t.kind, t.id);
+                ok = await stopBg(t.kind, t.id);
               } catch {
-                /* уже остановлено */
+                ok = false;
               }
+              if (!ok) failed.push(t.label);
             }
-            setBgTasks((p) => p.filter((t) => t.kind === "stream"));
-            setBgOpen(false);
+            // из списка убираем только реально остановленные — иначе кнопка
+            // «остановить» просто чистит список, а процесс продолжает жить
+            setBgTasks((p) =>
+              p.filter((t) => t.kind === "stream" || failed.includes(t.label)),
+            );
+            if (failed.length) showToast("err", `Не удалось остановить: ${failed.slice(0, 2).join(", ")}`);
           })();
         }}
-        onOpen={(task) => {
-          setBgOpen(false);
-          if (task.kind === "cron") navigation.navigate("AgentSettings");
+        onStop={(task) => {
+          void (async () => {
+            const { stopBg } = await import("../core/background");
+            let ok = false;
+            try {
+              ok = await stopBg(task.kind, task.id);
+            } catch {
+              ok = false;
+            }
+            if (!ok) {
+              showToast("err", "Не удалось остановить — задача уже завершилась");
+              return;
+            }
+            setBgTasks((p) => p.filter((t) => t.id !== task.id));
+          })();
+        }}
+        onOpen={() => {
+          // детали показываем внутри окна: переход на другой экран по клику
+          // выглядел как «нажал — и всё пропало»
         }}
       />
 

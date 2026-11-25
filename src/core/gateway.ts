@@ -186,6 +186,8 @@ export async function streamChat(
         const t = await resp.text();
         detail = `${detail}: ${t.slice(0, 300)}`;
       } catch {}
+      // чтобы причина 400 была видна в Metro, а не только в баннере
+      console.warn("[gateway] запрос отклонён:", detail);
       callbacks.onError(detail);
       return;
     }
@@ -721,6 +723,7 @@ async function agentRequest(
     }
     let detail = `HTTP ${resp.status}`;
     try { detail = `${detail}: ${(await resp.text()).slice(0, 300)}`; } catch {}
+    console.warn("[gateway] запрос отклонён:", detail);
     throw new Error(detail);
   }
   if (resp.body == null) {
