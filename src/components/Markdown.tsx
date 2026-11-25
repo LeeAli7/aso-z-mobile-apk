@@ -340,11 +340,11 @@ function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: st
   const pan = useMemo(
     () =>
       PanResponder.create({
-        // Захватываем жест только когда движение по X явно больше чем по Y —
-        // иначе вертикальный скролл списка работает без помех.
-        onStartShouldSetPanResponderCapture: () => false,
-        onMoveShouldSetPanResponderCapture: (_e, g) =>
-          maxX > 0 && Math.abs(g.dx) > Math.abs(g.dy) * 1.5 && Math.abs(g.dx) > 6,
+        // Забираем касание сразу: иначе вертикальный список «залипает» и
+        // таблица не едет вообще. Вертикаль при этом не блокируем —
+        // onShouldBlockNativeResponder: false даёт списку нативную инерцию.
+        onStartShouldSetPanResponderCapture: () => maxX > 0,
+        onMoveShouldSetPanResponderCapture: () => maxX > 0,
         // По вертикали нативный список работает сам (инерция, плавность) —
         // мы не блокируем его события и не скроллим вручную.
         onShouldBlockNativeResponder: () => false,
@@ -404,7 +404,6 @@ function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: st
           borderTopWidth: 1,
           borderBottomWidth: 1,
           borderColor: theme.border,
-          backgroundColor: theme.surface,
         }}
         onLayout={(e) => setViewW(e.nativeEvent.layout.width)}
       >
@@ -458,7 +457,7 @@ function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: st
           style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 26, opacity: fadeL }}
         >
           <LinearGradient
-            colors={[theme.surface, "transparent"]}
+            colors={[theme.bg, "rgba(0,0,0,0)"]}
             start={{ x: 0, y: 0.5 }}
             end={{ x: 1, y: 0.5 }}
             style={{ flex: 1 }}
@@ -469,7 +468,7 @@ function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: st
           style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 26, opacity: fadeR }}
         >
           <LinearGradient
-            colors={["transparent", theme.surface]}
+            colors={["rgba(0,0,0,0)", theme.bg]}
             start={{ x: 0, y: 0.5 }}
             end={{ x: 1, y: 0.5 }}
             style={{ flex: 1 }}
