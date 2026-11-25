@@ -94,7 +94,7 @@ export function ErrorBannerHost() {
           position: "absolute",
           left: 0,
           right: 0,
-          top: 0,
+          top: insets.top + 46,
           opacity: slide,
           transform: [
             { translateY: slide.interpolate({ inputRange: [0, 1], outputRange: [-(h + 40), 0] }) },
@@ -104,24 +104,23 @@ export function ErrorBannerHost() {
         <View
           style={{
             backgroundColor: RED,
-            borderBottomLeftRadius: 20,
-            borderBottomRightRadius: 20,
+            borderBottomLeftRadius: 22,
+            borderBottomRightRadius: 22,
             overflow: "hidden",
             shadowColor: RED_DEEP,
             shadowOpacity: 0.5,
             shadowRadius: 18,
             shadowOffset: { width: 0, height: 10 },
             elevation: 20,
-            paddingTop: insets.top + 4,
           }}
         >
-          <View style={{ flexDirection: "row", alignItems: "flex-start", paddingLeft: 16, paddingRight: 8, paddingTop: 8, minHeight: 54 }}>
+          <View style={{ flexDirection: "row", alignItems: "flex-start", paddingLeft: 18, paddingRight: 10, paddingTop: 16 }}>
             <View style={{ flex: 1, paddingRight: 12 }}>
               <Text
                 style={{
                   color: "#FFFFFF",
-                  fontSize: 16,
-                  lineHeight: 20,
+                  fontSize: 18,
+                  lineHeight: 23,
                   fontWeight: "700",
                   letterSpacing: -0.3,
                 }}
@@ -129,7 +128,7 @@ export function ErrorBannerHost() {
                 {p.title}
               </Text>
               {!!p.detail && (
-                <Text numberOfLines={5} style={{ color: "rgba(255,255,255,0.84)", fontSize: 12.5, lineHeight: 17, marginTop: 2 }}>
+                <Text style={{ color: "rgba(255,255,255,0.84)", fontSize: 13.5, lineHeight: 18.5, marginTop: 4 }}>
                   {p.detail}
                 </Text>
               )}
@@ -138,9 +137,9 @@ export function ErrorBannerHost() {
                   style={{
                     color: "rgba(255,255,255,0.62)",
                     fontFamily: fonts.mono,
-                    fontSize: 10.5,
-                    letterSpacing: 0.5,
-                    marginTop: 4,
+                    fontSize: 11,
+                    letterSpacing: 0.6,
+                    marginTop: 6,
                   }}
                 >
                   {p.code}
@@ -153,19 +152,19 @@ export function ErrorBannerHost() {
               accessibilityRole="button"
               accessibilityLabel="Закрыть"
               style={({ pressed }) => ({
-                width: 34,
-                height: 34,
-                borderRadius: 17,
+                width: 40,
+                height: 40,
+                borderRadius: 20,
                 alignItems: "center",
                 justifyContent: "center",
                 backgroundColor: pressed ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.16)",
-                marginTop: -2,
+                marginTop: -6,
               })}
             >
-              <AppIcon name="close" size={18} color="#FFFFFF" />
+              <AppIcon name="close" size={22} color="#FFFFFF" />
             </Pressable>
           </View>
-          <View style={{ height: 2, backgroundColor: "rgba(255,255,255,0.22)", marginTop: 9 }}>
+          <View style={{ height: 2, backgroundColor: "rgba(255,255,255,0.22)", marginTop: 14 }}>
             <Animated.View
               style={{
                 height: 2,
