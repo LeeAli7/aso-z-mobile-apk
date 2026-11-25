@@ -1692,10 +1692,6 @@ export function ChatScreen({ navigation }: { navigation: any }) {
              поэтому прежний composerH + 24 давал пустую полосу над капсулой. */
           removeClippedSubviews={false}
           contentContainerStyle={{
-            // короткая переписка прижата к капсуле, а не висит сверху с чёрной
-            // дырой под ней; на длинной — flexGrow ни на что не влияет
-            flexGrow: 1,
-            justifyContent: "flex-end",
             padding: 16,
             paddingTop: insets.top + 64,
             // капсула ввода плавает поверх списка: оставляем ровно её высоту,

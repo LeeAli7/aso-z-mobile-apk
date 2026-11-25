@@ -84,7 +84,7 @@ export function ErrorBannerHost() {
   if (!p) return null;
 
   return (
-    <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { zIndex: 900, elevation: 30 }]}>
+    <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { zIndex: 9999, elevation: 50 }]}>
       <Animated.View
         onLayout={(e) => {
           const nh = Math.round(e.nativeEvent.layout.height);
