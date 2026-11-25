@@ -1677,6 +1677,9 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         <FlatList<Group>
           ref={listRef}
           style={{ flex: 1 }}
+          // Android: без этого горизонтальные жесты внутри ячеек (таблицы)
+          // забирает вертикальный список.
+          nestedScrollEnabled
           data={chainGroups}
           keyExtractor={(g) => g.id}
           ListFooterComponent={

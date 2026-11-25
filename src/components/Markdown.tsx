@@ -289,10 +289,10 @@ function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: st
           horizontal
           showsHorizontalScrollIndicator={false}
           bounces={false}
-          // Android: без nestedScrollEnabled жест забирает вертикальный список,
-          // поэтому таблица начинала ехать только с третьей попытки.
-          // directionalLockEnabled — iOS: держим жест в той оси, где он начался.
+          // Android: внутренний и родительский скроллы должны знать друг о друге,
+          // иначе список забирает горизонтальный жест и таблица едет с 3-4 попытки.
           nestedScrollEnabled
+          // iOS: ось фиксируется по первому движению
           directionalLockEnabled
           scrollEventThrottle={16}
           overScrollMode="never"
