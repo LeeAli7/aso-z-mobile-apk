@@ -78,10 +78,10 @@ export function BgTasksPopover({
   useEffect(() => {
     if (open) {
       setMounted(true);
-      p.value = withTiming(1, { duration: 240, easing: REasing.out(REasing.cubic) });
+      p.value = withTiming(1, { duration: 200, easing: REasing.out(REasing.cubic) });
       return;
     }
-    p.value = withTiming(0, { duration: 180, easing: REasing.in(REasing.cubic) });
+    p.value = withTiming(0, { duration: 150, easing: REasing.in(REasing.cubic) });
     const id = setTimeout(() => setMounted(false), 200);
     return () => clearTimeout(id);
   }, [open, p]);

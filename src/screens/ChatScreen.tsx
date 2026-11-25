@@ -77,6 +77,22 @@ type Group =
   | { id: string; kind: "chain"; msgs: Msg[] }
   | { id: string; kind: "single"; msg: Msg };
 
+// Мягкое затемнение: переход к фону длинный, 6 стопов с альфой — на Android
+// два стопа давали видимую линию на стыке (интерполяция rgba упирается в 0).
+function fadeStops(bg: string): [string, string, string, string, string, string] {
+  const m = /^#([0-9a-f]{6})$/i.exec(String(bg || "").trim());
+  const r = m ? parseInt(m[1].slice(0, 2), 16) : 0;
+  const g = m ? parseInt(m[1].slice(2, 4), 16) : 0;
+  const b = m ? parseInt(m[1].slice(4, 6), 16) : 0;
+  const a: [number, number, number, number, number, number] = [1, 0.97, 0.84, 0.56, 0.24, 0];
+  return a.map((v) => `rgba(${r},${g},${b},${v})`) as [string, string, string, string, string, string];
+}
+
+function fadeStopsDown(bg: string): [string, string, string, string, string, string] {
+  const u = fadeStops(bg);
+  return [u[5], u[4], u[3], u[2], u[1], u[0]];
+}
+
 export function ChatScreen({ navigation }: { navigation: any }) {
   const { state, theme, dispatch, t, newSession, setActive, deleteSession, setDefaultModel } = useApp();
   const insets = useSafeAreaInsets();
@@ -1617,9 +1633,9 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             переход. Настоящий градиент — 1px-полоски давали ступеньки. */}
         <LinearGradient
           pointerEvents="none"
-          colors={[theme.bg, theme.bg, "transparent"]}
-          locations={[0, 0.42, 1]}
-          style={{ position: "absolute", top: 0, left: 0, right: 0, height: insets.top + 66 }}
+          colors={fadeStops(theme.bg)}
+          locations={[0, 0.3, 0.52, 0.72, 0.9, 1]}
+          style={{ position: "absolute", top: 0, left: 0, right: 0, height: insets.top + 128 }}
         />
         <View
           pointerEvents="box-none"
@@ -1721,6 +1737,10 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           /* paddingBottom — только воздух: капсула стоит в потоке ниже списка,
              поэтому прежний composerH + 24 давал пустую полосу над капсулой. */
           removeClippedSubviews={false}
+          initialNumToRender={6}
+          maxToRenderPerBatch={6}
+          updateCellsBatchingPeriod={40}
+          windowSize={7}
           contentContainerStyle={{
             padding: 16,
             paddingTop: insets.top + 96,
@@ -1854,8 +1874,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             просвечивала переписка. */}
         <LinearGradient
           pointerEvents="none"
-          colors={["transparent", theme.bg, theme.bg]}
-          locations={[0, 0.62, 1]}
+          colors={fadeStopsDown(theme.bg)}
+          locations={[0, 0.1, 0.28, 0.48, 0.7, 1]}
           style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }}
         />
         <View

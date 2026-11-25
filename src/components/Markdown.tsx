@@ -7,7 +7,8 @@
  * цитаты, ссылки, bold/italic/inline-code, таблицы (базово, как текст).
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Linking, PanResponder, Pressable, ScrollView, Text, View, ViewStyle } from "react-native";
+import { Linking, PanResponder, Pressable, ScrollView, StyleSheet, Text, View, ViewStyle } from "react-native";
+import Animated2, { useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import { AppIcon } from "../design-system/components/AppIcon";
 import { useApp } from "../store/AppStore";
@@ -326,69 +327,72 @@ function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: st
   }, [rows, cols, boxW]);
 
   // ── Полный контроль над жестом ─────────────────────────────────────────────
-  // На Android вложенный горизонтальный ScrollView проигрывает вертикальному
-  // списку: касание «залипает» в родителе, и таблица едет только с 3–4 попытки.
-  // Поэтому мы забираем касание сразу и ведём его сами: по X двигаем таблицу,
-  // по Y прокручиваем список через события (см. onTablePan в ChatScreen).
+  // Касание забираем сразу: на Android вложенный ScrollView проигрывает
+  // вертикальному списку и таблица «залипает». По X двигаем сами, вертикаль
+  // не блокируем — список сохраняет свою нативную инерцию.
   const sref = useRef<ScrollView | null>(null);
   const posX = useRef(0);
   const baseX = useRef(0);
-  const axis = useRef<"x" | "y" | null>(null);
-  const lastDy = useRef(0);
+  const clampX = useRef(0);
   const maxX = Math.max(0, widths.total - viewW);
+  clampX.current = maxX;
 
   const pan = useMemo(
     () =>
       PanResponder.create({
-        // Забираем касание сразу: иначе вертикальный список «залипает» и
-        // таблица не едет вообще. Вертикаль при этом не блокируем —
-        // onShouldBlockNativeResponder: false даёт списку нативную инерцию.
-        onStartShouldSetPanResponderCapture: () => maxX > 0,
-        onMoveShouldSetPanResponderCapture: () => maxX > 0,
-        // По вертикали нативный список работает сам (инерция, плавность) —
-        // мы не блокируем его события и не скроллим вручную.
+        onStartShouldSetPanResponderCapture: () => clampX.current > 0,
+        onMoveShouldSetPanResponderCapture: () => clampX.current > 0,
         onShouldBlockNativeResponder: () => false,
         onPanResponderGrant: () => {
           baseX.current = posX.current;
-          lastDy.current = 0;
         },
         onPanResponderMove: (_e, g) => {
-          if (maxX <= 0) return;
-          const nx = Math.min(maxX, Math.max(0, baseX.current - g.dx));
+          const mx = clampX.current;
+          if (mx <= 0) return;
+          const nx = Math.min(mx, Math.max(0, baseX.current - g.dx));
           posX.current = nx;
           sref.current?.scrollTo({ x: nx, animated: false });
+          scrollX.value = nx; // UI-поток: градиенты без JS-анимаций
         },
         onPanResponderRelease: (_e, g) => {
-          if (maxX <= 0) return;
-          // инерция: докручиваем по скорости, как у нативного скролла
-          const proj = Math.min(maxX, Math.max(0, posX.current - g.vx * 180));
+          const mx = clampX.current;
+          if (mx <= 0) return;
+          const proj = Math.min(mx, Math.max(0, posX.current - g.vx * 160));
           sref.current?.scrollTo({ x: proj, animated: true });
           posX.current = proj;
-          setFades(proj);
+          scrollX.value = proj;
         },
-        onPanResponderTerminate: () => {},
         onPanResponderTerminationRequest: () => false,
       }),
-    [maxX],
+    [],
   );
 
-  const fadeL = useRef(new Animated.Value(0)).current;
-  const fadeR = useRef(new Animated.Value(0)).current;
-  const setFades = (x: number) => {
-    Animated.timing(fadeL, { toValue: x > 4 ? 1 : 0, duration: 140, useNativeDriver: true }).start();
-    Animated.timing(fadeR, { toValue: x < maxX - 4 ? 1 : 0, duration: 140, useNativeDriver: true }).start();
-  };
+  // затемнения краёв живут на UI-потоке: никаких timing на каждое движение —
+  // именно они давали «плавающие» линии и лаги при прокрутке
+  const scrollX = useSharedValue(0);
+  const limit = useSharedValue(0);
   useEffect(() => {
-    setFades(posX.current);
+    limit.value = maxX;
   }, [maxX]);
 
+  const styleL = useAnimatedStyle(() => ({
+    opacity: limit.value > 2 ? Math.min(1, scrollX.value / 28) : 0,
+  }));
+  const styleR = useAnimatedStyle(() => ({
+    opacity: limit.value > 2 ? Math.min(1, (limit.value - scrollX.value) / 28) : 0,
+  }));
+  // линия — только у настоящего конца таблицы, в середине её нет
+  const edgeL = useAnimatedStyle(() => ({ opacity: scrollX.value <= 1 ? 1 : 0 }));
+  const edgeR = useAnimatedStyle(() => ({
+    opacity: limit.value > 2 && scrollX.value >= limit.value - 1 ? 1 : 0,
+  }));
+
   const [head, ...body] = rows;
+  // внутренних вертикальных линий нет: только строка/заголовок, как в Kimi
   const cellStyle = (ci: number) => ({
     width: widths.list[ci],
     paddingHorizontal: TBL_PAD,
     paddingVertical: 7,
-    borderRightWidth: ci < cols - 1 ? 1 : 0,
-    borderRightColor: theme.border,
   });
 
   return (
@@ -401,9 +405,6 @@ function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: st
         style={{
           borderRadius: 16,
           overflow: "hidden",
-          borderTopWidth: 1,
-          borderBottomWidth: 1,
-          borderColor: theme.border,
         }}
         onLayout={(e) => setViewW(e.nativeEvent.layout.width)}
       >
@@ -415,8 +416,9 @@ function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: st
           bounces={false}
           scrollEventThrottle={16}
           onScroll={(e) => {
-            posX.current = e.nativeEvent.contentOffset.x;
-            setFades(posX.current);
+            const x = e.nativeEvent.contentOffset.x;
+            posX.current = x;
+            scrollX.value = x;
           }}
           style={{ maxWidth: "100%" }}
         >
@@ -451,29 +453,48 @@ function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: st
             ))}
           </View>
         </ScrollView>
-        {/* края уходят в темноту, как верх и низ экрана: намёк, что таблица шире */}
-        <Animated.View
+
+        {/* мягкое затухание в фон: подсказка, что таблица шире экрана */}
+        <Animated2.View
           pointerEvents="none"
-          style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 26, opacity: fadeL }}
+          style={[{ position: "absolute", left: 0, top: 0, bottom: 0, width: 34 }, styleL]}
         >
           <LinearGradient
-            colors={[theme.bg, "rgba(0,0,0,0)"]}
+            colors={[theme.bg, theme.bg, "rgba(0,0,0,0)"]}
+            locations={[0, 0.25, 1]}
             start={{ x: 0, y: 0.5 }}
             end={{ x: 1, y: 0.5 }}
             style={{ flex: 1 }}
           />
-        </Animated.View>
-        <Animated.View
+        </Animated2.View>
+        <Animated2.View
           pointerEvents="none"
-          style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 26, opacity: fadeR }}
+          style={[{ position: "absolute", right: 0, top: 0, bottom: 0, width: 34 }, styleR]}
         >
           <LinearGradient
-            colors={["rgba(0,0,0,0)", theme.bg]}
+            colors={["rgba(0,0,0,0)", theme.bg, theme.bg]}
+            locations={[0, 0.75, 1]}
             start={{ x: 0, y: 0.5 }}
             end={{ x: 1, y: 0.5 }}
             style={{ flex: 1 }}
           />
-        </Animated.View>
+        </Animated2.View>
+
+        {/* настоящий край таблицы — единственная вертикальная линия */}
+        <Animated2.View
+          pointerEvents="none"
+          style={[{
+            position: "absolute", left: 0, top: 0, bottom: 0, width: StyleSheet.hairlineWidth,
+            backgroundColor: theme.border,
+          }, edgeL]}
+        />
+        <Animated2.View
+          pointerEvents="none"
+          style={[{
+            position: "absolute", right: 0, top: 0, bottom: 0, width: StyleSheet.hairlineWidth,
+            backgroundColor: theme.border,
+          }, edgeR]}
+        />
       </View>
     </View>
   );

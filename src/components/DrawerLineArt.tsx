@@ -100,7 +100,7 @@ export function DrawerLineArt({
     setLeaving(true);
     Animated.timing(slide, {
       toValue: HIDE,
-      duration: 220,
+      duration: 190,
       easing: Easing.in(Easing.cubic),
       useNativeDriver: true,
     }).start(() => {
@@ -118,7 +118,7 @@ export function DrawerLineArt({
       slide.setValue(HIDE);
       Animated.timing(slide, {
         toValue: 0,
-        duration: 260,
+        duration: 220,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }).start();

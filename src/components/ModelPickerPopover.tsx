@@ -82,12 +82,12 @@ export function ModelPickerPopover({
       // «всё закрыто» при каждом открытии: карточка параметра не помнит прошлый раз
       setParam(null);
       // рост из кнопки: чуть длиннее и с мягким «выходом», чтобы не дёргалось
-      p.value = withTiming(1, { duration: 300, easing: REasing.bezier(0.16, 0.84, 0.24, 1) });
+      p.value = withTiming(1, { duration: 240, easing: REasing.bezier(0.16, 0.84, 0.24, 1) });
       return;
     }
     // закрытие: карточка уезжает первой, окно возвращается в кнопку
     setParam(null);
-    p.value = withTiming(0, { duration: 240, easing: REasing.bezier(0.4, 0, 0.6, 1) });
+    p.value = withTiming(0, { duration: 180, easing: REasing.bezier(0.4, 0, 0.6, 1) });
   }, [open, p]);
 
   // окно не должно уезжать за правый край: прижимаем к экрану с полем 8,
@@ -96,10 +96,10 @@ export function ModelPickerPopover({
     if (param != null) {
       setLastParam(param);
       setCardMounted(true);
-      cardP.value = withTiming(1, { duration: 260, easing: REasing.bezier(0.16, 0.84, 0.24, 1) });
+      cardP.value = withTiming(1, { duration: 210, easing: REasing.bezier(0.16, 0.84, 0.24, 1) });
       return;
     }
-    cardP.value = withTiming(0, { duration: 160, easing: REasing.bezier(0.4, 0, 0.6, 1) });
+    cardP.value = withTiming(0, { duration: 130, easing: REasing.bezier(0.4, 0, 0.6, 1) });
     const id = setTimeout(() => setCardMounted(false), 180);
     return () => clearTimeout(id);
   }, [param, cardP]);

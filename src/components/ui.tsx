@@ -186,7 +186,7 @@ export function BottomSheet({
     if (leavingRef.current) return;
     leavingRef.current = true;
     setLeaving(true);
-    Animated.timing(drop, { toValue: DROP, duration: 240, easing: Easing.in(Easing.cubic), useNativeDriver: true })
+    Animated.timing(drop, { toValue: DROP, duration: 200, easing: Easing.in(Easing.cubic), useNativeDriver: true })
       .start(() => {
         leavingRef.current = false;
         setLeaving(false);
@@ -201,7 +201,7 @@ export function BottomSheet({
       drop.stopAnimation();
       drop.setValue(DROP);
       requestAnimationFrame(() => {
-        Animated.timing(drop, { toValue: 0, duration: 260, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+        Animated.timing(drop, { toValue: 0, duration: 210, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
       });
     } else if (!leavingRef.current) {
       drop.setValue(0);

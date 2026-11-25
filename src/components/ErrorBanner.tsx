@@ -47,7 +47,7 @@ export function ErrorBannerHost() {
     }
     Animated.timing(slide, {
       toValue: 0,
-      duration: 240,
+      duration: 200,
       easing: Easing.in(Easing.cubic),
       useNativeDriver: true,
     }).start(({ finished }) => {
@@ -63,7 +63,7 @@ export function ErrorBannerHost() {
       slide.setValue(0);
       Animated.timing(slide, {
         toValue: 1,
-        duration: 320,
+        duration: 260,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }).start();

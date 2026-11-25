@@ -78,7 +78,7 @@ export function Sheet({
     setLeaving(true);
     Animated.timing(drop, {
       toValue: DROP,
-      duration: 260,
+      duration: 215,
       easing: Easing.in(Easing.cubic),
       useNativeDriver: true,
     }).start(() => {
@@ -98,7 +98,7 @@ export function Sheet({
       requestAnimationFrame(() => {
         Animated.timing(drop, {
           toValue: 0,
-          duration: 280,
+          duration: 230,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }).start();
