@@ -611,7 +611,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // экрана: сообщения уже в памяти, поэтому прыгаем в низ в тот же кадр.
   useEffect(() => {
     setListReady(true);
-    listRef.current?.scrollToEnd({ animated: false });
+    listRef.current?.scrollToEnd({ animated: true });
     // высота контента в момент вызова ещё старая — добираем после раскладки
     [60, 180, 420].forEach((d) =>
       setTimeout(() => listRef.current?.scrollToEnd({ animated: false }), d),
@@ -1725,7 +1725,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             paddingTop: insets.top + 96,
             // капсула ввода плавает поверх списка: оставляем ровно её высоту,
             // чтобы последнее сообщение можно было доскроллить над капсулой
-            paddingBottom: 16,
+            paddingBottom: compPadBottom + 80,
           }}
           onLayout={(e) => {
             listH.current = e.nativeEvent.layout.height;

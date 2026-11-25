@@ -327,10 +327,11 @@ function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: st
   const pan = useMemo(
     () =>
       PanResponder.create({
-        // Забираем касание сразу — иначе вертикальный список успевает
-        // «залипнуть» и таблица едет только с третьей попытки.
-        onStartShouldSetPanResponderCapture: () => maxX > 0,
-        onMoveShouldSetPanResponderCapture: () => maxX > 0,
+        // Захватываем жест только когда движение по X явно больше чем по Y —
+        // иначе вертикальный скролл списка работает без помех.
+        onStartShouldSetPanResponderCapture: () => false,
+        onMoveShouldSetPanResponderCapture: (_e, g) =>
+          maxX > 0 && Math.abs(g.dx) > Math.abs(g.dy) * 1.5 && Math.abs(g.dx) > 6,
         // По вертикали нативный список работает сам (инерция, плавность) —
         // мы не блокируем его события и не скроллим вручную.
         onShouldBlockNativeResponder: () => false,
@@ -387,7 +388,8 @@ function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: st
         style={{
           borderRadius: 16,
           overflow: "hidden",
-          borderWidth: 1,
+          borderTopWidth: 1,
+          borderBottomWidth: 1,
           borderColor: theme.border,
           backgroundColor: theme.surface,
         }}
