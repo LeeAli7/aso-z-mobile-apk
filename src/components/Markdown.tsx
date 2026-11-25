@@ -6,7 +6,7 @@
  * Поддерживает: код-блоки (с кнопкой копирования), заголовки, списки,
  * цитаты, ссылки, bold/italic/inline-code, таблицы (базово, как текст).
  */
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { Linking, Pressable, ScrollView, Text, View, ViewStyle } from "react-native";
 import { AppIcon } from "../design-system/components/AppIcon";
 import { useApp } from "../store/AppStore";
@@ -133,8 +133,22 @@ export function formulaToText(src: string): string {
   return s;
 }
 
-/** Есть ли в строке формула $...$ — чтобы не ловить деньги «$5» как формулу. */
-const looksLikeFormula = (body: string) => /[_^\\]/.test(body) || /[A-Za-z]{2,}/.test(body);
+/**
+ * Формула ли это внутри $...$.
+ * Раньше требовалось два подряд идущих латинских символа — из-за этого
+ * $R-O-R'$, $N, O, S$ и $R- $ оставались сырым текстом с долларами.
+ * Теперь: индексы/команды — всегда формула; иначе нужна буква и хоть один
+ * признак химии/математики (заглавная, цифра, дефис, скобка).
+ * «$5», «$100» (только цифры) и «$слово» (строчные буквы) формулой не считаются.
+ */
+const looksLikeFormula = (body: string) => {
+  const t = body.trim();
+  if (!t) return false;
+  if (/[_^\\]/.test(t)) return true;
+  const hasLetter = /[A-Za-zА-Яа-я]/.test(t);
+  if (!hasLetter) return false;
+  return /[A-ZА-Я]/.test(t) || /[0-9]/.test(t) || /[-+=(]/.test(t);
+};
 
 /* ── Inline-разбор: **bold**, *italic*, `code`, [text](url), $формула$ ── */
 
@@ -256,6 +270,28 @@ function textW(s: string) {
  * горизонтальный скролл. Раньше колонки делились поровну (flex:1) и при
  * 6+ столбцах кегль падал до 10.5, строки наезжали друг на друга.
  */
+/**
+ * Шина «таблицу сейчас тянут вбок».
+ * Вложенный горизонтальный ScrollView внутри FlatList на Android отдаёт жест
+ * списку, и таблица едет только с третьей попытки. Пока палец движется по X,
+ * мы гасим вертикальный скролл списка — тогда жест забирает таблица.
+ */
+type TableDragListener = (dragging: boolean) => void;
+const tableDragListeners = new Set<TableDragListener>();
+export function onTableDrag(l: TableDragListener): () => void {
+  tableDragListeners.add(l);
+  return () => {
+    tableDragListeners.delete(l);
+  };
+}
+function emitTableDrag(v: boolean) {
+  tableDragListeners.forEach((l) => {
+    try {
+      l(v);
+    } catch {}
+  });
+}
+
 function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: string }) {
   const [boxW, setBoxW] = useState(0);
   const cols = rows[0]?.length ?? 0;
@@ -282,8 +318,38 @@ function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: st
     borderRightColor: theme.border,
   });
 
+  const startPt = useRef<{ x: number; y: number } | null>(null);
+  const dragging = useRef(false);
+  const endDrag = () => {
+    if (dragging.current) {
+      dragging.current = false;
+      emitTableDrag(false);
+    }
+    startPt.current = null;
+  };
+
   return (
-    <View style={{ marginVertical: 8 }} onLayout={(e) => setBoxW(e.nativeEvent.layout.width)}>
+    <View
+      style={{ marginVertical: 8 }}
+      onLayout={(e) => setBoxW(e.nativeEvent.layout.width)}
+      onTouchStart={(e) => {
+        const t = e.nativeEvent.touches?.[0];
+        startPt.current = t ? { x: t.pageX, y: t.pageY } : null;
+        dragging.current = false;
+      }}
+      onTouchMove={(e) => {
+        const t = e.nativeEvent.touches?.[0];
+        if (!t || !startPt.current) return;
+        const dx = t.pageX - startPt.current.x;
+        const dy = t.pageY - startPt.current.y;
+        if (!dragging.current && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+          dragging.current = true;
+          emitTableDrag(true);
+        }
+      }}
+      onTouchEnd={endDrag}
+      onTouchCancel={endDrag}
+    >
       <View style={{ borderRadius: 16, overflow: "hidden", borderWidth: 1, borderColor: theme.border }}>
         <ScrollView
           horizontal

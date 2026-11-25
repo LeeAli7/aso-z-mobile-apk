@@ -37,6 +37,7 @@ import { AttachmentStrip } from "../components/AttachmentStrip";
 import { ModelPickerPopover } from "../components/ModelPickerPopover";
 import RecTimer from "../components/RecTimer";
 import { WaitLabel } from "../components/WaitLabel";
+import { onTableDrag } from "../components/Markdown";
 import { DEFAULT_PREFS, loadPrefs, savePrefs, type ModelPrefs } from "../core/modelPrefs";
 import { ApertureSpin } from "../design-system/components/ApertureMark";
 
@@ -115,6 +116,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     }
   };
   const [msgMenuTarget, setMsgMenuTarget] = useState<Msg | null>(null);
+  // пока таблицу тянут вбок — вертикальный скролл списка выключен
+  const [tableDrag, setTableDrag] = useState(false);
   const [msgMenuAt, setMsgMenuAt] = useState<{ x: number; y: number } | null>(null);
   const [renameTarget, setRenameTarget] = useState<Session | null>(null);
   // мини-окно действий с сессией (долгое нажатие в панели)
@@ -381,6 +384,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     }
   }, [recording, state.lang, text]);
   const listRef = useRef<FlatList<any>>(null);
+
+  useEffect(() => onTableDrag(setTableDrag), []);
   // Плавное открытие сессии: список монтируется целиком, потом один прыжок
   // в низ без анимации и мягкое проявление — без поэтапного дёрганья.
   const listFade = useRef(new Animated.Value(1)).current;
@@ -1680,6 +1685,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           // Android: без этого горизонтальные жесты внутри ячеек (таблицы)
           // забирает вертикальный список.
           nestedScrollEnabled
+          scrollEnabled={!tableDrag}
           data={chainGroups}
           keyExtractor={(g) => g.id}
           ListFooterComponent={
