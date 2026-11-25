@@ -7,7 +7,7 @@
  * цитаты, ссылки, bold/italic/inline-code, таблицы (базово, как текст).
  */
 import React, { useMemo, useRef, useState } from "react";
-import { Linking, Pressable, ScrollView, Text, View, ViewStyle } from "react-native";
+import { Linking, PanResponder, Pressable, ScrollView, Text, View, ViewStyle } from "react-native";
 import { AppIcon } from "../design-system/components/AppIcon";
 import { useApp } from "../store/AppStore";
 import { fonts } from "../theme/tokens";
@@ -276,24 +276,26 @@ function textW(s: string) {
  * списку, и таблица едет только с третьей попытки. Пока палец движется по X,
  * мы гасим вертикальный скролл списка — тогда жест забирает таблица.
  */
-type TableDragListener = (dragging: boolean) => void;
-const tableDragListeners = new Set<TableDragListener>();
-export function onTableDrag(l: TableDragListener): () => void {
-  tableDragListeners.add(l);
+type TablePanPhase = "start" | "move" | "end";
+type TablePanListener = (phase: TablePanPhase, dy: number, vy: number) => void;
+const tablePanListeners = new Set<TablePanListener>();
+export function onTablePan(l: TablePanListener): () => void {
+  tablePanListeners.add(l);
   return () => {
-    tableDragListeners.delete(l);
+    tablePanListeners.delete(l);
   };
 }
-function emitTableDrag(v: boolean) {
-  tableDragListeners.forEach((l) => {
+function emitTablePan(phase: TablePanPhase, dy = 0, vy = 0) {
+  tablePanListeners.forEach((l) => {
     try {
-      l(v);
+      l(phase, dy, vy);
     } catch {}
   });
 }
 
 function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: string }) {
   const [boxW, setBoxW] = useState(0);
+  const [viewW, setViewW] = useState(0);
   const cols = rows[0]?.length ?? 0;
   const widths = useMemo(() => {
     const natural: number[] = [];
@@ -309,6 +311,57 @@ function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: st
     return { list: natural, total };
   }, [rows, cols, boxW]);
 
+  // ── Полный контроль над жестом ─────────────────────────────────────────────
+  // На Android вложенный горизонтальный ScrollView проигрывает вертикальному
+  // списку: касание «залипает» в родителе, и таблица едет только с 3–4 попытки.
+  // Поэтому мы забираем касание сразу и ведём его сами: по X двигаем таблицу,
+  // по Y прокручиваем список через события (см. onTablePan в ChatScreen).
+  const sref = useRef<ScrollView | null>(null);
+  const posX = useRef(0);
+  const baseX = useRef(0);
+  const axis = useRef<"x" | "y" | null>(null);
+  const lastDy = useRef(0);
+  const maxX = Math.max(0, widths.total - viewW);
+
+  const pan = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponderCapture: () => true,
+        onMoveShouldSetPanResponderCapture: () => true,
+        onShouldBlockNativeResponder: () => true,
+        onPanResponderGrant: () => {
+          axis.current = null;
+          baseX.current = posX.current;
+          lastDy.current = 0;
+          emitTablePan("start");
+        },
+        onPanResponderMove: (_e, g) => {
+          if (!axis.current) {
+            if (Math.abs(g.dx) > 6 || Math.abs(g.dy) > 6) {
+              axis.current = Math.abs(g.dx) > Math.abs(g.dy) ? "x" : "y";
+            }
+          }
+          if (axis.current === "x") {
+            if (maxX <= 0) return;
+            const nx = Math.min(maxX, Math.max(0, baseX.current - g.dx));
+            posX.current = nx;
+            sref.current?.scrollTo({ x: nx, animated: false });
+          } else if (axis.current === "y") {
+            emitTablePan("move", g.dy - lastDy.current);
+            lastDy.current = g.dy;
+          }
+        },
+        onPanResponderRelease: (_e, g) => {
+          emitTablePan("end", 0, g.vy);
+        },
+        onPanResponderTerminate: () => {
+          emitTablePan("end", 0, 0);
+        },
+        onPanResponderTerminationRequest: () => false,
+      }),
+    [maxX],
+  );
+
   const [head, ...body] = rows;
   const cellStyle = (ci: number) => ({
     width: widths.list[ci],
@@ -318,50 +371,26 @@ function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: st
     borderRightColor: theme.border,
   });
 
-  const startPt = useRef<{ x: number; y: number } | null>(null);
-  const dragging = useRef(false);
-  const endDrag = () => {
-    if (dragging.current) {
-      dragging.current = false;
-      emitTableDrag(false);
-    }
-    startPt.current = null;
-  };
-
   return (
     <View
       style={{ marginVertical: 8 }}
       onLayout={(e) => setBoxW(e.nativeEvent.layout.width)}
-      onTouchStart={(e) => {
-        const t = e.nativeEvent.touches?.[0];
-        startPt.current = t ? { x: t.pageX, y: t.pageY } : null;
-        dragging.current = false;
-      }}
-      onTouchMove={(e) => {
-        const t = e.nativeEvent.touches?.[0];
-        if (!t || !startPt.current) return;
-        const dx = t.pageX - startPt.current.x;
-        const dy = t.pageY - startPt.current.y;
-        if (!dragging.current && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy) * 1.2) {
-          dragging.current = true;
-          emitTableDrag(true);
-        }
-      }}
-      onTouchEnd={endDrag}
-      onTouchCancel={endDrag}
+      {...pan.panHandlers}
     >
-      <View style={{ borderRadius: 16, overflow: "hidden", borderWidth: 1, borderColor: theme.border }}>
+      <View
+        style={{ borderRadius: 16, overflow: "hidden", borderWidth: 1, borderColor: theme.border }}
+        onLayout={(e) => setViewW(e.nativeEvent.layout.width)}
+      >
         <ScrollView
+          ref={sref}
           horizontal
+          scrollEnabled={false}
           showsHorizontalScrollIndicator={false}
           bounces={false}
-          // Android: внутренний и родительский скроллы должны знать друг о друге,
-          // иначе список забирает горизонтальный жест и таблица едет с 3-4 попытки.
-          nestedScrollEnabled
-          // iOS: ось фиксируется по первому движению
-          directionalLockEnabled
           scrollEventThrottle={16}
-          overScrollMode="never"
+          onScroll={(e) => {
+            posX.current = e.nativeEvent.contentOffset.x;
+          }}
           style={{ maxWidth: "100%" }}
         >
           <View style={{ width: widths.total }}>

@@ -37,7 +37,7 @@ import { AttachmentStrip } from "../components/AttachmentStrip";
 import { ModelPickerPopover } from "../components/ModelPickerPopover";
 import RecTimer from "../components/RecTimer";
 import { WaitLabel } from "../components/WaitLabel";
-import { onTableDrag } from "../components/Markdown";
+import { onTablePan } from "../components/Markdown";
 import { DEFAULT_PREFS, loadPrefs, savePrefs, type ModelPrefs } from "../core/modelPrefs";
 import { ApertureSpin } from "../design-system/components/ApertureMark";
 
@@ -384,8 +384,32 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     }
   }, [recording, state.lang, text]);
   const listRef = useRef<FlatList<any>>(null);
+  const listOffsetY = useRef(0);
 
-  useEffect(() => onTableDrag(setTableDrag), []);
+  // Жест по таблице: по X двигаем таблицу (внутри), по Y — этот список.
+  useEffect(() => {
+    let target = 0;
+    return onTablePan((phase, dy, vy) => {
+      const l = listRef.current;
+      if (!l) return;
+      if (phase === "start") {
+        target = listOffsetY.current;
+        return;
+      }
+      if (phase === "move") {
+        target = Math.max(0, target - dy);
+        l.scrollToOffset({ offset: target, animated: false });
+        progUntil.current = Date.now() + 80;
+        return;
+      }
+      const glide = Math.max(-700, Math.min(700, -vy * 240));
+      if (Math.abs(glide) > 30) {
+        target = Math.max(0, target + glide);
+        l.scrollToOffset({ offset: target, animated: true });
+        progUntil.current = Date.now() + 700;
+      }
+    });
+  }, []);
   // Плавное открытие сессии: список монтируется целиком, потом один прыжок
   // в низ без анимации и мягкое проявление — без поэтапного дёрганья.
   const listFade = useRef(new Animated.Value(1)).current;
@@ -1722,6 +1746,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             if (stickTimer.current) { clearTimeout(stickTimer.current); stickTimer.current = null; }
           }}
           onScroll={(e) => {
+            listOffsetY.current = e.nativeEvent.contentOffset.y;
             if (Date.now() < progUntil.current) return; // это наша прокрутка, не пользователь
             const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
             // «у низа» = меньше 64px до кромки: тогда новые сообщения сами
