@@ -104,24 +104,24 @@ export function ErrorBannerHost() {
         <View
           style={{
             backgroundColor: RED,
-            borderBottomLeftRadius: 22,
-            borderBottomRightRadius: 22,
+            borderBottomLeftRadius: 20,
+            borderBottomRightRadius: 20,
             overflow: "hidden",
             shadowColor: RED_DEEP,
             shadowOpacity: 0.5,
             shadowRadius: 18,
             shadowOffset: { width: 0, height: 10 },
             elevation: 20,
-            paddingTop: insets.top + 10,
+            paddingTop: insets.top + 4,
           }}
         >
-          <View style={{ flexDirection: "row", alignItems: "flex-start", paddingLeft: 18, paddingRight: 10, paddingTop: 16 }}>
+          <View style={{ flexDirection: "row", alignItems: "flex-start", paddingLeft: 16, paddingRight: 8, paddingTop: 8, minHeight: 54 }}>
             <View style={{ flex: 1, paddingRight: 12 }}>
               <Text
                 style={{
                   color: "#FFFFFF",
-                  fontSize: 18,
-                  lineHeight: 23,
+                  fontSize: 16,
+                  lineHeight: 20,
                   fontWeight: "700",
                   letterSpacing: -0.3,
                 }}
@@ -129,7 +129,7 @@ export function ErrorBannerHost() {
                 {p.title}
               </Text>
               {!!p.detail && (
-                <Text style={{ color: "rgba(255,255,255,0.84)", fontSize: 13.5, lineHeight: 18.5, marginTop: 4 }}>
+                <Text numberOfLines={5} style={{ color: "rgba(255,255,255,0.84)", fontSize: 12.5, lineHeight: 17, marginTop: 2 }}>
                   {p.detail}
                 </Text>
               )}
@@ -138,9 +138,9 @@ export function ErrorBannerHost() {
                   style={{
                     color: "rgba(255,255,255,0.62)",
                     fontFamily: fonts.mono,
-                    fontSize: 11,
-                    letterSpacing: 0.6,
-                    marginTop: 6,
+                    fontSize: 10.5,
+                    letterSpacing: 0.5,
+                    marginTop: 4,
                   }}
                 >
                   {p.code}
@@ -153,19 +153,19 @@ export function ErrorBannerHost() {
               accessibilityRole="button"
               accessibilityLabel="Закрыть"
               style={({ pressed }) => ({
-                width: 40,
-                height: 40,
-                borderRadius: 20,
+                width: 34,
+                height: 34,
+                borderRadius: 17,
                 alignItems: "center",
                 justifyContent: "center",
                 backgroundColor: pressed ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.16)",
-                marginTop: -6,
+                marginTop: -2,
               })}
             >
-              <AppIcon name="close" size={22} color="#FFFFFF" />
+              <AppIcon name="close" size={18} color="#FFFFFF" />
             </Pressable>
           </View>
-          <View style={{ height: 2, backgroundColor: "rgba(255,255,255,0.22)", marginTop: 14 }}>
+          <View style={{ height: 2, backgroundColor: "rgba(255,255,255,0.22)", marginTop: 9 }}>
             <Animated.View
               style={{
                 height: 2,

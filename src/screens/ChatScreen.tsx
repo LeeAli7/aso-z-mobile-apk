@@ -394,12 +394,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   }, [recording, state.lang, text]);
   const listRef = useRef<FlatList<any>>(null);
   const listOffsetY = useRef(0);
-  // Короткий чат прижимаем к капсуле: высота видимой области минус контент.
-  // Через flexGrow нельзя — FlatList теряет высоту и список пустеет.
-  const [tailPad, setTailPad] = useState(0);
-  const [listBoxH, setListBoxH] = useState(0);
   const listH = useRef(0);
-  const tailDone = useRef(false);
 
   // Вертикаль по таблице больше не ведём вручную: жест остаётся у списка,
   // иначе прокрутка дёргалась на каждом кадре.
@@ -616,8 +611,6 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // экрана: сообщения уже в памяти, поэтому прыгаем в низ в тот же кадр.
   useEffect(() => {
     setListReady(true);
-    tailDone.current = false;
-    setTailPad(0);
     listRef.current?.scrollToEnd({ animated: false });
     // высота контента в момент вызова ещё старая — добираем после раскладки
     [60, 180, 420].forEach((d) =>
@@ -1730,35 +1723,15 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           contentContainerStyle={{
             padding: 16,
             paddingTop: insets.top + 96,
-            // Короткий чат прижимаем к капсуле: minHeight задаёт точную высоту
-            // области (не flexGrow — тот ломал расчёт и список пустел).
-            // Высоту берём от окна: onLayout у списка на web не приходит,
-            // а на устройстве высота практически совпадает с экраном
-            // (капсула плавает поверх).
-            minHeight: Math.max(0, (listBoxH > 0 ? listBoxH : screenH) - 8),
-            justifyContent: "flex-end" as const,
             // капсула ввода плавает поверх списка: оставляем ровно её высоту,
             // чтобы последнее сообщение можно было доскроллить над капсулой
-            paddingBottom: Math.max(composerH, 76) + 4 + tailPad,
+            paddingBottom: 16,
           }}
           onLayout={(e) => {
             listH.current = e.nativeEvent.layout.height;
-            if (Math.abs(e.nativeEvent.layout.height - listBoxH) > 1) setListBoxH(e.nativeEvent.layout.height);
-            // onLayout может прийти ПОСЛЕ первого onContentSizeChange —
-            // поэтому считаем прокладку и здесь тоже.
-            const ch = contentH.current;
-            if (!tailDone.current && ch > 0 && listH.current > 0 && ch + 8 < listH.current) {
-              tailDone.current = true;
-              setTailPad(listH.current - ch - 8);
-            }
           }}
           onContentSizeChange={(_w, hgt) => {
             contentH.current = hgt;
-            // короткий чат — прижимаем к капсуле прокладкой снизу
-            if (!tailDone.current && listH.current > 0 && hgt + 8 < listH.current) {
-              tailDone.current = true;
-              setTailPad(listH.current - hgt - 8);
-            }
             if (!listReady) {
               listRef.current?.scrollToEnd({ animated: false });
               setListReady(true);
@@ -2414,36 +2387,6 @@ function fileIconName(name?: string): AppIconName {
   return "file";
 }
 
-/**
- * Плавное проявление стрима: текст не выскакивает рывком по токену, а
- * проявляется — при каждом приросте opacity уходит в 0.55 и возвращается
- * за 160 мс. Вёрстку не двигает, только прозрачность.
- */
-function StreamReveal({
-  len,
-  streaming,
-  children,
-}: {
-  len: number;
-  streaming?: boolean;
-  children: React.ReactNode;
-}) {
-  const op = useRef(new Animated.Value(1)).current;
-  useEffect(() => {
-    if (!streaming) {
-      op.setValue(1);
-      return;
-    }
-    op.setValue(0.52);
-    Animated.timing(op, {
-      toValue: 1,
-      duration: 170,
-      easing: Easing.out(Easing.quad),
-      useNativeDriver: true,
-    }).start();
-  }, [len, streaming, op]);
-  return <Animated.View style={{ opacity: op }}>{children}</Animated.View>;
-}
 
 function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions, onOpenDetail }: { msg: Msg; theme: any; onCopy: () => void; onShare: () => void; onEdit?: () => void; onLongPress?: (e?: any) => void; showActions?: boolean; onOpenDetail?: (m: Msg) => void }) {
   const user = msg.role === "user";
@@ -2526,9 +2469,7 @@ function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions,
               <Text style={{ color: theme.danger, fontSize: 13 }}>{msg.error}</Text>
             </View>
           ) : null}
-          <StreamReveal len={msg.content?.length ?? 0} streaming={!!msg.streaming}>
-            {renderMarkdown(msg.content, theme)}
-          </StreamReveal>
+          {renderMarkdown(msg.content, theme)}
         </View>
       )}
       </Pressable>
