@@ -384,7 +384,13 @@ function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: st
       {...pan.panHandlers}
     >
       <View
-        style={{ borderRadius: 16, overflow: "hidden", borderWidth: 1, borderColor: theme.border }}
+        style={{
+          borderRadius: 16,
+          overflow: "hidden",
+          borderWidth: 1,
+          borderColor: theme.border,
+          backgroundColor: theme.surface,
+        }}
         onLayout={(e) => setViewW(e.nativeEvent.layout.width)}
       >
         <ScrollView
@@ -437,7 +443,7 @@ function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: st
           style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 26, opacity: fadeL }}
         >
           <LinearGradient
-            colors={[theme.bg, theme.bg + "00"]}
+            colors={[theme.surface, "transparent"]}
             start={{ x: 0, y: 0.5 }}
             end={{ x: 1, y: 0.5 }}
             style={{ flex: 1 }}
@@ -448,7 +454,7 @@ function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: st
           style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 26, opacity: fadeR }}
         >
           <LinearGradient
-            colors={[theme.bg + "00", theme.bg]}
+            colors={["transparent", theme.surface]}
             start={{ x: 0, y: 0.5 }}
             end={{ x: 1, y: 0.5 }}
             style={{ flex: 1 }}
