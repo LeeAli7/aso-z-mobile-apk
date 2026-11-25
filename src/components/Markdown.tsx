@@ -78,18 +78,88 @@ function tokenize(code: string): Tok[] {
   return out;
 }
 
-/* ── Inline-разбор: **bold**, *italic*, `code`, [text](url) ── */
+/* ── Формулы: $C_nH_{2n-2}$ → CₙH₂ₙ₋₂ (юникод-индексы, без внешних зависимостей) ── */
+
+const SUB: Record<string, string> = {
+  "0": "₀", "1": "₁", "2": "₂", "3": "₃", "4": "₄", "5": "₅", "6": "₆", "7": "₇", "8": "₈", "9": "₉",
+  "+": "₊", "-": "₋", "=": "₌", "(": "₍", ")": "₎",
+  a: "ₐ", e: "ₑ", h: "ₕ", i: "ᵢ", j: "ⱼ", k: "ₖ", l: "ₗ", m: "ₘ", n: "ₙ", o: "ₒ", p: "ₚ",
+  r: "ᵣ", s: "ₛ", t: "ₜ", u: "ᵤ", v: "ᵥ", x: "ₓ",
+};
+
+const SUP: Record<string, string> = {
+  "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹",
+  "+": "⁺", "-": "⁻", "=": "⁼", "(": "⁽", ")": "⁾",
+  a: "ᵃ", b: "ᵇ", c: "ᶜ", d: "ᵈ", e: "ᵉ", f: "ᶠ", g: "ᵍ", h: "ʰ", i: "ⁱ", j: "ʲ", k: "ᵏ", l: "ˡ",
+  m: "ᵐ", n: "ⁿ", o: "ᵒ", p: "ᵖ", r: "ʳ", s: "ˢ", t: "ᵗ", u: "ᵘ", v: "ᵛ", w: "ʷ", x: "ˣ", y: "ʸ", z: "ᶻ",
+};
+
+const GREEK: Record<string, string> = {
+  alpha: "α", beta: "β", gamma: "γ", delta: "δ", epsilon: "ε", zeta: "ζ", eta: "η", theta: "θ",
+  iota: "ι", kappa: "κ", lambda: "λ", mu: "μ", nu: "ν", xi: "ξ", pi: "π", rho: "ρ", sigma: "σ",
+  tau: "τ", upsilon: "υ", phi: "φ", chi: "χ", psi: "ψ", omega: "ω",
+  Alpha: "Α", Beta: "Β", Gamma: "Γ", Delta: "Δ", Theta: "Θ", Lambda: "Λ", Xi: "Ξ", Pi: "Π",
+  Sigma: "Σ", Phi: "Φ", Psi: "Ψ", Omega: "Ω",
+};
+
+const SYMBOLS: Record<string, string> = {
+  cdot: "·", times: "×", div: "÷", pm: "±", mp: "∓", to: "→", rightarrow: "→", leftarrow: "←",
+  Rightarrow: "⇒", le: "≤", leq: "≤", ge: "≥", geq: "≥", neq: "≠", ne: "≠", approx: "≈",
+  equiv: "≡", infty: "∞", degree: "°", circ: "∘", ang: "∠", perp: "⊥", parallel: "∥",
+  sum: "∑", prod: "∏", int: "∫", sqrt: "√", partial: "∂", nabla: "∇", in: "∈", notin: "∉",
+  cup: "∪", cap: "∩", subset: "⊂", supset: "⊃", forall: "∀", exists: "∃", percent: "%",
+};
+
+/** Превратить тело формулы в юникод: индексы, греческий, знаки, без служебных команд. */
+export function formulaToText(src: string): string {
+  let s = String(src || "").trim();
+  // \ce{H2O}, \mathrm{...}, \text{...} — оставляем только содержимое
+  s = s.replace(/\\(?:ce|mathrm|text|textbf|mathbf|mathit|operatorname)\s*\{([^{}]*)\}/g, "$1");
+  s = s.replace(/\\frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, "($1)/($2)");
+  s = s.replace(/\\sqrt\s*\{([^{}]*)\}/g, "√($1)");
+  // служебные: пробелы, тонкие пробелы, скобки-разделители
+  s = s.replace(/\\(left|right|big|Big|bigl|bigr|!|,|;|:| )/g, "");
+  // греческие и символы
+  s = s.replace(/\\([A-Za-z]+)/g, (m, name: string) => GREEK[name] ?? SYMBOLS[name] ?? name);
+  // индексы: _{...} / _x и ^{...} / ^x
+  const conv = (chunk: string, tbl: Record<string, string>) =>
+    chunk.split("").map((c) => tbl[c] ?? c).join("");
+  s = s.replace(/_\{([^{}]*)\}/g, (_m, g: string) => conv(g, SUB));
+  s = s.replace(/\^\{([^{}]*)\}/g, (_m, g: string) => conv(g, SUP));
+  s = s.replace(/_([A-Za-z0-9+\-=()])/g, (_m, g: string) => conv(g, SUB));
+  s = s.replace(/\^([A-Za-z0-9+\-=()])/g, (_m, g: string) => conv(g, SUP));
+  // хвосты: пустые группы, двойные пробелы
+  s = s.replace(/[{}]/g, "").replace(/\s{2,}/g, " ").trim();
+  return s;
+}
+
+/** Есть ли в строке формула $...$ — чтобы не ловить деньги «$5» как формулу. */
+const looksLikeFormula = (body: string) => /[_^\\]/.test(body) || /[A-Za-z]{2,}/.test(body);
+
+/* ── Inline-разбор: **bold**, *italic*, `code`, [text](url), $формула$ ── */
 
 function renderInline(text: string, theme: any, keyPrefix: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
-  const re = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*\s][^*]*\*|\[([^\]]+)\]\(([^)\s]+)\))/g;
+  const re = /(\$[^$\n]{1,200}\$|\*\*[^*]+\*\*|`[^`]+`|\*[^*\s][^*]*\*|\[([^\]]+)\]\(([^)\s]+)\))/g;
   let last = 0;
   let k = 0;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
     if (m.index > last) nodes.push(<Text key={`${keyPrefix}-t${k++}`}>{text.slice(last, m.index)}</Text>);
     const tok = m[0];
-    if (tok.startsWith("**")) {
+    if (tok.startsWith("$") && tok.length > 2) {
+      const body = tok.slice(1, -1);
+      if (looksLikeFormula(body)) {
+        nodes.push(
+          <Text key={`${keyPrefix}-f${k++}`} style={{ fontFamily: fonts.mono, color: theme.text }}>
+            {formulaToText(body)}
+          </Text>,
+        );
+      } else {
+        // просто деньги или одна буква: «$5», «$x» — оставляем как текст
+        nodes.push(<Text key={`${keyPrefix}-t${k++}`}>{tok}</Text>);
+      }
+    } else if (tok.startsWith("**")) {
       nodes.push(
         <Text key={`${keyPrefix}-b${k++}`} style={{ fontWeight: "700", color: theme.text }}>
           {tok.slice(2, -2)}
@@ -215,7 +285,19 @@ function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: st
   return (
     <View style={{ marginVertical: 8 }} onLayout={(e) => setBoxW(e.nativeEvent.layout.width)}>
       <View style={{ borderRadius: 16, overflow: "hidden", borderWidth: 1, borderColor: theme.border }}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} bounces={false} style={{ maxWidth: "100%" }}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          bounces={false}
+          // Android: без nestedScrollEnabled жест забирает вертикальный список,
+          // поэтому таблица начинала ехать только с третьей попытки.
+          // directionalLockEnabled — iOS: держим жест в той оси, где он начался.
+          nestedScrollEnabled
+          directionalLockEnabled
+          scrollEventThrottle={16}
+          overScrollMode="never"
+          style={{ maxWidth: "100%" }}
+        >
           <View style={{ width: widths.total }}>
             <View style={{ flexDirection: "row", backgroundColor: theme.surface2, borderBottomWidth: 1, borderBottomColor: theme.border }}>
               {head.map((c, ci) => (

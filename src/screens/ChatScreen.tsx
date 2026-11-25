@@ -36,6 +36,7 @@ import { AppIcon, AppIconName } from "../design-system/components/AppIcon";
 import { AttachmentStrip } from "../components/AttachmentStrip";
 import { ModelPickerPopover } from "../components/ModelPickerPopover";
 import RecTimer from "../components/RecTimer";
+import { WaitLabel } from "../components/WaitLabel";
 import { DEFAULT_PREFS, loadPrefs, savePrefs, type ModelPrefs } from "../core/modelPrefs";
 import { ApertureSpin } from "../design-system/components/ApertureMark";
 
@@ -1681,10 +1682,11 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           ListFooterComponent={
             waitingFirst ? (
               <View
-                style={{ alignItems: "flex-start", paddingTop: 10, paddingLeft: 2 }}
+                style={{ flexDirection: "row", alignItems: "center", gap: 9, paddingTop: 10, paddingLeft: 2 }}
                 accessibilityLabel="Агент думает"
               >
                 <ApertureSpin size={22} color={theme.text} cycle={1080} min={0.14} />
+                <WaitLabel active={waitingFirst} />
               </View>
             ) : null
           }
@@ -2071,11 +2073,13 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       <MsgMenu
         target={msgMenuTarget}
         at={msgMenuAt}
+        visible={!!msgMenuTarget}
         onClose={() => setMsgMenuTarget(null)}
-        onRetry={(m) => { setMsgMenuTarget(null); retryMsg(m); }}
+        onRetry={(m) => { retryMsg(m); setMsgMenuTarget(null); }}
         onCopy={(m) => { copyMsg(m); setMsgMenuTarget(null); }}
         onShare={(m) => { shareMsg(m); setMsgMenuTarget(null); }}
-        onDelete={(m) => { setMsgMenuTarget(null); doDeleteMsg(m); }}
+        onDelete={(m) => { doDeleteMsg(m); setMsgMenuTarget(null); }}
+        onEdit={(m) => { startEdit(m); setMsgMenuTarget(null); }}
       />
 
       {/* ── Детали команды/раздумий — bottom-sheet как окно сессии ── */}
@@ -2554,35 +2558,48 @@ const MENU_ROW = 44;
 const MENU_PAD = 6;
 
 function MsgMenu({
-  target, at, onClose, onRetry, onCopy, onShare, onDelete,
+  target, at, visible, onClose, onRetry, onCopy, onShare, onDelete, onEdit,
 }: {
   target: Msg | null;
   at: { x: number; y: number } | null;
+  visible: boolean;
   onClose: () => void;
   onRetry: (m: Msg) => void;
   onCopy: (m: Msg) => void;
   onShare: (m: Msg) => void;
   onDelete: (m: Msg) => void;
+  onEdit: (m: Msg) => void;
 }) {
   const { theme } = useApp();
   const { width: W, height: H } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const a = useRef(new Animated.Value(0)).current;
-  const open = !!target;
+  // Окно остаётся смонтированным, пока идёт анимация ухода: раньше `return null`
+  // на закрытии выдёргивал его из дерева, и оно исчезало рывком.
+  const [shown, setShown] = useState<Msg | null>(null);
+
+  useEffect(() => {
+    if (target) setShown(target);
+  }, [target]);
 
   useEffect(() => {
     Animated.timing(a, {
-      toValue: open ? 1 : 0,
-      duration: open ? 150 : 110,
-      easing: open ? Easing.out(Easing.cubic) : Easing.in(Easing.quad),
+      toValue: visible ? 1 : 0,
+      duration: visible ? 240 : 180,
+      easing: visible ? Easing.bezier(0.16, 0.84, 0.24, 1) : Easing.in(Easing.cubic),
       useNativeDriver: true,
-    }).start();
-  }, [open, a]);
+    }).start(({ finished }) => {
+      if (finished && !visible) setShown(null);
+    });
+  }, [visible, a]);
 
-  if (!target) return null;
+  const m = shown ?? target;
+  if (!m) return null;
 
-  const canRetry = target.role === "assistant" && (!!target.content || !!target.error);
+  const canEdit = m.role === "user";
+  const canRetry = m.role === "assistant" && (!!m.content || !!m.error);
   const rows = [
+    ...(canEdit ? [{ key: "edit", label: "Изменить", icon: "edit" as AppIconName, danger: false }] : []),
     ...(canRetry ? [{ key: "retry", label: "Повторить", icon: "refresh" as AppIconName, danger: false }] : []),
     { key: "copy", label: "Копировать", icon: "copy" as AppIconName, danger: false },
     { key: "share", label: "Поделиться", icon: "share" as AppIconName, danger: false },
@@ -2595,10 +2612,20 @@ function MsgMenu({
   const left = Math.min(Math.max(10, px - MENU_W / 2), W - MENU_W - 10);
   const below = py + menuH + 24 < H - insets.bottom;
   const top = below ? py + 10 : Math.max(insets.top + 10, py - menuH - 10);
+  // растём из точки удержания, а не из центра окна
+  const ox = Math.min(Math.max(0, px - left), MENU_W);
+  const oy = Math.min(Math.max(0, py - top), menuH);
 
+  const act = (key: string) => {
+    if (key === "edit") onEdit(m);
+    else if (key === "retry") onRetry(m);
+    else if (key === "copy") onCopy(m);
+    else if (key === "share") onShare(m);
+    else onDelete(m);
+  };
 
   return (
-    <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+    <View style={StyleSheet.absoluteFill} pointerEvents={visible ? "auto" : "none"}>
       <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
       <Animated.View
         style={{
@@ -2616,22 +2643,18 @@ function MsgMenu({
           shadowRadius: 20,
           shadowOffset: { width: 0, height: 10 },
           elevation: 14,
+          transformOrigin: [ox, oy],
           opacity: a,
           transform: [
-            { scale: a.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] }) },
-            { translateY: a.interpolate({ inputRange: [0, 1], outputRange: [below ? -6 : 6, 0] }) },
+            { scale: a.interpolate({ inputRange: [0, 1], outputRange: [0.72, 1] }) },
+            { translateY: a.interpolate({ inputRange: [0, 1], outputRange: [below ? -8 : 8, 0] }) },
           ],
         }}
       >
         {rows.map((r, i) => (
           <Pressable
             key={r.key}
-            onPress={() => {
-              if (r.key === "retry") onRetry(target);
-              else if (r.key === "copy") onCopy(target);
-              else if (r.key === "share") onShare(target);
-              else onDelete(target);
-            }}
+            onPress={() => act(r.key)}
             style={({ pressed }) => ({
               height: MENU_ROW,
               paddingHorizontal: 14,
