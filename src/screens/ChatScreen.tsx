@@ -1688,8 +1688,10 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         <LinearGradient
           pointerEvents="none"
           colors={fadeStops(theme.bg)}
-          locations={[0, 0.72, 0.84, 0.92, 0.97, 1]}
-          style={{ position: "absolute", top: 0, left: 0, right: 0, height: insets.top + 72 }}
+          // Полка плотности заканчивается ровно под шапкой (~52 px), дальше
+          // спад растянут на 68 px: ступеньки на границе текста нет.
+          locations={[0, 0.44, 0.58, 0.72, 0.86, 1]}
+          style={{ position: "absolute", top: 0, left: 0, right: 0, height: insets.top + 120 }}
         />
         <View
           pointerEvents="box-none"
