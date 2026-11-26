@@ -423,7 +423,7 @@ function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: st
           style={{ maxWidth: "100%" }}
         >
           <View style={{ width: widths.total }}>
-            <View style={{ flexDirection: "row", backgroundColor: theme.surface2, borderBottomWidth: 1, borderBottomColor: theme.border }}>
+            <View style={{ flexDirection: "row", backgroundColor: theme.surface2 }}>
               {head.map((c, ci) => (
                 <View key={ci} style={cellStyle(ci)}>
                   <Text style={{ color: theme.text, fontSize: TBL_FS, lineHeight: TBL_LH, fontWeight: "700" }}>
@@ -438,8 +438,6 @@ function TableNode({ rows, theme, uid }: { rows: string[][]; theme: any; uid: st
                 style={{
                   flexDirection: "row",
                   backgroundColor: ri % 2 === 1 ? theme.surface : "transparent",
-                  borderBottomWidth: ri < body.length - 1 ? 1 : 0,
-                  borderBottomColor: theme.border,
                 }}
               >
                 {row.map((c, ci) => (

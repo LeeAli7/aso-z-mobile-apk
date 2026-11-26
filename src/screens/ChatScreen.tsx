@@ -81,18 +81,45 @@ type Group =
 
 // Мягкое затемнение: переход к фону длинный, 6 стопов с альфой — на Android
 // два стопа давали видимую линию на стыке (интерполяция rgba упирается в 0).
-function fadeStops(bg: string): [string, string, string, string, string, string] {
+type FadeStops = [string, string, string, string, string, string, string, string, string, string, string, string];
+
+/** Опорные точки кривой затемнения: доля пути → плотность. */
+const FADE_Y = [0, 0.44, 0.58, 0.72, 0.86, 1];
+const FADE_A = [1, 0.965, 0.83, 0.55, 0.235, 0];
+
+/**
+ * 12 равномерных стопов вместо 6.
+ *
+ * На OLED плавный градиент из шести точек даёт ступени — их видно как
+ * горизонтальную линию на светлых блоках под затемнением. Чем больше
+ * стопов, тем меньше шаг плотности между ними и тем реже banding.
+ */
+function fadeStops(bg: string): FadeStops {
   const m = /^#([0-9a-f]{6})$/i.exec(String(bg || "").trim());
   const r = m ? parseInt(m[1].slice(0, 2), 16) : 0;
   const g = m ? parseInt(m[1].slice(2, 4), 16) : 0;
   const b = m ? parseInt(m[1].slice(4, 6), 16) : 0;
-  const a: [number, number, number, number, number, number] = [1, 0.97, 0.84, 0.56, 0.24, 0];
-  return a.map((v) => `rgba(${r},${g},${b},${v})`) as [string, string, string, string, string, string];
+  const alphaAt = (v: number) => {
+    for (let i = 0; i < FADE_Y.length - 1; i++) {
+      const y0 = FADE_Y[i], y1 = FADE_Y[i + 1];
+      if (v <= y1 || i === FADE_Y.length - 2) {
+        const k = y1 === y0 ? 0 : (v - y0) / (y1 - y0);
+        return FADE_A[i] + (FADE_A[i + 1] - FADE_A[i]) * Math.min(1, Math.max(0, k));
+      }
+    }
+    return 0;
+  };
+  const out: string[] = [];
+  for (let i = 0; i < 12; i++) {
+    const v = alphaAt(i / 11);
+    out.push(`rgba(${r},${g},${b},${Number(v.toFixed(4))})`);
+  }
+  return out as FadeStops;
 }
 
-function fadeStopsDown(bg: string): [string, string, string, string, string, string] {
+function fadeStopsDown(bg: string): FadeStops {
   const u = fadeStops(bg);
-  return [u[5], u[4], u[3], u[2], u[1], u[0]];
+  return [...u].reverse() as FadeStops;
 }
 
 export function ChatScreen({ navigation }: { navigation: any }) {
@@ -1688,9 +1715,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         <LinearGradient
           pointerEvents="none"
           colors={fadeStops(theme.bg)}
-          // Полка плотности заканчивается ровно под шапкой (~52 px), дальше
-          // спад растянут на 68 px: ступеньки на границе текста нет.
-          locations={[0, 0.44, 0.58, 0.72, 0.86, 1]}
+          // 12 равномерных стопов: без ступени на границе текста и без
+          // banding-полосы на светлых блоках.
           style={{ position: "absolute", top: 0, left: 0, right: 0, height: insets.top + 120 }}
         />
         <View
@@ -1956,7 +1982,6 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         <LinearGradient
           pointerEvents="none"
           colors={fadeStopsDown(theme.bg)}
-          locations={[0, 0.38, 0.58, 0.76, 0.9, 1]}
           style={{
             position: "absolute", left: 0, right: 0, bottom: 0,
             height: Math.max(96, composerH + 16),
