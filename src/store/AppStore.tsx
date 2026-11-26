@@ -57,6 +57,10 @@ export interface Session {
   cron?: boolean;
   /** Закреплена наверху списка (долгое нажатие → «Прикрепить»). */
   pinned?: boolean;
+  /** Название дала модель по теме разговора — повторно не генерируем. */
+  titleAuto?: boolean;
+  /** Пользователь переименовал вручную — автоназвание больше не трогает. */
+  titleEdited?: boolean;
   /**
    * Полная tool-история последнего агентского хода (как Hermes messages[]):
    * assistant с tool_calls + tool-результаты. При следующем сообщении
@@ -106,6 +110,7 @@ type Action =
   | { type: "SET_DEFAULT_MODEL"; modelId: string | null }
   | { type: "ADD_MSG"; sessionId: string; msg: Msg }
   | { type: "UPDATE_MSG"; sessionId: string; msgId: string; patch: Partial<Msg> }
+  | { type: "STOP_SESSION_STREAM"; sessionId: string }
   | { type: "DELETE_MSG"; sessionId: string; msgId: string }
   | { type: "DELETE_SESSION"; sessionId: string };
 
@@ -196,6 +201,23 @@ function reducer(state: State, action: Action): State {
                 messages: s.messages.map((m) =>
                   m.id === action.msgId ? { ...m, ...action.patch } : m,
                 ),
+                updatedAt: Date.now(),
+              }
+            : s,
+        ),
+      };
+    case "STOP_SESSION_STREAM":
+      // Отмена хода: снимаем «печатает» со всех сообщений сессии и убираем
+      // пустые пузыри, которые не успели получить ни одного токена.
+      return {
+        ...state,
+        sessions: state.sessions.map((s) =>
+          s.id === action.sessionId
+            ? {
+                ...s,
+                messages: s.messages
+                  .filter((m) => !(m.role === "assistant" && !m.content && !m.tool && !m.thinking))
+                  .map((m) => (m.streaming ? { ...m, streaming: false } : m)),
                 updatedAt: Date.now(),
               }
             : s,

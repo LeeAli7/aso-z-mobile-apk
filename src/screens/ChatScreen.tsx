@@ -44,6 +44,7 @@ import { useApp, genId, Msg, Session } from "../store/AppStore";
 import { ModelInfo, streamChat, streamAgentChat, ChatMessage, ChatPart, AgentToolCall } from "../core/gateway";
 import { buildAttachmentParts } from "../core/attachments";
 import { sanitizeToolHistory } from "../core/history";
+import { suggestSessionTitle } from "../core/sessionTitle";
 import { getToolDefsGated } from "../core/tools";
 import { registerBg, unregisterBg } from "../core/background";
 import { claimDueJobs, setJobResult } from "../core/cron";
@@ -641,6 +642,33 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     if (last.role === "user") return true; // ответ ещё не начался
     return !last.content; // размышление/команда уже есть, текста ещё нет
   }, [active, streamingSessions]);
+
+  // ── Автоназвание сессии ──
+  // Как только набралось 2 реплики пользователя и ход завершён, модель один раз
+  // даёт короткое имя по теме. Ручное переименование отключает механику навсегда.
+  const titleTried = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const s = active;
+    if (!s || !model) return;
+    if (s.titleAuto || s.titleEdited) return;
+    if (titleTried.current.has(s.id)) return;
+    const users = s.messages.filter((m) => m.role === "user" && m.content && !m.content.startsWith("/"));
+    if (users.length < 2) return;
+    if (s.messages.some((m) => m.streaming)) return;
+    if (!s.messages.some((m) => m.role === "assistant" && m.content)) return;
+    titleTried.current.add(s.id);
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 20000);
+    void (async () => {
+      try {
+        const title = await suggestSessionTitle(model, s.messages as any, ctrl.signal);
+        if (!title) return;
+        dispatch({ type: "UPDATE_SESSION", sessionId: s.id, patch: { name: title, titleAuto: true } });
+      } finally {
+        clearTimeout(timer);
+      }
+    })();
+  }, [active, model, dispatch]);
 
   // Смена сессии — сразу к последнему сообщению. Никакой шторки и чёрного
   // экрана: сообщения уже в памяти, поэтому прыгаем в низ в тот же кадр.
@@ -1571,7 +1599,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     if (!renameTarget) return;
     const name = renameValue.trim();
     if (name) {
-      dispatch({ type: "UPDATE_SESSION", sessionId: renameTarget.id, patch: { name } });
+      dispatch({ type: "UPDATE_SESSION", sessionId: renameTarget.id, patch: { name, titleEdited: true } });
       showToast("ok", "Сессия переименована");
     }
     setRenameTarget(null);
@@ -1660,8 +1688,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         <LinearGradient
           pointerEvents="none"
           colors={fadeStops(theme.bg)}
-          locations={[0, 0.3, 0.52, 0.72, 0.9, 1]}
-          style={{ position: "absolute", top: 0, left: 0, right: 0, height: insets.top + 128 }}
+          locations={[0, 0.72, 0.84, 0.92, 0.97, 1]}
+          style={{ position: "absolute", top: 0, left: 0, right: 0, height: insets.top + 72 }}
         />
         <View
           pointerEvents="box-none"
@@ -1899,7 +1927,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           style={({ pressed }) => ({
             width: 44, height: 44, borderRadius: 22,
             alignItems: "center", justifyContent: "center",
-            backgroundColor: pressed ? theme.surface2 : theme.surface,
+            backgroundColor: pressed ? theme.userBubble : theme.surface2,
           })}
         >
           <AppIcon name="chevron-down" size={20} color={theme.text} />
@@ -1926,8 +1954,11 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         <LinearGradient
           pointerEvents="none"
           colors={fadeStopsDown(theme.bg)}
-          locations={[0, 0.1, 0.28, 0.48, 0.7, 1]}
-          style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }}
+          locations={[0, 0.38, 0.58, 0.76, 0.9, 1]}
+          style={{
+            position: "absolute", left: 0, right: 0, bottom: 0,
+            height: Math.max(96, composerH + 16),
+          }}
         />
         <View
           pointerEvents="box-none"
@@ -2040,14 +2071,24 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                 onPress={() => {
                   const s = active?.id;
                   if (!s) return;
+                  // 1) останавливаем транспорт, 2) сразу возвращаем капсулу в
+                  // обычное состояние, 3) закрываем «печатающие» пузыри: текст,
+                  // который модель успела выдать, остаётся в чате.
                   getRun(s).stop = true;
                   getRun(s).ctrl?.abort();
                   markStreaming(s, false);
+                  dispatch({ type: "STOP_SESSION_STREAM", sessionId: s });
                 }}
-                style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.danger, alignItems: "center", justifyContent: "center" }}
+                // Спокойная кнопка вместо красного круга: нейтральный фон
+                // капсулы и единственная красная точка — квадрат стопа.
+                style={({ pressed }) => ({
+                  width: 44, height: 44, borderRadius: 22,
+                  backgroundColor: pressed ? theme.surface2 : theme.surface,
+                  alignItems: "center", justifyContent: "center",
+                })}
                 accessibilityLabel="Остановить"
               >
-                <AppIcon name="stop" size={18} color="#fff" />
+                <View style={{ width: 12, height: 12, borderRadius: 3, backgroundColor: theme.danger }} />
               </Pressable>
             ) : text.trim() ? (
               <Pressable

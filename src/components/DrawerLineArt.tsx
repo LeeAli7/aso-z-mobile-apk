@@ -20,11 +20,32 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Reanimated, {
+  Easing as REasing,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withTiming,
+} from "react-native-reanimated";
 import { ApertureSpin } from "../design-system/components/ApertureMark";
+import { Shimmer } from "./Shimmer";
 import { AppIcon, AppIconName } from "../design-system/components/AppIcon";
 import { ModelInfo } from "../core/gateway";
 import { Session } from "../store/AppStore";
 import { fonts } from "../theme/tokens";
+
+/** Строка списка: появляется со сдвигом вверх, каскадом по индексу. */
+function RowIn({ index, children }: { index: number; children: React.ReactNode }) {
+  const p = useSharedValue(0);
+  useEffect(() => {
+    p.value = withDelay(index * 22, withTiming(1, { duration: 220, easing: REasing.out(REasing.cubic) }));
+  }, [index, p]);
+  const st = useAnimatedStyle(() => ({
+    opacity: p.value,
+    transform: [{ translateY: (1 - p.value) * 8 }],
+  }));
+  return <Reanimated.View style={st}>{children}</Reanimated.View>;
+}
 
 const WIDTH = 320;
 const HIDE = -WIDTH - 20;
@@ -166,7 +187,9 @@ export function DrawerLineArt({
   const [listOn, setListOn] = useState(false);
   useEffect(() => {
     if (!visible) { setListOn(false); return; }
-    const t = setTimeout(() => setListOn(true), 40);
+    // 260 мс: панель выезжает, и вместо пустоты видно скелетон с бликом —
+    // список подставляется уже на месте, без «прыжка» из ничего.
+    const t = setTimeout(() => setListOn(true), 260);
     return () => clearTimeout(t);
   }, [visible]);
 
@@ -273,9 +296,9 @@ export function DrawerLineArt({
 
             {!listOn ? (
               <View style={{ paddingTop: 14 }}>
-                {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+                {[186, 232, 154, 208, 172].map((w, i) => (
                   <View key={i} style={{ height: 44, paddingHorizontal: 22, justifyContent: "center" }}>
-                    <View style={{ height: 11, borderRadius: 6, backgroundColor: theme.card, width: `${68 - i * 6}%` }} />
+                    <Shimmer w={w} color={theme.card} delay={i * 90} />
                   </View>
                 ))}
               </View>
@@ -290,11 +313,11 @@ export function DrawerLineArt({
                     {section.title}
                   </Text>
                 )}
-                {section.list.map((s) => {
+                {section.list.map((s, si) => {
                   const on = s.id === activeId;
                   return (
+                    <RowIn key={s.id} index={si}>
                     <Pressable
-                      key={s.id}
                       onPress={() => onSelectSession(s.id)}
                       // действия (переименовать / прикрепить / удалить) живут в
                       // мини-окне: держим строку — и открывается окно
@@ -319,6 +342,7 @@ export function DrawerLineArt({
                         {s.name}
                       </Text>
                     </Pressable>
+                    </RowIn>
                   );
                 })}
               </View>
