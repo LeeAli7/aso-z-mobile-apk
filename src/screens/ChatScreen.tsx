@@ -298,6 +298,14 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // ЦЕЛИКОМ на каждое обновление; дописывание «prev + txt» давало слова по 2-3 раза.
   const sttBase = useRef("");
   const waveApi = useRef<((v: number) => void) | null>(null);
+  // Кольцо вокруг микрофона: окутывает кнопку при старте записи и дышит
+  // вместе с голосом. Живёт на UI-потоке — кадры не ждут JS.
+  const vol = useSharedValue(0);
+  const recP = useSharedValue(0);
+  const ringStyle = useAnimatedStyle(() => ({
+    opacity: recP.value * (0.2 + 0.62 * vol.value),
+    transform: [{ scale: recP.value * (0.96 + 0.2 * vol.value) }],
+  }));
   // запись уже включена визуально (линия/таймер), даже если разрешение ещё спрашивается
   const recOnRef = useRef(false);
   const sttRetry = useRef(0);
@@ -328,6 +336,10 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   }));
   // true ровно на время программной записи текста из STT: ручной ввод пользователя
   // в это окно не должен считаться частью распознанной фразы.
+  useEffect(() => {
+    recP.value = withTiming(recording ? 1 : 0, { duration: 220, easing: REasing.out(REasing.cubic) });
+  }, [recording, recP]);
+
   const sttWriting = useRef(false);
   // Два способа говорить: тап — «включил и говори, вторым тапом отправил»,
   // удержание — «держишь, пока говоришь». Различаем по длительности касания.
@@ -418,7 +430,10 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   });
   // rms с микрофона: 10-20 событий в секунду, рисуем не чаще 22 кадров
   useSpeechRecognitionEvent("volumechange", (e: any) => {
-    waveApi.current?.(Number(e?.value ?? 0));
+    const raw = Number(e?.value ?? 0);
+    waveApi.current?.(raw);
+    // Android отдаёт примерно -2..10 dB: нормализуем в 0..1.
+    vol.value = withTiming(Math.max(0, Math.min(1, (raw + 2) / 12)), { duration: 90 });
   });
   /** Остановить запись. sendIt — отправить сказанное сразу. */
   const stopVoice = useCallback((sendIt: boolean) => {
@@ -2173,21 +2188,12 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               style={{ flexDirection: "row", gap: 8, alignItems: "flex-end" }}
             >
             <Reanimated.View
-              key={recording ? "rec" : isStreaming(active?.id) ? "stop" : text.trim() ? "send" : "mic"}
+              key={isStreaming(active?.id) ? "stop" : !recording && text.trim() ? "send" : "mic"}
               entering={FadeIn.duration(130)}
               exiting={FadeOut.duration(100)}
               layout={LinearTransition.duration(180)}
             >
-            {recording ? (
-              <Pressable
-                onPressIn={() => stopVoice(true)}
-                hitSlop={6}
-                style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.danger, alignItems: "center", justifyContent: "center" }}
-                accessibilityLabel="Остановить запись"
-              >
-                <AppIcon name="stop" size={18} color="#fff" />
-              </Pressable>
-            ) : isStreaming(active?.id) ? (
+            {isStreaming(active?.id) ? (
               <Pressable
                 onPressIn={() => {
                   const s = active?.id;
@@ -2211,7 +2217,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               >
                 <View style={{ width: 12, height: 12, borderRadius: 3, backgroundColor: theme.danger }} />
               </Pressable>
-            ) : text.trim() ? (
+            ) : !recording && text.trim() ? (
               <Pressable
                 onPressIn={send}
                 hitSlop={8}
@@ -2228,7 +2234,20 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                 style={{ width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" }}
                 accessibilityLabel="Голосовой ввод"
               >
-                <AppIcon name="mic" size={22} strokeWidth={2.2} color={theme.text} />
+                {/* кольцо окутывает кнопку и пульсирует под голос */}
+                {recording ? (
+                  <Reanimated.View
+                    pointerEvents="none"
+                    style={[
+                      {
+                        position: "absolute", width: 54, height: 54, borderRadius: 27,
+                        borderWidth: 1.5, borderColor: theme.text,
+                      },
+                      ringStyle,
+                    ]}
+                  />
+                ) : null}
+                <AppIcon name="mic" size={22} strokeWidth={2.2} color={recording ? theme.danger : theme.text} />
               </Pressable>
             )}
             </Reanimated.View>
