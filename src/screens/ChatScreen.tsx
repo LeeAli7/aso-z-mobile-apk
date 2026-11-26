@@ -1976,15 +1976,15 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           backgroundColor: "transparent",
         }}
       >
-        {/* Подложка низа: от верха зоны ввода до самого низа экрана, включая
-            полосу ПОД капсулой. Раньше гасла на кромке капсулы — снизу
-            просвечивала переписка. */}
+        {/* Низ больше не затемняется целиком: остаётся только узкая полоса
+            у самой кромки экрана — она гасит переписку под капсулой и не
+            съедает читаемую зону над ней. */}
         <LinearGradient
           pointerEvents="none"
           colors={fadeStopsDown(theme.bg)}
           style={{
             position: "absolute", left: 0, right: 0, bottom: 0,
-            height: Math.max(96, composerH + 16),
+            height: 44,
           }}
         />
         <View
