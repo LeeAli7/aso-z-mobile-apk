@@ -27,7 +27,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
 import { commit as hapticCommit, tap as hapticTap } from "../core/haptics";
 import { LinearGradient } from "expo-linear-gradient";
-import Reanimated, { useSharedValue, useAnimatedStyle, withTiming, Easing as REasing } from "react-native-reanimated";
+import Reanimated, { FadeIn, FadeOut, LinearTransition, useSharedValue, useAnimatedStyle, withTiming, Easing as REasing } from "react-native-reanimated";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from "expo-speech-recognition";
@@ -329,6 +329,15 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // true ровно на время программной записи текста из STT: ручной ввод пользователя
   // в это окно не должен считаться частью распознанной фразы.
   const sttWriting = useRef(false);
+  // Два способа говорить: тап — «включил и говори, вторым тапом отправил»,
+  // удержание — «держишь, пока говоришь». Различаем по длительности касания.
+  const pressAt = useRef(0);
+  const pressStarted = useRef(false);
+  const tapMode = useRef(false);
+  const pendingSend = useRef(false);
+  const textRef = useRef("");
+  const sendTextRef = useRef<(s: string) => void>(() => {});
+  useEffect(() => { textRef.current = text; }, [text]);
   useSpeechRecognitionEvent("result", (e: any) => {
     sttRetry.current = 0;
     const txt = String(e?.results?.[0]?.transcript ?? "").trim();
@@ -358,7 +367,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       ExpoSpeechRecognitionModule.start({
         lang,
         interimResults: true,
-        continuous: false,
+        continuous: true,
         volumeChangeEventOptions: { enabled: true, intervalMillis: 100 },
       } as any);
     } catch (e) {
@@ -370,13 +379,16 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   useSpeechRecognitionEvent("error", (e: any) => {
     if (__DEV__) console.log("[stt] error", JSON.stringify(e)?.slice(0, 300));
     const code = String(e?.error ?? "");
-    if (recOnRef.current && code === "no-speech" && sttRetry.current < 3) {
+    // Тишина — не повод выключать микрофон: пользователь просто думает.
+    // Пока запись включена, перезапускаем распознавание без ограничения
+    // по числу попыток (раньше после третьей кнопка гасла сама).
+    if (recOnRef.current && (code === "no-speech" || code === "speech-timeout")) {
       sttRetry.current += 1;
       clearTimeout(sttTimer.current);
       sttTimer.current = setTimeout(() => {
         if (!recOnRef.current) return;
         try { sttStart(); } catch { /* следующий тап начнёт заново */ }
-      }, 220);
+      }, 350);
       return;
     }
     recStarting.current = false;
@@ -386,25 +398,39 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   useSpeechRecognitionEvent("end", () => {
     if (__DEV__) console.log("[stt] end");
     recStarting.current = false;
-    recOnRef.current = false;
+    // Android завершает сессию на паузе в речи. Пока пользователь не нажал
+    // стоп — поднимаем её заново, иначе кнопка «отваливается» на тишине.
+    if (recOnRef.current) {
+      clearTimeout(sttTimer.current);
+      sttTimer.current = setTimeout(() => {
+        if (!recOnRef.current) return;
+        try { sttStart(); } catch {}
+      }, 250);
+      return;
+    }
     setRecording(false);
+    // Остановка по второму тапу/отпусканию — сразу отправляем сказанное.
+    if (pendingSend.current) {
+      pendingSend.current = false;
+      const said = textRef.current.trim();
+      if (said) setTimeout(() => sendTextRef.current(said), 0);
+    }
   });
   // rms с микрофона: 10-20 событий в секунду, рисуем не чаще 22 кадров
   useSpeechRecognitionEvent("volumechange", (e: any) => {
     waveApi.current?.(Number(e?.value ?? 0));
   });
-  const toggleVoice = useCallback(async () => {
-    // Стоп — сразу, без ожиданий. Единственный источник правды — recording:
-    // если прошлый старт тихо не состоялся, следующий тап должен снова начинать,
-    // а не уходить в «стоп» из-за залипшего флага.
-    if (recording) {
-      recOnRef.current = false;
-      clearTimeout(sttTimer.current);
-      hapticCommit();
-      try { ExpoSpeechRecognitionModule.stop(); } catch {}
-      setRecording(false);
-      return;
-    }
+  /** Остановить запись. sendIt — отправить сказанное сразу. */
+  const stopVoice = useCallback((sendIt: boolean) => {
+    recOnRef.current = false;
+    clearTimeout(sttTimer.current);
+    pendingSend.current = sendIt;
+    hapticCommit();
+    try { ExpoSpeechRecognitionModule.stop(); } catch {}
+    setRecording(false);
+  }, []);
+
+  const startVoice = useCallback(async () => {
     if (recStarting.current) return;
     recStarting.current = true;
     recOnRef.current = true;
@@ -454,7 +480,37 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     } finally {
       recStarting.current = false;
     }
-  }, [recording, state.lang, text]);
+  }, [state.lang, text]);
+
+  // Палец коснулся микрофона: если уже слушаем — это второй тап, стоп
+  // произойдёт на отпускании. Иначе запоминаем время касания и стартуем.
+  const onMicPressIn = useCallback(() => {
+    if (recOnRef.current) {
+      pressStarted.current = false;
+      return;
+    }
+    pressAt.current = Date.now();
+    pressStarted.current = true;
+    tapMode.current = false;
+    startVoice();
+  }, [startVoice]);
+
+  // Отпустили: короткое касание — остаёмся слушать (режим «нажал и говорю»),
+  // долгое — это удержание, отправляем сразу. Второй тап тоже отправляет.
+  const onMicPressOut = useCallback(() => {
+    if (!recOnRef.current) return;
+    if (!pressStarted.current) {
+      stopVoice(true);
+      return;
+    }
+    pressStarted.current = false;
+    const held = Date.now() - pressAt.current;
+    if (held < 280) {
+      tapMode.current = true;
+      return;
+    }
+    stopVoice(true);
+  }, [stopVoice]);
   const listRef = useRef<FlatList<any>>(null);
   const listOffsetY = useRef(0);
   const listH = useRef(0);
@@ -1417,6 +1473,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   const send = useCallback(() => {
     if (text.trim()) sendText(text);
   }, [text, sendText]);
+  // sendText нужен обработчику события end (он объявлен выше) — через ref.
+  useEffect(() => { sendTextRef.current = sendText; }, [sendText]);
 
   // Повтор последнего запроса (для ошибок AI-сообщения)
   const retryMsg = useCallback(
@@ -2016,7 +2074,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           onLayout={(e) => setComposerH(Math.round(e.nativeEvent.layout.height))}
           style={{
             backgroundColor: "transparent",
-            paddingHorizontal: 12,
+            paddingHorizontal: 20,
             paddingBottom: compPadBottom,
           }}
         >
@@ -2108,9 +2166,21 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             ) : null}
             </View>
             {recording ? <RecTimer color={theme.mute} fontFamily={fonts.mono} /> : null}
+            {/* правая группа: действие + live. Появление и исчезновение — фейд
+                с плавным изменением ширины, а не щелчок на ровном месте. */}
+            <Reanimated.View
+              layout={LinearTransition.duration(180)}
+              style={{ flexDirection: "row", gap: 8, alignItems: "flex-end" }}
+            >
+            <Reanimated.View
+              key={recording ? "rec" : isStreaming(active?.id) ? "stop" : text.trim() ? "send" : "mic"}
+              entering={FadeIn.duration(130)}
+              exiting={FadeOut.duration(100)}
+              layout={LinearTransition.duration(180)}
+            >
             {recording ? (
               <Pressable
-                onPress={toggleVoice}
+                onPressIn={() => stopVoice(true)}
                 hitSlop={6}
                 style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.danger, alignItems: "center", justifyContent: "center" }}
                 accessibilityLabel="Остановить запись"
@@ -2148,22 +2218,29 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                 style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.accent, alignItems: "center", justifyContent: "center" }}
                 accessibilityLabel="Отправить"
               >
-                <AppIcon name="send" size={20} color={theme.onAccent} />
+                <AppIcon name="send" size={18} color={theme.onAccent} />
               </Pressable>
             ) : (
               <Pressable
-                onPressIn={toggleVoice}
+                onPressIn={onMicPressIn}
+                onPressOut={onMicPressOut}
                 hitSlop={6}
                 style={{ width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" }}
                 accessibilityLabel="Голосовой ввод"
               >
-                <AppIcon name={recording ? "stop" : "mic"} size={22} strokeWidth={2.2} color={recording ? theme.danger : theme.text} />
+                <AppIcon name="mic" size={22} strokeWidth={2.2} color={theme.text} />
               </Pressable>
             )}
+            </Reanimated.View>
             {/* Live-режим: справа от микрофона. Как только в поле появился
                 текст — голос и live убираются целиком, а отправка встаёт
                 на место live, в самый правый слот капсулы. */}
-            {!recording && !text.trim() ? (
+            {!recording && !text.trim() && !isStreaming(active?.id) ? (
+            <Reanimated.View
+              entering={FadeIn.duration(130)}
+              exiting={FadeOut.duration(100)}
+              layout={LinearTransition.duration(180)}
+            >
             <Pressable
               disabled={recording}
               onPress={() => {
@@ -2180,7 +2257,9 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             >
               <AppIcon name="live" size={22} color={theme.text} />
             </Pressable>
+            </Reanimated.View>
             ) : null}
+            </Reanimated.View>
           </Glass>
           </Reanimated.View>
 
@@ -2191,7 +2270,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             pointerEvents={attachOpen ? "auto" : "none"}
             collapsable={false}
             style={{
-              position: "absolute", left: 12, right: 12, bottom: compPadBottom,
+              position: "absolute", left: 20, right: 20, bottom: compPadBottom,
               height: 110, paddingTop: 10, zIndex: 3,
             }}
           >
