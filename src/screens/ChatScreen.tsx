@@ -2160,9 +2160,10 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                 <AppIcon name={recording ? "stop" : "mic"} size={22} strokeWidth={2.2} color={recording ? theme.danger : theme.text} />
               </Pressable>
             )}
-            {/* Live-режим: справа от микрофона. Слот не исчезает никогда —
-                иначе капсула пересобирается и соседние кнопки прыгают.
-                Пока только кнопка — механика будет отдельным шагом. */}
+            {/* Live-режим: справа от микрофона. Как только в поле появился
+                текст — голос и live убираются целиком, а отправка встаёт
+                на место live, в самый правый слот капсулы. */}
+            {!recording && !text.trim() ? (
             <Pressable
               disabled={recording}
               onPress={() => {
@@ -2179,6 +2180,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             >
               <AppIcon name="live" size={22} color={theme.text} />
             </Pressable>
+            ) : null}
           </Glass>
           </Reanimated.View>
 
