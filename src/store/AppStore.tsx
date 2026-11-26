@@ -287,6 +287,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           try {
             const sessions = JSON.parse(sessRaw) as Session[];
             if (Array.isArray(sessions)) {
+              // старые сохранёнки: без id (ломает keyExtractor) и с застрявшим
+              // streaming (блокировал ввод). Приводим к валидному виду.
+              for (const s of sessions) {
+                if (!Array.isArray(s.messages)) s.messages = [];
+                s.messages = s.messages.map((m, i) => ({
+                  ...m,
+                  id: m.id || `${s.id}-${i}`,
+                  ...(m.streaming ? { streaming: false } : null),
+                }));
+              }
               dispatch({ type: "SET_SESSIONS", sessions });
               const savedActive = activeRaw && sessions.some((s) => s.id === activeRaw)
                 ? activeRaw
@@ -329,9 +339,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!state.ready) return;
-    // Пока идёт стрим — не пишем: JSON.stringify всех сессий на JS-потоке
-    // подвешивал интерфейс прямо во время ответа. Запишем после завершения.
-    if (state.sessions.some((x) => x.messages.some((m) => m.streaming))) return;
+    // Пишем ВСЕГДА, даже во время стрима: раз в 1.2 с с дебаунсом это дёшево,
+    // а прежний ранний выход означал, что при подвисшем флаге streaming
+    // переписка вообще не сохранялась и пропадала после перезагрузки.
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
       try {
