@@ -2160,25 +2160,25 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                 <AppIcon name={recording ? "stop" : "mic"} size={22} strokeWidth={2.2} color={recording ? theme.danger : theme.text} />
               </Pressable>
             )}
-            {/* Live-режим: справа от микрофона, всегда на месте.
+            {/* Live-режим: справа от микрофона. Слот не исчезает никогда —
+                иначе капсула пересобирается и соседние кнопки прыгают.
                 Пока только кнопка — механика будет отдельным шагом. */}
-            {!recording ? (
-              <Pressable
-                onPress={() => {
-                  hapticTap();
-                  showToast("info", "Live-режим — скоро");
-                }}
-                hitSlop={6}
-                style={({ pressed }) => ({
-                  width: 44, height: 44, borderRadius: 22,
-                  alignItems: "center", justifyContent: "center",
-                  opacity: pressed ? 0.55 : 1,
-                })}
-                accessibilityLabel="Live-режим"
-              >
-                <AppIcon name="live" size={22} color={theme.text} />
-              </Pressable>
-            ) : null}
+            <Pressable
+              disabled={recording}
+              onPress={() => {
+                hapticTap();
+                showToast("info", "Live-режим — скоро");
+              }}
+              hitSlop={6}
+              style={({ pressed }) => ({
+                width: 44, height: 44, borderRadius: 22,
+                alignItems: "center", justifyContent: "center",
+                opacity: recording ? 0.3 : pressed ? 0.55 : 1,
+              })}
+              accessibilityLabel="Live-режим"
+            >
+              <AppIcon name="live" size={22} color={theme.text} />
+            </Pressable>
           </Glass>
           </Reanimated.View>
 
