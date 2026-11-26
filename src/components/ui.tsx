@@ -17,6 +17,7 @@ import {
   ScrollView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
 import { useApp } from "../store/AppStore";
 import { fonts } from "../theme/tokens";
 import { radii } from "../design-system/tokens";
@@ -164,6 +165,16 @@ export function TextField({
 
 /* ── Bottom sheet (плавный: вход/выход анимирован, хендл свайпается вниз) ── */
 
+/** Полупрозрачный вариант цвета темы (hex8 на Android не используем). */
+function withAlpha(hex: string, a: number) {
+  const m = /^#([0-9a-f]{6})$/i.exec(String(hex || ""));
+  if (!m) return hex;
+  const r = parseInt(m[1].slice(0, 2), 16);
+  const g = parseInt(m[1].slice(2, 4), 16);
+  const b = parseInt(m[1].slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+
 export function BottomSheet({
   visible,
   onClose,
@@ -264,9 +275,23 @@ export function BottomSheet({
               </Pressable>
             </View>
           </View>
-          <ScrollView bounces={false} keyboardShouldPersistTaps="handled">
-            {children}
-          </ScrollView>
+          {/* Содержимое окна гаснет к краям: сверху и снизу мягкий переход в
+              фон окна вместо жёсткой полосы, по которой обрезается текст. */}
+          <View style={{ flexShrink: 1 }}>
+            <ScrollView bounces={false} keyboardShouldPersistTaps="handled" style={{ flexGrow: 0 }}>
+              {children}
+            </ScrollView>
+            <LinearGradient
+              pointerEvents="none"
+              colors={[theme.surface, withAlpha(theme.surface, 0)]}
+              style={{ position: "absolute", top: 0, left: 0, right: 0, height: 16 }}
+            />
+            <LinearGradient
+              pointerEvents="none"
+              colors={[withAlpha(theme.surface, 0), theme.surface]}
+              style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 22 }}
+            />
+          </View>
         </Animated.View>
       </View>
     </Modal>

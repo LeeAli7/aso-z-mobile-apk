@@ -25,7 +25,7 @@ import {
   AppState } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
-import * as Haptics from "expo-haptics";
+import { commit as hapticCommit, tap as hapticTap } from "../core/haptics";
 import { LinearGradient } from "expo-linear-gradient";
 import Reanimated, { useSharedValue, useAnimatedStyle, withTiming, Easing as REasing } from "react-native-reanimated";
 import * as ImagePicker from "expo-image-picker";
@@ -45,6 +45,7 @@ import { ModelInfo, streamChat, streamAgentChat, ChatMessage, ChatPart, AgentToo
 import { buildAttachmentParts } from "../core/attachments";
 import { sanitizeToolHistory } from "../core/history";
 import { suggestSessionTitle } from "../core/sessionTitle";
+import { setSessionTitleSink } from "../core/tools";
 import { getToolDefsGated } from "../core/tools";
 import { registerBg, unregisterBg } from "../core/background";
 import { claimDueJobs, setJobResult } from "../core/cron";
@@ -399,7 +400,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     if (recording) {
       recOnRef.current = false;
       clearTimeout(sttTimer.current);
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      hapticCommit();
       try { ExpoSpeechRecognitionModule.stop(); } catch {}
       setRecording(false);
       return;
@@ -411,7 +412,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     // Отклик не ждёт разрешений и конфига: вибро, клавиатура вниз, линия и
     // таймер стартуют в тот же кадр. Раньше кнопка «думала» 200–400 мс,
     // потому что до setRecording(true) шли динамический импорт и чтение настроек.
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    hapticCommit();
     Keyboard.dismiss();
     sttBase.current = text.trim();
     setRecording(true);
@@ -671,19 +672,22 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   }, [active, streamingSessions]);
 
   // ── Автоназвание сессии ──
-  // Как только набралось 2 реплики пользователя и ход завершён, модель один раз
-  // даёт короткое имя по теме. Ручное переименование отключает механику навсегда.
+  // Имя ставится уже после первой пары реплик и уточняется на второй и третьей:
+  // по одному разу на каждую длину переписки. Ручное переименование выключает
+  // механику навсегда, а имя, которое дал сам агент инструментом, тоже считается
+  // ручным — его больше не перебиваем.
   const titleTried = useRef<Set<string>>(new Set());
   useEffect(() => {
     const s = active;
     if (!s || !model) return;
-    if (s.titleAuto || s.titleEdited) return;
-    if (titleTried.current.has(s.id)) return;
+    if (s.titleEdited) return;
     const users = s.messages.filter((m) => m.role === "user" && m.content && !m.content.startsWith("/"));
-    if (users.length < 2) return;
+    if (users.length < 1 || users.length > 3) return;
+    const key = `${s.id}:${users.length}`;
+    if (titleTried.current.has(key)) return;
     if (s.messages.some((m) => m.streaming)) return;
     if (!s.messages.some((m) => m.role === "assistant" && m.content)) return;
-    titleTried.current.add(s.id);
+    titleTried.current.add(key);
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 20000);
     void (async () => {
@@ -696,6 +700,21 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       }
     })();
   }, [active, model, dispatch]);
+
+  // Агент переименовывает текущую сессию инструментом rename_session:
+  // имя считается ручным и автонеймом больше не перебивается.
+  useEffect(() => {
+    if (!active?.id) { setSessionTitleSink(null); return; }
+    const sid = active.id;
+    setSessionTitleSink((title) => {
+      dispatch({
+        type: "UPDATE_SESSION",
+        sessionId: sid,
+        patch: { name: title, titleAuto: true, titleEdited: true },
+      });
+    });
+    return () => setSessionTitleSink(null);
+  }, [active?.id, dispatch]);
 
   // Смена сессии — сразу к последнему сообщению. Никакой шторки и чёрного
   // экрана: сообщения уже в памяти, поэтому прыгаем в низ в тот же кадр.
@@ -1727,7 +1746,12 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             paddingHorizontal: 12, paddingTop: insets.top + 6, paddingBottom: 6,
           }}
         >
-          <IconButton name="menu" size={20} onPress={() => setDrawerOpen(true)} accessibilityLabel={t("sessions")} />
+          <IconButton
+            name="menu"
+            size={20}
+            onPressIn={() => setDrawerOpen(true)}
+            accessibilityLabel={t("sessions")}
+          />
           <View pointerEvents="box-none" style={{ flex: 1 }} />
           <Reanimated.View ref={chipRef as any} collapsable={false} onLayout={measureChip} style={chipStyle}>
             <BgIndicator theme={theme} count={bgCount} onPress={openBg} />
@@ -2024,7 +2048,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               disabled={recording}
               onPress={() => {
                 const next = !attachOpen;
-                void Haptics.selectionAsync().catch(() => {});
+                hapticTap();
                 setAttachOpen(next);
                 attachProg.value = withTiming(next ? 1 : 0, {
                   duration: next ? 260 : 200,
@@ -2095,7 +2119,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               </Pressable>
             ) : isStreaming(active?.id) ? (
               <Pressable
-                onPress={() => {
+                onPressIn={() => {
                   const s = active?.id;
                   if (!s) return;
                   // 1) останавливаем транспорт, 2) сразу возвращаем капсулу в
@@ -2119,7 +2143,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               </Pressable>
             ) : text.trim() ? (
               <Pressable
-                onPress={send}
+                onPressIn={send}
                 hitSlop={8}
                 style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.accent, alignItems: "center", justifyContent: "center" }}
                 accessibilityLabel="Отправить"
@@ -2128,7 +2152,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               </Pressable>
             ) : (
               <Pressable
-                onPress={toggleVoice}
+                onPressIn={toggleVoice}
                 hitSlop={6}
                 style={{ width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" }}
                 accessibilityLabel="Голосовой ввод"
@@ -2136,6 +2160,25 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                 <AppIcon name={recording ? "stop" : "mic"} size={22} strokeWidth={2.2} color={recording ? theme.danger : theme.text} />
               </Pressable>
             )}
+            {/* Live-режим: справа от микрофона, всегда на месте.
+                Пока только кнопка — механика будет отдельным шагом. */}
+            {!recording ? (
+              <Pressable
+                onPress={() => {
+                  hapticTap();
+                  showToast("info", "Live-режим — скоро");
+                }}
+                hitSlop={6}
+                style={({ pressed }) => ({
+                  width: 44, height: 44, borderRadius: 22,
+                  alignItems: "center", justifyContent: "center",
+                  opacity: pressed ? 0.55 : 1,
+                })}
+                accessibilityLabel="Live-режим"
+              >
+                <AppIcon name="live" size={22} color={theme.text} />
+              </Pressable>
+            ) : null}
           </Glass>
           </Reanimated.View>
 
@@ -2161,7 +2204,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                 <Pressable
                   key={b.label}
                   onPress={() => {
-                    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                    hapticTap();
                     closeAttach();
                     b.onPress();
                   }}
@@ -2536,7 +2579,11 @@ function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions,
   const user = msg.role === "user";
   const align: "flex-end" | "flex-start" = user ? "flex-end" : "flex-start";
   // Kimi: юзер — синяя капсула справа; ассистент — БЕЗ рамки, чистый текст слева
-  const containerStyle = { alignSelf: align, maxWidth: (user ? "86%" : "100%") as "86%" | "100%", marginBottom: 10 };
+  // Ширина в пикселях, а не в процентах: процент пересчитывается при каждом
+  // перестроении списка, и короткое облачко «прыгало» в ширине, когда ниже
+  // появлялось новое сообщение. Пиксельная ширина от окна стабильна.
+  const winW = useWindowDimensions().width;
+  const containerStyle = { alignSelf: align, maxWidth: user ? Math.round(winW * 0.86) : winW, marginBottom: 10 };
   // Карточка инструмента — до контента, слева (как у Kimi).
   if (msg.tool) {
     return (

@@ -75,7 +75,7 @@ export function ModelPickerPopover({
 
   const rows = models.length;
   const listH = rows > 4 ? LIST_MAX : Math.max(1, rows) * ROW;
-  const winH = HEAD + PAD * 2 + listH + 1 + PAD * 2 + FOOT * 3;
+  const winH = HEAD + PAD * 2 + listH + 1 + PAD + FOOT * 3 + 2;
 
   useEffect(() => {
     if (open) {
@@ -215,7 +215,7 @@ export function ModelPickerPopover({
           <Reanimated.View style={footRise}>
           <View style={{ height: 1, backgroundColor: PICKED, marginHorizontal: PAD }} />
 
-          <View style={{ padding: PAD }}>
+          <View style={{ paddingHorizontal: PAD, paddingTop: PAD, paddingBottom: 2 }}>
             {([
               ["reason", "Рассуждение", REASONING_LABELS[prefs.reasoning]],
               ["ctx", "Контекст", CTX_LABELS[ctxIdx]],
@@ -244,6 +244,7 @@ export function ModelPickerPopover({
               );
             })}
 
+            <View style={{ height: 1, backgroundColor: PICKED, marginHorizontal: 6, marginTop: 4 }} />
             <Pressable
               onPress={() => {
                 onClose();

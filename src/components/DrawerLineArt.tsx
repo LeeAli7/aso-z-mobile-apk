@@ -121,7 +121,7 @@ export function DrawerLineArt({
     setLeaving(true);
     Animated.timing(slide, {
       toValue: HIDE,
-      duration: 190,
+      duration: 150,
       easing: Easing.in(Easing.cubic),
       useNativeDriver: true,
     }).start(() => {
@@ -139,7 +139,7 @@ export function DrawerLineArt({
       slide.setValue(HIDE);
       Animated.timing(slide, {
         toValue: 0,
-        duration: 220,
+        duration: 170,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }).start();
@@ -187,9 +187,9 @@ export function DrawerLineArt({
   const [listOn, setListOn] = useState(false);
   useEffect(() => {
     if (!visible) { setListOn(false); return; }
-    // 260 мс: панель выезжает, и вместо пустоты видно скелетон с бликом —
+    // 170 мс: панель выезжает, и вместо пустоты видно скелетон с бликом —
     // список подставляется уже на месте, без «прыжка» из ничего.
-    const t = setTimeout(() => setListOn(true), 260);
+    const t = setTimeout(() => setListOn(true), 170);
     return () => clearTimeout(t);
   }, [visible]);
 

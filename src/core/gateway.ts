@@ -7,7 +7,7 @@
  */
 import { ENCRYPTED_PROVIDERS } from "../config/encrypted";
 import { decrypt } from "./crypto";
-import { normalizeChatUrl } from "./url";
+import { apiModelName, normalizeChatUrl } from "./url";
 import { Platform } from "react-native";
 import { config } from "./env";
 import { executeTool, toolNames } from "./tools";
@@ -128,7 +128,7 @@ export async function streamChat(
     endpoint = `${config.apiBase}/api/mobile/gw?url=${encodeURIComponent(endpoint)}`;
   }
   const payload: Record<string, unknown> = {
-    model: model.apiModel ?? model.modelName,
+    model: apiModelName(model.apiModel ?? model.modelName),
     messages,
     temperature: model.temperature ?? 0.7,
     max_tokens: opts?.maxTokens ?? 8192,
@@ -681,7 +681,7 @@ async function agentRequest(
     endpoint = `${config.apiBase}/api/mobile/gw?url=${encodeURIComponent(endpoint)}`;
   }
   const payload: Record<string, unknown> = {
-    model: model.apiModel ?? model.modelName,
+    model: apiModelName(model.apiModel ?? model.modelName),
     messages,
     temperature: model.temperature ?? 0.7,
     max_tokens: 8192,

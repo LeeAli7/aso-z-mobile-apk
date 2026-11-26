@@ -23,7 +23,7 @@ const T = (...names: string[]) => names;
 export const TOOLSETS: ToolsetDef[] = [
   { name: "terminal", description: "Терминал: выполнение команд", tools: T("run_command"), defaultOn: true },
   { name: "file", description: "Файлы: чтение/запись/список", tools: T("list_files", "read_file", "write_file"), defaultOn: true },
-  { name: "memory", description: "Память агента", tools: T("memory", "memory_snapshot"), defaultOn: true },
+  { name: "memory", description: "Память агента", tools: T("memory", "memory_snapshot", "rename_session"), defaultOn: true },
   { name: "todo", description: "Задачи агента", tools: T("todo"), defaultOn: true },
   { name: "skills", description: "Навыки: просмотр/управление", tools: T("skill_view", "skill_manage"), defaultOn: true },
   { name: "web", description: "Веб-поиск", tools: T("web_search"), defaultOn: true },

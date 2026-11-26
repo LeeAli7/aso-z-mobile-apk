@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { PanResponder, StyleSheet, Text, View } from "react-native";
-import * as Haptics from "expo-haptics";
+import { tap as hapticTap } from "../core/haptics";
 import { fonts } from "../theme/tokens";
 
 /**
@@ -79,7 +79,7 @@ export function StepSlider({
     setPos(i / (n - 1));
     if (i !== idxRef.current) {
       idxRef.current = i;
-      void Haptics.selectionAsync().catch(() => {});
+      hapticTap();
       cbRef.current(i);
     }
   }, []);

@@ -3,7 +3,7 @@
  */
 import React from "react";
 import { ActivityIndicator, Pressable, Text, ViewStyle } from "react-native";
-import * as Haptics from "expo-haptics";
+import { tap as hapticTap } from "../../core/haptics";
 import { useApp } from "../../store/AppStore";
 import { radii } from "../tokens";
 
@@ -45,7 +45,7 @@ export function Button({
     <Pressable
       onPress={() => {
         if (disabled || loading) return;
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+        hapticTap();
         onPress?.();
       }}
       disabled={disabled || loading}

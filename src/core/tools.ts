@@ -39,6 +39,15 @@ export function registerTool(spec: ToolSpec): void {
   registry.set(spec.name, spec);
 }
 
+/**
+ * Переименование текущей сессии из инструмента агента.
+ * ChatScreen подписывается на этот колбэк, пока сессия открыта.
+ */
+let sessionTitleSink: ((title: string) => void) | null = null;
+export function setSessionTitleSink(fn: ((title: string) => void) | null): void {
+  sessionTitleSink = fn;
+}
+
 export function getTool(name: string): ToolSpec | undefined {
   return registry.get(name);
 }
@@ -529,6 +538,28 @@ registerTool({
 });
 
 /* ── Тул: память ────────────────────────────────────────────────────────── */
+
+registerTool({
+  name: "rename_session",
+  description:
+    "Переименовать текущий чат. Доступно всегда. Давай короткое человеческое имя по теме разговора — " +
+    "2–5 слов, без кавычек и точки, на языке диалога. Вызывай, когда тема стала ясной или сменилась, " +
+    "а также если пользователь просит назвать/переименовать сессию.",
+  parameters: {
+    type: "object",
+    properties: {
+      title: { type: "string", description: "Новое название сессии, 2–5 слов" },
+    },
+    required: ["title"],
+  },
+  handler: async (args): Promise<string> => {
+    const title = String(args?.title ?? "").replace(/\s+/g, " ").replace(/^["'«»]+|["'«»]+$/g, "").trim();
+    if (!title) return "Ошибка: пустое название.";
+    if (!sessionTitleSink) return "Ошибка: активная сессия не найдена.";
+    sessionTitleSink(title.slice(0, 60));
+    return `Сессия переименована: ${title.slice(0, 60)}`;
+  },
+});
 
 registerTool({
   name: "memory",

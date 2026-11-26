@@ -7,7 +7,7 @@
 import React from "react";
 import { Pressable } from "react-native";
 import { AppIcon, AppIconName } from "./AppIcon";
-import * as Haptics from "expo-haptics";
+import { tap as hapticTap } from "../../core/haptics";
 import { useApp } from "../../store/AppStore";
 import { hitSlop, touchTarget } from "../tokens";
 
@@ -17,6 +17,7 @@ export type IconName = AppIconName;
 export function IconButton({
   name,
   onPress,
+  onPressIn,
   size = 20,
   color,
   style,
@@ -26,6 +27,8 @@ export function IconButton({
 }: {
   name: IconName;
   onPress?: () => void;
+  /** Срабатывает в момент касания — для действий, где важна мгновенность. */
+  onPressIn?: () => void;
   size?: number;
   color?: string;
   style?: React.CSSProperties | any;
@@ -36,9 +39,14 @@ export function IconButton({
   const { theme } = useApp();
   return (
     <Pressable
+      onPressIn={() => {
+        if (disabled) return;
+        if (haptic) hapticTap();
+        onPressIn?.();
+      }}
       onPress={() => {
         if (disabled) return;
-        if (haptic) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+        if (onPressIn) return; // уже сработало на касании
         onPress?.();
       }}
       disabled={disabled}

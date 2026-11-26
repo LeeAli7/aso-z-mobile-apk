@@ -23,8 +23,23 @@ const CHAT_PATH = "chat/completions";
 export function normalizeChatUrl(base: string): string {
   const clean = (base || "").trim().replace(/\/+$/, "");
   if (!clean) return clean;
+  const lower = clean.toLowerCase();
+
+  // Google Generative Language: у него есть OpenAI-совместимый слой
+  // (/v1beta/openai), но люди вставляют нативный endpoint вида
+  // .../v1beta/models/gemini-2.5-pro:generateContent — на него уходит
+  // OpenAI-тело, и Google отвечает 404, а инструменты «не поддерживаются».
+  // Приводим любой такой адрес к /v1beta/openai/chat/completions.
+  if (lower.includes("generativelanguage.googleapis.com")) {
+    const m = clean.match(/^(https?:\/\/generativelanguage\.googleapis\.com\/(?:v1beta|v1))(?:[\/?#].*)?$/i);
+    if (m) return m[1] + "/openai/chat/completions";
+    if (lower.endsWith("/openai/" + CHAT_PATH)) return clean;
+    if (lower.endsWith("/openai")) return clean + "/" + CHAT_PATH;
+    return clean + "/" + CHAT_PATH;
+  }
+
   // уже заканчивается на /chat/completions — как есть
-  if (clean.toLowerCase().endsWith("/" + CHAT_PATH)) return clean;
+  if (lower.endsWith("/" + CHAT_PATH)) return clean;
   return clean + "/" + CHAT_PATH;
 }
 
@@ -38,4 +53,16 @@ export function baseProviderUrl(endpoint: string): string {
     return clean.slice(0, -(CHAT_PATH.length + 1));
   }
   return clean;
+}
+
+/**
+ * Имя модели в теле запроса. Люди копируют его из Google-документации
+ * вместе с префиксом и методом: `models/gemini-2.5-pro:generateContent`.
+ * В теле должно быть чистое `gemini-2.5-pro`.
+ */
+export function apiModelName(name: string): string {
+  let s = String(name || "").trim();
+  s = s.replace(/^models\//i, "");
+  s = s.replace(/:\w+$/, "");
+  return s;
 }
