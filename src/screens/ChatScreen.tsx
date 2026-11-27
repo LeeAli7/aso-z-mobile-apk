@@ -110,8 +110,8 @@ function fadeStops(bg: string, shelf = 0): FadeStops {
     return 1 - u * u * (3 - 2 * u);
   };
   const out: string[] = [];
-  for (let i = 0; i < 32; i++) {
-    const v = alphaAt(i / 31);
+  for (let i = 0; i < 64; i++) {
+    const v = alphaAt(i / 63);
     out.push(`rgba(${r},${g},${b},${Number(v.toFixed(4))})`);
   }
   return out as FadeStops;
@@ -1884,26 +1884,34 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       >
         {/* Плавное затемнение сверху: сплошной фон под кнопками, ниже мягкий
             переход. Настоящий градиент — 1px-полоски давали ступеньки. */}
-        {/* Шапка закрывает контент своим фоном. Никакой полупрозрачной
-            плёнки: на облачках и таблицах она давала видимую полосу. */}
-        <View
+        {/* Плавное затемнение шапки: полка под кнопками и длинный спад
+            120 px. Чем длиннее спад, тем мельче шаг альфы — на облачках и
+            таблицах он не читается полосой. */}
+        <LinearGradient
           pointerEvents="none"
-          style={{ position: "absolute", top: 0, left: 0, right: 0, height: insets.top + 52, backgroundColor: theme.bg }}
+          colors={fadeStops(theme.bg, (insets.top + 52) / (insets.top + 172))}
+          style={{ position: "absolute", top: 0, left: 0, right: 0, height: insets.top + 172 }}
         />
         <View
           pointerEvents="box-none"
           style={{
             flexDirection: "row", alignItems: "center",
             backgroundColor: "transparent",
-            paddingHorizontal: 12, paddingTop: insets.top + 6, paddingBottom: 6,
+            paddingHorizontal: 12, paddingTop: insets.top + 4, paddingBottom: 2,
           }}
         >
-          <IconButton
-            name="menu"
-            size={20}
+          <Pressable
             onPressIn={() => setDrawerOpen(true)}
+            hitSlop={6}
             accessibilityLabel={t("sessions")}
-          />
+            style={({ pressed }) => ({
+              width: 40, height: 40, borderRadius: 20,
+              backgroundColor: pressed ? theme.surface2 : theme.surface,
+              alignItems: "center", justifyContent: "center",
+            })}
+          >
+            <AppIcon name="menu" size={19} strokeWidth={2.2} color={theme.text} />
+          </Pressable>
           <View pointerEvents="box-none" style={{ flex: 1 }} />
           <Reanimated.View ref={chipRef as any} collapsable={false} onLayout={measureChip} style={chipStyle}>
             <BgIndicator theme={theme} count={bgCount} onPress={openBg} />
