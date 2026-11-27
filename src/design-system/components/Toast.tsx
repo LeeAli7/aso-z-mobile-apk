@@ -28,7 +28,7 @@ const TINT: Record<ErrorInfo["kind"], string> = {
 };
 
 function ErrorCard({ raw }: { raw: string }) {
-  const { theme } = useApp();
+  const { theme, t } = useApp();
   const info = classifyError(raw);
   const tint = TINT[info.kind];
   const bar = useRef(new Animated.Value(1)).current;
@@ -89,10 +89,12 @@ function ErrorCard({ raw }: { raw: string }) {
 
         <View style={{ flex: 1, marginLeft: 10 }}>
           <Text style={{ color: theme.text, fontSize: 14, lineHeight: 18, fontWeight: "600" }} numberOfLines={1}>
-            {info.title}
+            {t(info.titleKey)}
           </Text>
           <Text style={{ color: theme.dim, fontSize: 12.5, lineHeight: 17, marginTop: 2 }} numberOfLines={2}>
-            {info.detail}
+            {info.detailKey === "err_nodetail" && info.detail
+              ? info.detail
+              : t(info.detailKey, info.params)}
           </Text>
         </View>
 

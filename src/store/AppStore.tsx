@@ -252,7 +252,10 @@ interface Store {
   state: State;
   theme: Theme;
   dispatch: React.Dispatch<Action>;
-  t: (key: Parameters<typeof import("../i18n").t>[1]) => string;
+  t: (
+    key: Parameters<typeof import("../i18n").t>[1],
+    params?: Record<string, string | number>,
+  ) => string;
   newSession: () => string;
   setActive: (id: string) => void;
   deleteSession: (id: string) => void;
@@ -420,9 +423,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [state.token, state.deviceId]);
 
   const t = useCallback(
-    (key: Parameters<typeof import("../i18n").t>[1]) => {
+    (key: Parameters<typeof import("../i18n").t>[1], params?: Record<string, string | number>) => {
       const { t: tr } = require("../i18n");
-      return tr(stateRef.current.lang, key);
+      return tr(stateRef.current.lang, key, params);
     },
     [],
   );

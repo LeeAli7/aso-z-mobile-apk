@@ -5,7 +5,10 @@
  * Главное правило (как в OpenCode v2): «лимит» и «квота» — разные вещи.
  * Лимит временный, его ждём и повторяем. Квота/баланс/ключ — не повторяем
  * никогда, иначе мы просто жжём попытки и показываем ложную надежду.
+ *
+ * Тексты живут в i18n: здесь только ключи, поэтому ошибки сразу двуязычные.
  */
+import { t, type Translation } from "../i18n";
 
 export type ErrorKind =
   | "limit"
@@ -19,13 +22,16 @@ export type ErrorKind =
   | "unknown";
 
 export type ErrorInfo = {
-  /** Короткий заголовок: «Лимит запроса». */
+  /** Готовый русский заголовок — для логов и мест без языка. */
   title: string;
-  /** Пояснение в одну строку. */
+  /** Готовое русское пояснение — для логов. */
   detail: string;
+  /** Ключи для интерфейса: переводятся на язык пользователя. */
+  titleKey: keyof Translation;
+  detailKey: keyof Translation;
+  params?: Record<string, string | number>;
   /** Код для чипа: 429 / NET / KEY / … */
   code: string;
-  /** kind для цвета иконки. */
   kind: ErrorKind;
   /** Есть ли смысл повторять запрос. */
   retryable: boolean;
@@ -34,6 +40,35 @@ export type ErrorInfo = {
   /** Сколько ждать перед повтором, если провайдер сам сказал. */
   retryAfterMs?: number;
 };
+
+type Opts = {
+  kind: ErrorKind;
+  code: string;
+  titleKey: keyof Translation;
+  detailKey: keyof Translation;
+  params?: Record<string, string | number>;
+  retryable?: boolean;
+  maxAttempts?: number;
+  retryAfterMs?: number;
+  /** Сырой текст провайдера — показываем вместо шаблона, если он полезнее. */
+  detail?: string;
+};
+
+function mk(o: Opts): ErrorInfo {
+  const detail = o.detail?.trim() || t("ru", o.detailKey, o.params);
+  return {
+    title: t("ru", o.titleKey),
+    detail,
+    titleKey: o.titleKey,
+    detailKey: o.detailKey,
+    params: o.params,
+    code: o.code,
+    kind: o.kind,
+    retryable: o.retryable ?? false,
+    maxAttempts: o.maxAttempts ?? 0,
+    retryAfterMs: o.retryAfterMs,
+  };
+}
 
 /** Тело ответа провайдера — самое полезное, что можно показать. */
 function bodyOf(raw: string): string {
@@ -84,189 +119,129 @@ const CONTEXT_RE =
   /context.?(?:length|window)|maximum context|too many tokens|prompt is too long|context_length_exceeded|reduce the length|контекст/i;
 const POLICY_RE = /content[_ ]policy|safety|moderation|flagged|blocked by|цензур|политик/i;
 
-export function classifyError(raw: string, fallbackTitle = "Ошибка"): ErrorInfo {
+export function classifyError(raw: string, fallbackTitle = ""): ErrorInfo {
   const s = String(raw ?? "").trim();
   const low = s.toLowerCase();
   const code = statusOf(s);
-  const detail = bodyOf(s) || "Без подробностей от провайдера.";
+  const detail = bodyOf(s);
   const after = retryAfterFrom(s);
 
   if (/abort|cancel/i.test(low) && !/\d{3}/.test(s)) {
-    return {
-      title: "Запрос отменён",
-      detail: "Ответ прерван до завершения.",
-      code: "STOP",
-      kind: "unknown",
-      retryable: false,
-      maxAttempts: 0,
-    };
+    return mk({ kind: "unknown", code: "STOP", titleKey: "err_abort_title", detailKey: "err_abort_detail" });
   }
 
   // Квота/баланс/оплата — повтор не поможет, только пополнение или другой ключ.
   // Но «quota exceeded ... per minute» у Google — это лимит частоты, а не баланс.
   const perWindow = /per (?:minute|second|day)|requests per|rpm|tpm|resource[_ ]exhausted/i.test(low);
   if (code === "402" || (QUOTA_RE.test(low) && !perWindow)) {
-    return {
-      title: "Закончилась квота",
-      detail: "Лимит аккаунта исчерпан — пополни баланс или подключи другой ключ.",
-      code: code || "QUOTA",
-      kind: "quota",
-      retryable: false,
-      maxAttempts: 0,
-    };
+    return mk({ kind: "quota", code: code || "QUOTA", titleKey: "err_quota_title", detailKey: "err_quota_detail" });
   }
 
   // Временный лимит частоты: ждём столько, сколько просит провайдер.
   if (code === "429" || LIMIT_RE.test(low)) {
-    return {
-      title: "Лимит запросов",
-      detail: after
-        ? `Провайдер просит подождать ${Math.ceil(after / 1000)} с — повторим автоматически.`
-        : "Провайдер просит подождать: слишком много запросов подряд.",
-      code: "429",
+    return mk({
       kind: "limit",
+      code: "429",
+      titleKey: "err_limit_title",
+      detailKey: after ? "err_limit_wait" : "err_limit_detail",
+      params: after ? { n: Math.ceil(after / 1000) } : undefined,
       retryable: true,
       maxAttempts: 2,
       retryAfterMs: after,
-    };
+    });
   }
 
   if (code === "401" || code === "403" || /unauthorized|invalid.*key|api.?key|forbidden|ключ/i.test(low)) {
-    return {
-      title: code === "403" ? "Доступ закрыт" : "Ключ не принят",
-      detail: "Проверь ключ и права провайдера в настройках модели.",
-      code: code || "KEY",
+    return mk({
       kind: "auth",
-      retryable: false,
-      maxAttempts: 0,
-    };
+      code: code || "KEY",
+      titleKey: code === "403" ? "err_auth_forbidden" : "err_auth_title",
+      detailKey: "err_auth_detail",
+    });
   }
 
   if (CONTEXT_RE.test(low)) {
-    return {
-      title: "Контекст переполнен",
-      detail: "История длиннее окна модели — сократим и повторим.",
-      code: code || "CTX",
-      kind: "context",
-      retryable: false,
-      maxAttempts: 0,
-    };
+    return mk({ kind: "context", code: code || "CTX", titleKey: "err_ctx_title", detailKey: "err_ctx_detail" });
   }
 
   if (code === "404" || /model.*not found|no such model|не найдена модель/i.test(low)) {
-    return {
-      title: "Модель не найдена",
-      detail: "Провайдер не знает такую модель — выбери другую.",
-      code: code || "404",
-      kind: "input",
-      retryable: false,
-      maxAttempts: 0,
-    };
+    return mk({ kind: "input", code: code || "404", titleKey: "err_model_title", detailKey: "err_model_detail" });
   }
 
   if (code === "413" || /too large|payload too large|request entity/i.test(low)) {
-    return {
-      title: "Слишком большой запрос",
-      detail: "Сократи вложения или историю.",
-      code: "413",
-      kind: "input",
-      retryable: false,
-      maxAttempts: 0,
-    };
+    return mk({ kind: "input", code: "413", titleKey: "err_large_title", detailKey: "err_large_detail" });
   }
 
   if (POLICY_RE.test(low)) {
-    return {
-      title: "Запрос отклонён фильтром",
-      detail: "Провайдер отказал по правилам безопасности — переформулируй.",
-      code: code || "POLICY",
-      kind: "policy",
-      retryable: false,
-      maxAttempts: 0,
-    };
+    return mk({ kind: "policy", code: code || "POLICY", titleKey: "err_policy_title", detailKey: "err_policy_detail" });
   }
 
   if (/timeout|timed out|время ожидания/i.test(low)) {
-    return {
-      title: "Превышено время ожидания",
-      detail: "Провайдер не ответил вовремя.",
-      code: "TIMEOUT",
+    return mk({
       kind: "net",
+      code: "TIMEOUT",
+      titleKey: "err_timeout_title",
+      detailKey: "err_timeout_detail",
       retryable: true,
       maxAttempts: 3,
-    };
+    });
   }
 
   if (/network|fetch failed|enotfound|econn|socket|нет соединения|offline|dns|unreachable/i.test(low)) {
-    return {
-      title: "Нет связи",
-      detail: "Не дозвонились до провайдера — проверь сеть.",
-      code: "NET",
+    return mk({
       kind: "net",
+      code: "NET",
+      titleKey: "err_net_title",
+      detailKey: "err_net_detail",
       retryable: true,
       maxAttempts: 3,
-    };
+    });
   }
 
   if (code && code.startsWith("5")) {
-    return {
-      title: "Сбой на стороне провайдера",
-      detail,
-      code,
+    return mk({
       kind: "server",
+      code,
+      titleKey: "err_server_title",
+      detailKey: "err_nodetail",
+      detail,
       retryable: true,
       maxAttempts: 3,
       retryAfterMs: after,
-    };
+    });
   }
 
   if (code === "400" || code === "422") {
-    return {
-      title: "Запрос отклонён",
-      detail,
-      code,
-      kind: "input",
-      retryable: false,
-      maxAttempts: 0,
-    };
+    return mk({ kind: "input", code, titleKey: "err_input_title", detailKey: "err_nodetail", detail });
   }
 
   if (/no model|нет модели|модель не выбрана|не выбрана модель|выбери модель/i.test(low)) {
-    return {
-      title: "Модель не выбрана",
-      detail: "Открой окно модели и выбери провайдера и модель.",
-      code: "MODEL",
-      kind: "input",
-      retryable: false,
-      maxAttempts: 0,
-    };
+    return mk({ kind: "input", code: "MODEL", titleKey: "err_nomodel_title", detailKey: "err_nomodel_detail" });
   }
 
   if (/empty response|пустой ответ/i.test(low)) {
-    return {
-      title: "Пустой ответ",
-      detail: "Провайдер вернул пустое тело — попробуй ещё раз.",
-      code: "EMPTY",
+    return mk({
       kind: "unknown",
+      code: "EMPTY",
+      titleKey: "err_empty_title",
+      detailKey: "err_empty_detail",
       retryable: true,
       maxAttempts: 1,
-    };
+    });
   }
 
-  return {
-    title: fallbackTitle,
-    detail,
-    code: code || "ERR",
+  return mk({
     kind: "unknown",
-    retryable: false,
-    maxAttempts: 0,
-  };
+    code: code || "ERR",
+    titleKey: "err_unknown_title",
+    detailKey: "err_nodetail",
+    detail: detail || fallbackTitle,
+  });
 }
 
 /** Пауза перед повтором: сказанное провайдером важнее нашей экспоненты. */
 export function retryWaitMs(info: ErrorInfo, attempt: number): number {
   if (info.retryAfterMs && info.retryAfterMs > 0) {
-    // ±15 % джиттера, чтобы несколько запросов не били в одну секунду
     const jitter = 0.85 + Math.random() * 0.3;
     return Math.round(info.retryAfterMs * jitter);
   }

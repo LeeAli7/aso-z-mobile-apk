@@ -2,19 +2,22 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Animated, Easing, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppIcon } from "../design-system/components/AppIcon";
-import { classifyError } from "../core/errors";
+import { classifyError, type ErrorInfo } from "../core/errors";
+import { useApp } from "../store/AppStore";
 import { fonts } from "../theme/tokens";
 
 /**
  * Баннер ошибки — тревога.
- * Выезжает сверху на всю ширину, сразу под строкой выбора модели: красное
- * поле, белый текст. Заголовок крупно, подробность ниже, крестик справа.
- * Внизу белая полоса таймаута — досвистела, баннер сам уезжает вверх.
+ * Выезжает сверху на всю ширину: красное поле, белый текст, крестик справа,
+ * внизу белая полоса таймаута. Появляется и уходит с анимацией; если ошибка
+ * пришла, пока баннер на экране, он не прыгает заново — меняет текст на месте.
  */
 
-type Payload = { title: string; detail: string; code: string; id: number };
+type Payload = { info: ErrorInfo; id: number };
 
 const DUR = 5200;
+const IN_MS = 340;
+const OUT_MS = 240;
 const RED = "#D62A1F";
 const RED_DEEP = "#B72219";
 
@@ -23,22 +26,18 @@ let seq = 0;
 
 /** Показать тревогу. Можно звать откуда угодно. */
 export function showErrorBanner(raw: unknown) {
-  const info = classifyError(String(raw ?? ""));
-  feed?.({
-    title: info.title,
-    detail: (info.detail || "").trim(),
-    code: (info.code || "").trim(),
-    id: ++seq,
-  });
+  feed?.({ info: classifyError(String(raw ?? "")), id: ++seq });
 }
 
 export function ErrorBannerHost() {
   const insets = useSafeAreaInsets();
+  const { t } = useApp();
   const [p, setP] = useState<Payload | null>(null);
   const slide = useRef(new Animated.Value(0)).current; // 0 — скрыт, 1 — на экране
   const bar = useRef(new Animated.Value(1)).current;
   const timer = useRef<any>(null);
-  const [h, setH] = useState(140);
+  const visible = useRef(false);
+  const [h, setH] = useState(150);
 
   const hide = useCallback(() => {
     if (timer.current) {
@@ -47,33 +46,59 @@ export function ErrorBannerHost() {
     }
     Animated.timing(slide, {
       toValue: 0,
-      duration: 200,
-      easing: Easing.in(Easing.cubic),
+      duration: OUT_MS,
+      easing: Easing.inOut(Easing.cubic),
       useNativeDriver: true,
     }).start(({ finished }) => {
-      if (finished) setP(null);
+      if (finished) {
+        visible.current = false;
+        setP(null);
+      }
     });
   }, [slide]);
 
   useEffect(() => {
     feed = (n) => {
-      if (timer.current) clearTimeout(timer.current);
+      if (timer.current) {
+        clearTimeout(timer.current);
+        timer.current = null;
+      }
+      const already = visible.current;
       setP(n);
       bar.setValue(1);
+
+      if (already) {
+        // уже на экране — просто обновляем содержимое и перезапускаем таймер
+        Animated.timing(bar, {
+          toValue: 0,
+          duration: DUR,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }).start();
+        timer.current = setTimeout(hide, DUR);
+        return;
+      }
+
+      visible.current = true;
       slide.setValue(0);
-      Animated.timing(slide, {
-        toValue: 1,
-        duration: 260,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }).start();
-      Animated.timing(bar, {
-        toValue: 0,
-        duration: DUR,
-        easing: Easing.linear,
-        useNativeDriver: true,
-      }).start();
-      timer.current = setTimeout(hide, DUR);
+      // один кадр, чтобы вьюха встала в разметку: иначе первый кадр — рывок
+      requestAnimationFrame(() => {
+        Animated.timing(slide, {
+          toValue: 1,
+          duration: IN_MS,
+          easing: Easing.bezier(0.16, 0.84, 0.24, 1),
+          useNativeDriver: true,
+        }).start(({ finished }) => {
+          if (!finished) return;
+          Animated.timing(bar, {
+            toValue: 0,
+            duration: DUR,
+            easing: Easing.linear,
+            useNativeDriver: true,
+          }).start();
+          timer.current = setTimeout(hide, DUR);
+        });
+      });
     };
     return () => {
       feed = null;
@@ -82,6 +107,12 @@ export function ErrorBannerHost() {
   }, [slide, bar, hide]);
 
   if (!p) return null;
+
+  const title = t(p.info.titleKey);
+  const detail =
+    p.info.detailKey === "err_nodetail" && p.info.detail
+      ? p.info.detail
+      : t(p.info.detailKey, p.info.params);
 
   return (
     <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { zIndex: 9999, elevation: 50 }]}>
@@ -95,9 +126,14 @@ export function ErrorBannerHost() {
           left: 0,
           right: 0,
           top: 0,
-          opacity: slide,
+          opacity: slide.interpolate({ inputRange: [0, 0.4, 1], outputRange: [0, 1, 1] }),
           transform: [
-            { translateY: slide.interpolate({ inputRange: [0, 1], outputRange: [-(h + 40), 0] }) },
+            {
+              translateY: slide.interpolate({
+                inputRange: [0, 1],
+                outputRange: [-(h + 40), 0],
+              }),
+            },
           ],
         }}
       >
@@ -126,14 +162,14 @@ export function ErrorBannerHost() {
                   letterSpacing: -0.3,
                 }}
               >
-                {p.title}
+                {title}
               </Text>
-              {!!p.detail && (
+              {!!detail && (
                 <Text numberOfLines={5} style={{ color: "rgba(255,255,255,0.84)", fontSize: 12.5, lineHeight: 17, marginTop: 2 }}>
-                  {p.detail}
+                  {detail}
                 </Text>
               )}
-              {!!p.code && (
+              {!!p.info.code && (
                 <Text
                   style={{
                     color: "rgba(255,255,255,0.62)",
@@ -143,7 +179,7 @@ export function ErrorBannerHost() {
                     marginTop: 4,
                   }}
                 >
-                  {p.code}
+                  {p.info.code}
                 </Text>
               )}
             </View>
@@ -151,7 +187,7 @@ export function ErrorBannerHost() {
               onPress={hide}
               hitSlop={12}
               accessibilityRole="button"
-              accessibilityLabel="Закрыть"
+              accessibilityLabel={t("close")}
               style={({ pressed }) => ({
                 width: 34,
                 height: 34,

@@ -11,7 +11,7 @@ S — до полудня, M — 1–2 дня, L — 3+ дня.
 ## A. Провайдеры и протоколы
 
 **I-1. Слой провайдеров и протоколов.** 51 файл провайдера, 56 протоколов (`packages/ai/src/providers/`, `protocols/`). Провайдер описывает только аутентификацию и базовый адрес, протокол — форму тела и разбор потока. Один протокол обслуживает десяток компаний.
-У нас: один OpenAI-совместимый путь плюс нормализация URL для Google (`src/core/url.ts`). Anthropic-нативных сообщений и Gemini-нативного формата нет.
+У нас: **сделано 27.11** — `src/core/anthropic.ts`: нативный `/v1/messages` (system отдельно, `input_schema`, `tool_result`, разбор `content_block_*`), плюс OpenAI-совместимый путь и нормализация Google. Gemini нативно не нужен — их OpenAI-слой полноценный.
 P2 / L
 
 **I-2. Матрица возможностей модели.** `capabilities` в `packages/ai/src/schema/options.ts:243`: `tools.supported`, `tools.strict`, `tools.choice` (какие значения `tool_choice` понимает), `tools.freeform`, `tools.updates` (можно ли менять набор инструментов по ходу, не ломая кэш), `reasoning.*`, `promptCacheKey`. Незаполненное поле берётся из протокола, который может угадать по провайдеру, базовому URL или id модели.
@@ -19,7 +19,7 @@ P2 / L
 P1 / M
 
 **I-3. Нормализация вызовов инструментов.** Каждый протокол приводит `ToolCall` к своему виду: `anthropic-messages.ts:574` (`lowerToolChoice`), `gemini.ts:269` (`lowerToolConfig`), `bedrock-converse.ts:283`, `cohere-chat.ts:213`. Общий матчер `ProviderShared.matchToolChoice` знает, что не все поддерживают `required` и `tool`.
-У нас: только OpenAI-формат, `tool_choice` не отправляем вообще.
+У нас: **частично** — Anthropic-нативный слой готов; `tool_choice` по-прежнему не отправляем (безопаснее для совместимости).
 P1 / M
 
 **I-4. Инструменты, исполняемые провайдером.** `providerExecuted: true` — серверные тулы (веб-поиск, code interpreter) не исполняются локально, их результат уже в потоке (`tool-runtime.ts`). Локальный диспатч их пропускает.

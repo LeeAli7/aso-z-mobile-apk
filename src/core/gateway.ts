@@ -13,6 +13,7 @@ import { config } from "./env";
 import { executeTool, toolNames } from "./tools";
 import { sanitizeToolHistory } from "./history";
 import { classifyError, retryWaitMs } from "./errors";
+import { anthropicHeaders, isAnthropic, messagesUrl, readAnthropicStream, toAnthropicBody } from "./anthropic";
 
 export interface ModelInfo {
   /** Уникальный ключ модели (напр. "sys:deepseek-v4-flash-free" или кастомный). */
@@ -132,7 +133,8 @@ export async function streamChat(
   // Web (dev-проверка): fetch к провайдеру блокируется CORS, поэтому идём через
   // dev-прокси нашего backend — ТОЛЬКО для браузерной отладки UI, не для продакшена.
   // normalizeChatUrl гарантирует, что POST уходит именно в /chat/completions (иначе 404).
-  let endpoint = normalizeChatUrl(model.baseUrl);
+  const anth = isAnthropic(model.baseUrl);
+  let endpoint = anth ? messagesUrl(model.baseUrl) : normalizeChatUrl(model.baseUrl);
   if (Platform.OS === "web") {
     endpoint = `${config.apiBase}/api/mobile/gw?url=${encodeURIComponent(endpoint)}`;
   }
@@ -148,15 +150,18 @@ export async function streamChat(
   if (eff > 0) {
     payload.reasoning_effort = ["", "low", "medium", "high"][eff];
   }
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    // Нужен browser-like UA: иначе Cloudflare на upstream режет запросы
-    // с не-браузерной сигнатурой (okhttp/python/curl) ответом 403/400.
-    "User-Agent":
-      "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36",
-    Accept: "text/event-stream",
-  };
-  if (model.apiKey) headers.Authorization = `Bearer ${model.apiKey}`;
+  const headers: Record<string, string> = anth
+    ? anthropicHeaders(model.apiKey)
+    : {
+        "Content-Type": "application/json",
+        // Нужен browser-like UA: иначе Cloudflare на upstream режет запросы
+        // с не-браузерной сигнатурой (okhttp/python/curl) ответом 403/400.
+        "User-Agent":
+          "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36",
+        Accept: "text/event-stream",
+      };
+  if (!anth && model.apiKey) headers.Authorization = `Bearer ${model.apiKey}`;
+  const wireBody = anth ? toAnthropicBody(payload) : payload;
   if (model.systemPrompt && !messages.some((m) => m.role === "system")) {
     messages = [{ role: "system", content: model.systemPrompt }, ...messages];
   }
@@ -168,7 +173,7 @@ export async function streamChat(
       resp = await fetch(endpoint, {
         method: "POST",
         headers,
-        body: JSON.stringify(payload),
+        body: JSON.stringify(wireBody),
         signal: ctrl.signal,
       });
     } catch (e: unknown) {
@@ -202,6 +207,20 @@ export async function streamChat(
 
     if (resp.body == null) {
       callbacks.onError("empty response body");
+      return;
+    }
+
+    if (anth) {
+      try {
+        const r = await readAnthropicStream(resp, {
+          onToken: callbacks.onToken,
+          onThinking: callbacks.onThinking,
+        });
+        callbacks.onDone(r.text);
+      } catch (e: unknown) {
+        if (ctrl.signal.aborted) callbacks.onDone("");
+        else callbacks.onError(e instanceof Error ? e.message : String(e));
+      }
       return;
     }
 
@@ -378,6 +397,9 @@ export interface AgentToolCall {
   id: string;
   name: string;
   arguments: string;
+  /** Служебные поля провайдера (Gemini: extra_content.google.thought_signature).
+   *  Их нужно вернуть в истории, иначе Gemini 3 отвергает вызов инструмента. */
+  extra?: unknown;
 }
 
 export interface AgentCallbacks {
@@ -635,6 +657,7 @@ export async function streamAgentChat(
         id: c.id,
         type: "function",
         function: { name: c.name, arguments: c.arguments },
+        ...(c.extra ? { extra_content: c.extra } : {}),
       })),
     });
     for (const c of r.calls) {
@@ -686,7 +709,8 @@ async function agentRequest(
   tools: { type: "function"; function: unknown }[],
   signal: AbortSignal,
 ): Promise<AgentRequestResult> {
-  let endpoint = normalizeChatUrl(model.baseUrl);
+  const anth = isAnthropic(model.baseUrl);
+  let endpoint = anth ? messagesUrl(model.baseUrl) : normalizeChatUrl(model.baseUrl);
   if (Platform.OS === "web") {
     endpoint = `${config.apiBase}/api/mobile/gw?url=${encodeURIComponent(endpoint)}`;
   }
@@ -700,24 +724,27 @@ async function agentRequest(
   };
   if (tools.length) payload.tools = tools;
 
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "User-Agent":
-      "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36",
-    Accept: "text/event-stream",
-  };
-  if (model.apiKey) headers.Authorization = `Bearer ${model.apiKey}`;
+  const headers: Record<string, string> = anth
+    ? anthropicHeaders(model.apiKey)
+    : {
+        "Content-Type": "application/json",
+        "User-Agent":
+          "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36",
+        Accept: "text/event-stream",
+      };
+  if (!anth && model.apiKey) headers.Authorization = `Bearer ${model.apiKey}`;
+  const wireBody = anth ? toAnthropicBody(payload) : payload;
 
   for (let attempt = 0; ; attempt++) {
   let resp: Response;
   try {
-    resp = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(payload), signal });
+    resp = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(wireBody), signal });
   } catch (e: unknown) {
     if (signal.aborted) throw new Error("aborted");
     throw e;
   }
 
-  if (resp.status === 400 && tools.length > 0) {
+  if (resp.status === 400 && tools.length > 0 && !anth) {
     // провайдер не поддерживает tools — вернём флаг для fallback
     try { await resp.text(); } catch {}
     return { text: "", reasoning: "", calls: [], toolsRejected: true };
@@ -743,6 +770,18 @@ async function agentRequest(
       continue;
     }
     throw new Error("empty response body");
+  }
+
+  if (anth) {
+    const r = await readAnthropicStream(resp, {});
+    return {
+      text: r.text,
+      reasoning: r.reasoning,
+      calls: r.calls.map((c) => ({ id: c.id, name: c.name, arguments: c.args })),
+      toolsRejected: false,
+      finished: true,
+      usage: r.usage,
+    };
   }
 
   const reader = resp.body.getReader();
@@ -798,6 +837,7 @@ async function agentRequest(
           for (const tcd of delta.tool_calls) {
             const idx2 = tcd.index ?? 0;
             let e = tcAcc.get(idx2) ?? { id: "", name: "", arguments: "" };
+            if ((tcd as any).extra_content) e.extra = (tcd as any).extra_content;
             if (tcd.id) e.id = tcd.id;
             if (tcd.function?.name) e.name = tcd.function.name; // name — атомарен, присваивание!
             if (tcd.function?.arguments) e.arguments += tcd.function.arguments; // аргументы — конкатенация
@@ -833,6 +873,7 @@ async function agentRequest(
         for (const tcd of d.tool_calls) {
           const idx2 = tcd.index ?? 0;
           let e = tcAcc.get(idx2) ?? { id: "", name: "", arguments: "" };
+          if ((tcd as any).extra_content) e.extra = (tcd as any).extra_content;
           if (tcd.id) e.id = tcd.id;
           if (tcd.function?.name) e.name = tcd.function.name;
           if (tcd.function?.arguments) e.arguments += tcd.function.arguments;

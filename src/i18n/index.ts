@@ -118,6 +118,38 @@ const ru = {
   bg_title: "Фоновые процессы",
   bg_empty: "Фоновых задач нет.",
   export_title: "Экспорт",
+  close: "Закрыть",
+  // ошибки — заголовки и пояснения
+  err_abort_title: "Запрос отменён",
+  err_abort_detail: "Ответ прерван до завершения.",
+  err_quota_title: "Закончилась квота",
+  err_quota_detail: "Лимит аккаунта исчерпан — пополни баланс или подключи другой ключ.",
+  err_limit_title: "Лимит запросов",
+  err_limit_wait: "Провайдер просит подождать {n} с — повторим автоматически.",
+  err_limit_detail: "Слишком много запросов подряд — ждём и повторяем.",
+  err_auth_title: "Ключ не принят",
+  err_auth_forbidden: "Доступ закрыт",
+  err_auth_detail: "Проверь ключ и права провайдера в настройках модели.",
+  err_ctx_title: "Контекст переполнен",
+  err_ctx_detail: "История длиннее окна модели — сократим и повторим.",
+  err_model_title: "Модель не найдена",
+  err_model_detail: "Провайдер не знает такую модель — выбери другую.",
+  err_large_title: "Слишком большой запрос",
+  err_large_detail: "Сократи вложения или историю.",
+  err_policy_title: "Запрос отклонён фильтром",
+  err_policy_detail: "Провайдер отказал по правилам безопасности — переформулируй.",
+  err_timeout_title: "Превышено время ожидания",
+  err_timeout_detail: "Провайдер не ответил вовремя.",
+  err_net_title: "Нет связи",
+  err_net_detail: "Не дозвонились до провайдера — проверь сеть.",
+  err_server_title: "Сбой на стороне провайдера",
+  err_input_title: "Запрос отклонён",
+  err_nomodel_title: "Модель не выбрана",
+  err_nomodel_detail: "Открой окно модели и выбери провайдера и модель.",
+  err_empty_title: "Пустой ответ",
+  err_empty_detail: "Провайдер вернул пустое тело — попробуй ещё раз.",
+  err_unknown_title: "Ошибка",
+  err_nodetail: "Без подробностей от провайдера.",
   // показ reasoning спрятан — не нужно
 };
 
@@ -238,12 +270,51 @@ const en = {
   bg_title: "Background tasks",
   bg_empty: "No background tasks.",
   export_title: "Export",
+  close: "Close",
+  err_abort_title: "Request cancelled",
+  err_abort_detail: "The response was interrupted before it finished.",
+  err_quota_title: "Out of quota",
+  err_quota_detail: "The account limit is used up — top up or connect another key.",
+  err_limit_title: "Rate limit",
+  err_limit_wait: "The provider asks to wait {n}s — retrying automatically.",
+  err_limit_detail: "Too many requests in a row — waiting, then retrying.",
+  err_auth_title: "Key rejected",
+  err_auth_forbidden: "Access denied",
+  err_auth_detail: "Check the key and provider permissions in model settings.",
+  err_ctx_title: "Context overflow",
+  err_ctx_detail: "The history is longer than the model window — shrinking and retrying.",
+  err_model_title: "Model not found",
+  err_model_detail: "The provider doesn't know this model — pick another one.",
+  err_large_title: "Request too large",
+  err_large_detail: "Trim attachments or history.",
+  err_policy_title: "Blocked by safety filter",
+  err_policy_detail: "The provider refused under its safety rules — rephrase.",
+  err_timeout_title: "Timed out",
+  err_timeout_detail: "The provider didn't answer in time.",
+  err_net_title: "No connection",
+  err_net_detail: "Couldn't reach the provider — check the network.",
+  err_server_title: "Provider failure",
+  err_input_title: "Request rejected",
+  err_nomodel_title: "No model selected",
+  err_nomodel_detail: "Open the model sheet and pick a provider and model.",
+  err_empty_title: "Empty response",
+  err_empty_detail: "The provider returned an empty body — try again.",
+  err_unknown_title: "Error",
+  err_nodetail: "No details from the provider.",
 };
 
 export type Translation = typeof ru;
 
 const dicts: Record<Lang, Translation> = { ru, en };
 
-export function t(lang: Lang, key: keyof Translation): string {
-  return dicts[lang]?.[key] ?? dicts.en[key] ?? String(key);
+export function t(
+  lang: Lang,
+  key: keyof Translation,
+  params?: Record<string, string | number>,
+): string {
+  let s = dicts[lang]?.[key] ?? dicts.en[key] ?? String(key);
+  if (params) {
+    for (const [k, v] of Object.entries(params)) s = s.replace(new RegExp(`\\{${k}\\}`, "g"), String(v));
+  }
+  return s;
 }
