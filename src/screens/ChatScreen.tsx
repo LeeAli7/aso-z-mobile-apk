@@ -85,8 +85,10 @@ type Group =
 type FadeStops = [string, string, string, string, string, string, string, string, string, string, string, string];
 
 /** Опорные точки кривой затемнения: доля пути → плотность. */
-const FADE_Y = [0, 0.44, 0.58, 0.72, 0.86, 1];
-const FADE_A = [1, 0.965, 0.83, 0.55, 0.235, 0];
+// Чистый smoothstep: 1 → 0 без полки. Полка (alpha≈1 на первых 44%) давала
+// излом, который на первом облачке читался как «половина резко потемнела».
+// Сплошной фон под шапкой теперь отдельный блок, поэтому градиент может
+// начинаться ровно с alpha=1 и уходить в ноль длинно и без ступени.
 
 /**
  * 12 равномерных стопов вместо 6.
@@ -101,14 +103,8 @@ function fadeStops(bg: string): FadeStops {
   const g = m ? parseInt(m[1].slice(2, 4), 16) : 0;
   const b = m ? parseInt(m[1].slice(4, 6), 16) : 0;
   const alphaAt = (v: number) => {
-    for (let i = 0; i < FADE_Y.length - 1; i++) {
-      const y0 = FADE_Y[i], y1 = FADE_Y[i + 1];
-      if (v <= y1 || i === FADE_Y.length - 2) {
-        const k = y1 === y0 ? 0 : (v - y0) / (y1 - y0);
-        return FADE_A[i] + (FADE_A[i + 1] - FADE_A[i]) * Math.min(1, Math.max(0, k));
-      }
-    }
-    return 0;
+    const k = Math.min(1, Math.max(0, v));
+    return 1 - k * k * (3 - 2 * k);
   };
   const out: string[] = [];
   for (let i = 0; i < 32; i++) {
@@ -352,6 +348,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // удержание — «держишь, пока говоришь». Различаем по длительности касания.
   const pressAt = useRef(0);
   const pressStarted = useRef(false);
+  const stopAt = useRef(0);
   const tapMode = useRef(false);
   const pendingSend = useRef(false);
   const textRef = useRef("");
@@ -408,17 +405,18 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       || code === "language-not-supported" || code === "audio-capture";
     // Любая другая ошибка (тишина, aborted, client, network) — не повод гасить
     // микрофон: пока пользователь не нажал стоп, распознавание поднимается снова.
-    // Перезапускаем только «мягкие» обрывы. На прочих (network, client)
-    // сессия цела, а частые рестарты рвали аудио — отсюда лаги и стоп дорожки.
-    const soft = code === "no-speech" || code === "speech-timeout" || code === "aborted";
-    if (recOnRef.current && !fatal && soft) {
+    // Любая не-фатальная ошибка: сессию поднимаем заново, пока пользователь
+    // не нажал стоп. Раньше «client»/«network» гасили запись — из-за этого
+    // одиночный тап выглядел как «не включился».
+    if (recOnRef.current && !fatal) {
       sttRetry.current += 1;
       if (sttRetry.current > 40) { recOnRef.current = false; setRecording(false); return; }
+      const soft = code === "no-speech" || code === "speech-timeout" || code === "aborted";
       clearTimeout(sttTimer.current);
       sttTimer.current = setTimeout(() => {
         if (!recOnRef.current) return;
         try { sttStart(); } catch { /* следующий тап начнёт заново */ }
-      }, 700);
+      }, soft ? 600 : 1200);
       return;
     }
     recStarting.current = false;
@@ -471,6 +469,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   /** Остановить запись. sendIt — отправить сказанное сразу. */
   const stopVoice = useCallback((sendIt: boolean) => {
     recOnRef.current = false;
+    stopAt.current = Date.now();
     clearTimeout(sttTimer.current);
     pendingSend.current = sendIt;
     const said = [sttBase.current.trim(), sttLive.current.trim()].filter(Boolean).join(" ");
@@ -549,6 +548,15 @@ export function ChatScreen({ navigation }: { navigation: any }) {
 
   // Отпустили: короткое касание — остаёмся слушать (режим «нажал и говорю»),
   // долгое — это удержание, отправляем сразу. Второй тап тоже отправляет.
+  // Страховка для одиночного тапа: onPress приходит после onPressOut.
+  // Если к этому моменту запись не идёт (сессия успела отвалиться) — стартуем.
+  const onMicPress = useCallback(() => {
+    if (Date.now() - stopAt.current < 500) return; // это было удержание, не тап
+    if (recOnRef.current) return;
+    tapMode.current = true;
+    startVoice();
+  }, [startVoice]);
+
   const onMicPressOut = useCallback(() => {
     if (!recOnRef.current) return;
     if (!pressStarted.current) {
@@ -1875,9 +1883,12 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         <LinearGradient
           pointerEvents="none"
           colors={fadeStops(theme.bg)}
-          // 12 равномерных стопов: без ступени на границе текста и без
-          // banding-полосы на светлых блоках.
-          style={{ position: "absolute", top: 0, left: 0, right: 0, height: insets.top + 120 }}
+          style={{ position: "absolute", top: insets.top + 54, left: 0, right: 0, height: 96 }}
+        />
+        {/* Сплошная полоса под шапкой: градиент начинается с неё без стыка */}
+        <View
+          pointerEvents="none"
+          style={{ position: "absolute", top: 0, left: 0, right: 0, height: insets.top + 54, backgroundColor: theme.bg }}
         />
         <View
           pointerEvents="box-none"
@@ -2015,7 +2026,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           windowSize={7}
           contentContainerStyle={{
             padding: 16,
-            paddingTop: insets.top + 96,
+            paddingTop: insets.top + 128,
             // капсула ввода плавает поверх списка: оставляем ровно её высоту,
             // чтобы последнее сообщение можно было доскроллить над капсулой
             paddingBottom: compPadBottom + 80,
@@ -2303,6 +2314,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               <Pressable
                 onPressIn={onMicPressIn}
                 onPressOut={onMicPressOut}
+                onPress={onMicPress}
                 hitSlop={6}
                 style={{ width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" }}
                 accessibilityLabel="Голосовой ввод"
