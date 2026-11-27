@@ -97,14 +97,17 @@ type FadeStops = [string, string, string, string, string, string, string, string
  * горизонтальную линию на светлых блоках под затемнением. Чем больше
  * стопов, тем меньше шаг плотности между ними и тем реже banding.
  */
-function fadeStops(bg: string): FadeStops {
+function fadeStops(bg: string, shelf = 0): FadeStops {
   const m = /^#([0-9a-f]{6})$/i.exec(String(bg || "").trim());
   const r = m ? parseInt(m[1].slice(0, 2), 16) : 0;
   const g = m ? parseInt(m[1].slice(2, 4), 16) : 0;
   const b = m ? parseInt(m[1].slice(4, 6), 16) : 0;
+  const s = Math.min(0.96, Math.max(0, shelf));
   const alphaAt = (v: number) => {
     const k = Math.min(1, Math.max(0, v));
-    return 1 - k * k * (3 - 2 * k);
+    if (k <= s) return 1;                       // полка под шапкой
+    const u = (k - s) / (1 - s);                // smoothstep: производная 0 на стыке
+    return 1 - u * u * (3 - 2 * u);
   };
   const out: string[] = [];
   for (let i = 0; i < 32; i++) {
@@ -534,47 +537,32 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     }
   }, [state.lang, text]);
 
-  // Палец коснулся микрофона: если уже слушаем — это второй тап, стоп
-  // произойдёт на отпускании. Иначе запоминаем время касания и стартуем.
-  const onMicPressIn = useCallback(() => {
-    if (recOnRef.current) {
-      pressStarted.current = false;
-      return;
-    }
-    pressAt.current = Date.now();
-    pressStarted.current = true;
-    tapMode.current = false;
-    startVoice();
-  }, [startVoice]);
+  // Жест микрофона — на onPress/onLongPress, без ручного замера времени:
+  // тап решает onPress (он приходит один раз), удержание — onLongPress.
+  // Ручной таймер путался с повторными onPressOut и «съедал» одиночный тап.
+  const startedHere = useRef(false);
+  const isHold = useRef(false);
 
-  // Отпустили: короткое касание — остаёмся слушать (режим «нажал и говорю»),
-  // долгое — это удержание, отправляем сразу. Второй тап тоже отправляет.
-  // Страховка для одиночного тапа: onPress приходит после onPressOut.
-  // Если к этому моменту запись не идёт (сессия успела отвалиться) — стартуем.
-  const onMicPress = useCallback(() => {
-    if (Date.now() - stopAt.current < 500) return; // это было удержание, не тап
-    if (recOnRef.current) return;
+  const onMicPressIn = useCallback(() => {
+    if (recOnRef.current) { startedHere.current = false; return; }
+    startedHere.current = true;
     tapMode.current = true;
     startVoice();
   }, [startVoice]);
 
+  const onMicPress = useCallback(() => {
+    if (startedHere.current) { startedHere.current = false; return; } // первый тап: слушаем дальше
+    if (recOnRef.current) stopVoice(true);                            // второй тап: отправка
+  }, [stopVoice]);
+
+  const onMicLongPress = useCallback(() => {
+    isHold.current = true;
+  }, []);
+
   const onMicPressOut = useCallback(() => {
-    // Кнопка может уехать под пальцем (перестроение капсулы) — тогда система
-    // присылает onPressOut дважды. Второй не должен гасить начатую запись.
-    if (Date.now() - lastOut.current < 260) return;
-    lastOut.current = Date.now();
-    if (!recOnRef.current) return;
-    if (!pressStarted.current) {
-      stopVoice(true);
-      return;
-    }
-    pressStarted.current = false;
-    const held = Date.now() - pressAt.current;
-    if (held < 280) {
-      tapMode.current = true;
-      return;
-    }
-    stopVoice(true);
+    if (!isHold.current) return;
+    isHold.current = false;
+    if (recOnRef.current) stopVoice(true);                            // отпустил — отправка
   }, [stopVoice]);
   const listRef = useRef<FlatList<any>>(null);
   const listOffsetY = useRef(0);
@@ -1887,13 +1875,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             переход. Настоящий градиент — 1px-полоски давали ступеньки. */}
         <LinearGradient
           pointerEvents="none"
-          colors={fadeStops(theme.bg)}
-          style={{ position: "absolute", top: insets.top + 54, left: 0, right: 0, height: 32 }}
-        />
-        {/* Сплошная полоса под шапкой: градиент начинается с неё без стыка */}
-        <View
-          pointerEvents="none"
-          style={{ position: "absolute", top: 0, left: 0, right: 0, height: insets.top + 54, backgroundColor: theme.bg }}
+          colors={fadeStops(theme.bg, (insets.top + 52) / (insets.top + 78))}
+          style={{ position: "absolute", top: 0, left: 0, right: 0, height: insets.top + 78 }}
         />
         <View
           pointerEvents="box-none"
@@ -2318,8 +2301,10 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             ) : (
               <Pressable
                 onPressIn={onMicPressIn}
-                onPressOut={onMicPressOut}
                 onPress={onMicPress}
+                onLongPress={onMicLongPress}
+                onPressOut={onMicPressOut}
+                delayLongPress={300}
                 hitSlop={6}
                 style={{ width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" }}
                 accessibilityLabel="Голосовой ввод"
