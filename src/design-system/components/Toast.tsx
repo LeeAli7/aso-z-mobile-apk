@@ -17,10 +17,13 @@ type Kind = "ok" | "err" | "info";
 
 const TINT: Record<ErrorInfo["kind"], string> = {
   limit: "#E8A33D",
+  quota: "#E8A33D",
   auth: "#FF3B30",
   net: "#7A9BFF",
   server: "#FF3B30",
   input: "#8A8A91",
+  context: "#8A8A91",
+  policy: "#8A8A91",
   unknown: "#8A8A91",
 };
 

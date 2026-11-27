@@ -12,6 +12,7 @@ import { Platform } from "react-native";
 import { config } from "./env";
 import { executeTool, toolNames } from "./tools";
 import { sanitizeToolHistory } from "./history";
+import { classifyError, retryWaitMs } from "./errors";
 
 export interface ModelInfo {
   /** Уникальный ключ модели (напр. "sys:deepseek-v4-flash-free" или кастомный). */
@@ -104,38 +105,12 @@ export type ChatOpts = {
   reasoning?: 0 | 1 | 2 | 3;
 };
 
-/**
- * Пауза перед повтором. На 429 сервер сам говорит, сколько ждать
- * (Retry-After или «retry in 12.3s» в теле) — ждём ровно столько, а не
- * долбим эндпоинт тремя попытками подряд, наращивая счётчик запросов.
- */
-/** Когда последний раз провайдер сказал 429 — чтобы не долбить его фоновыми запросами. */
+/** Когда последний раз провайдер сказал «слишком часто» — чтобы не сыпать фоновыми запросами следом. */
 let last429At = 0;
-export function recentlyRateLimited(windowMs = 60000): boolean {
-  return Date.now() - last429At < windowMs;
-}
 
-async function retryDelayMs(resp: Response, status: number, attempt: number): Promise<number> {
-  if (status !== 429) return 1500 * Math.pow(2, attempt);
-  let ms = 0;
-  const h = resp.headers.get("retry-after");
-  if (h) {
-    const n = Number(h);
-    if (Number.isFinite(n) && n > 0) ms = n * 1000;
-    else {
-      const d = Date.parse(h);
-      if (Number.isFinite(d)) ms = Math.max(0, d - Date.now());
-    }
-  }
-  if (!ms) {
-    try {
-      const body = await resp.text();
-      const m = body.match(/(\d+(?:[.,]\d+)?)\s*(?:ms|мс|s\b|sec|seconds|сек)/i)
-        || body.match(/(?:retry|повтор|через)[^0-9]{0,15}(\d+(?:[.,]\d+)?)/i);
-      if (m) ms = parseFloat(m[1].replace(",", ".")) * (/ms|мс/i.test(m[0]) ? 1 : 1000);
-    } catch {}
-  }
-  return Math.min(20000, Math.max(1200, ms || 5000));
+/** Был ли лимит частоты за последние `ms` миллисекунд. */
+export function recentlyRateLimited(ms = 45_000): boolean {
+  return last429At > 0 && Date.now() - last429At < ms;
 }
 
 export async function streamChat(
@@ -187,10 +162,6 @@ export async function streamChat(
   }
 
   // Retry на транзиентные ошибки (exponential backoff 1.5с → 3с → 6с).
-  // Фаза 1: 400 НЕ ретраим — битый запрос/отвергнутые tools не чинятся повтором.
-  const isRetryable = (s: number) =>
-    s === 408 || s === 429 || s === 500 || s === 502 || s === 503 || s === 504;
-  const maxRetries = 3;
   for (let attempt = 0; ; attempt++) {
     let resp: Response;
     try {
@@ -211,21 +182,21 @@ export async function streamChat(
       return;
     }
 
-    if (resp.status === 429) last429At = Date.now();
-    if (isRetryable(resp.status) && attempt < (resp.status === 429 ? 1 : maxRetries)) {
-      const wait = await retryDelayMs(resp, resp.status, attempt);
-      await new Promise((r) => setTimeout(r, wait));
-      continue;
-    }
     if (!resp.ok) {
-      let detail = `HTTP ${resp.status}`;
-      try {
-        const t = await resp.text();
-        detail = `${detail}: ${t.slice(0, 300)}`;
-      } catch {}
+      let body = "";
+      try { body = await resp.text(); } catch {}
+      const raw = `HTTP ${resp.status}${body ? `: ${body.slice(0, 400)}` : ""}`;
+      const info = classifyError(raw, "Ошибка запроса");
+      if (info.kind === "limit") last429At = Date.now();
+      if (info.retryable && attempt < info.maxAttempts) {
+        const wait = retryWaitMs(info, attempt);
+        console.warn(`[gateway] ${info.kind} ${resp.status}: повтор ${attempt + 1}/${info.maxAttempts} через ${Math.round(wait / 1000)} с`);
+        await new Promise((r) => setTimeout(r, wait));
+        continue;
+      }
       // чтобы причина 400 была видна в Metro, а не только в баннере
-      console.warn("[gateway] запрос отклонён:", detail);
-      callbacks.onError(detail);
+      console.warn("[gateway] запрос отклонён:", raw);
+      callbacks.onError(raw);
       return;
     }
 
@@ -737,13 +708,6 @@ async function agentRequest(
   };
   if (model.apiKey) headers.Authorization = `Bearer ${model.apiKey}`;
 
-  // Retry на транзиентные ошибки (400/408/429/500/502/503/504) — exponential backoff.
-  // Фаза 1: 400 НЕ ретраим — битый запрос не чинится повтором (tools-фолбэк выше уже отработал).
-  // 400 с tools — провайдер не поддерживает function calling: НЕ ретраим, а включаем
-  // фолбэк без tools (иначе зацикливаемся).
-  const isRetryable = (s: number) =>
-    s === 408 || s === 429 || s === 500 || s === 502 || s === 503 || s === 504;
-  const maxRetries = 3;
   for (let attempt = 0; ; attempt++) {
   let resp: Response;
   try {
@@ -759,19 +723,22 @@ async function agentRequest(
     return { text: "", reasoning: "", calls: [], toolsRejected: true };
   }
   if (!resp.ok) {
-    if (resp.status === 429) last429At = Date.now();
-    if (isRetryable(resp.status) && attempt < (resp.status === 429 ? 1 : maxRetries)) {
-      const wait = await retryDelayMs(resp, resp.status, attempt);
+    let body = "";
+    try { body = await resp.text(); } catch {}
+    const raw = `HTTP ${resp.status}${body ? `: ${body.slice(0, 400)}` : ""}`;
+    const info = classifyError(raw, "Ошибка запроса");
+    if (info.kind === "limit") last429At = Date.now();
+    if (info.retryable && attempt < info.maxAttempts) {
+      const wait = retryWaitMs(info, attempt);
+      console.warn(`[gateway] ${info.kind} ${resp.status}: повтор ${attempt + 1}/${info.maxAttempts} через ${Math.round(wait / 1000)} с`);
       await new Promise((r) => setTimeout(r, wait));
       continue;
     }
-    let detail = `HTTP ${resp.status}`;
-    try { detail = `${detail}: ${(await resp.text()).slice(0, 300)}`; } catch {}
-    console.warn("[gateway] запрос отклонён:", detail);
-    throw new Error(detail);
+    console.warn("[gateway] запрос отклонён:", raw);
+    throw new Error(raw);
   }
   if (resp.body == null) {
-    if (attempt < maxRetries) {
+    if (attempt < 2) {
       await new Promise((r) => setTimeout(r, 1500 * Math.pow(2, attempt)));
       continue;
     }
