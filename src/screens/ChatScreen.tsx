@@ -2801,7 +2801,7 @@ function fileIconName(name?: string): AppIconName {
 }
 
 
-function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions, onOpenDetail }: { msg: Msg; theme: any; onCopy: () => void; onShare: () => void; onEdit?: () => void; onLongPress?: (e?: any) => void; showActions?: boolean; onOpenDetail?: (m: Msg) => void }) {
+function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions, onOpenDetail, retry }: { msg: Msg; theme: any; onCopy: () => void; onShare: () => void; onEdit?: () => void; onLongPress?: (e?: any) => void; showActions?: boolean; onOpenDetail?: (m: Msg) => void; retry?: React.ReactNode }) {
   const user = msg.role === "user";
   const align: "flex-end" | "flex-start" = user ? "flex-end" : "flex-start";
   // Kimi: юзер — синяя капсула справа; ассистент — БЕЗ рамки, чистый текст слева
@@ -2848,7 +2848,12 @@ function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions,
         style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
       >
       {user ? (
-        // юзер: синяя капсула (KMBlue), белый текст, радиус 20
+        // юзер: синяя капсула (KMBlue), белый текст, радиус 20.
+        // Кнопку повтора держим В ЭТОМ ЖЕ ряду: иначе она привязывается к
+        // контейнеру, а он шире короткого облачка (ряд иконок под ним) — и для
+        // сообщений вроде «ауу» кнопка улетала далеко влево.
+        <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "flex-end" }}>
+          {retry ? <View style={{ marginRight: 6, marginTop: 6 }}>{retry}</View> : null}
         <View style={{ backgroundColor: theme.userBubble, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 10 }}>
           {(() => {
             // все вложения: новый формат (attachments) или старый (image/file)
@@ -2877,6 +2882,7 @@ function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions,
           {msg.content ? (
             <Text style={{ color: theme.userText, fontSize: 14, lineHeight: 20 }}>{msg.content}</Text>
           ) : null}
+        </View>
         </View>
       ) : (
         // ассистент: БЕЗ рамки и фона — как в Kimi, markdown прямо на фоне чата
@@ -2992,7 +2998,7 @@ const MsgRow = React.memo(
     const msg = g.msg;
     const showActions = isLast && !msg.tool;
     const retry = msg.role === "user" && msg.failed && onRetry ? (
-      <Reanimated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(120)} style={{ marginRight: 6, marginTop: 6 }}>
+      <Reanimated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(120)}>
         <Pressable
           onPress={() => onRetry(msg)}
           hitSlop={8}
@@ -3013,17 +3019,12 @@ const MsgRow = React.memo(
         onLongPress={(e: any) => onLongPress(msg, e?.nativeEvent?.pageX, e?.nativeEvent?.pageY)}
         showActions={showActions}
         onOpenDetail={onDetail}
+        retry={retry}
       />
     );
-    // Строку-обёртку рисуем только под кнопку повтора. В строке облачко
-    // перестаёт сжиматься по тексту и берёт лишнюю ширину — пустое место слева.
-    if (!retry) return bubble;
-    return (
-      <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "flex-end" }}>
-        {retry}
-        {bubble}
-      </View>
-    );
+    // Кнопка повтора живёт внутри Bubble, вплотную к капсуле: внешняя обёртка
+    // давала лишнюю ширину контейнеру и отрывала кнопку от коротких сообщений.
+    return bubble;
   },
   (a, b) => a.sig === b.sig && a.isLast === b.isLast && a.theme === b.theme,
 );
