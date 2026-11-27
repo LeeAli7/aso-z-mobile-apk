@@ -104,6 +104,40 @@ export type ChatOpts = {
   reasoning?: 0 | 1 | 2 | 3;
 };
 
+/**
+ * Пауза перед повтором. На 429 сервер сам говорит, сколько ждать
+ * (Retry-After или «retry in 12.3s» в теле) — ждём ровно столько, а не
+ * долбим эндпоинт тремя попытками подряд, наращивая счётчик запросов.
+ */
+/** Когда последний раз провайдер сказал 429 — чтобы не долбить его фоновыми запросами. */
+let last429At = 0;
+export function recentlyRateLimited(windowMs = 60000): boolean {
+  return Date.now() - last429At < windowMs;
+}
+
+async function retryDelayMs(resp: Response, status: number, attempt: number): Promise<number> {
+  if (status !== 429) return 1500 * Math.pow(2, attempt);
+  let ms = 0;
+  const h = resp.headers.get("retry-after");
+  if (h) {
+    const n = Number(h);
+    if (Number.isFinite(n) && n > 0) ms = n * 1000;
+    else {
+      const d = Date.parse(h);
+      if (Number.isFinite(d)) ms = Math.max(0, d - Date.now());
+    }
+  }
+  if (!ms) {
+    try {
+      const body = await resp.text();
+      const m = body.match(/(\d+(?:[.,]\d+)?)\s*(?:ms|мс|s\b|sec|seconds|сек)/i)
+        || body.match(/(?:retry|повтор|через)[^0-9]{0,15}(\d+(?:[.,]\d+)?)/i);
+      if (m) ms = parseFloat(m[1].replace(",", ".")) * (/ms|мс/i.test(m[0]) ? 1 : 1000);
+    } catch {}
+  }
+  return Math.min(20000, Math.max(1200, ms || 5000));
+}
+
 export async function streamChat(
   model: ModelInfo,
   messages: ChatMessage[],
@@ -177,8 +211,10 @@ export async function streamChat(
       return;
     }
 
-    if (isRetryable(resp.status) && attempt < maxRetries) {
-      await new Promise((r) => setTimeout(r, 1500 * Math.pow(2, attempt)));
+    if (resp.status === 429) last429At = Date.now();
+    if (isRetryable(resp.status) && attempt < (resp.status === 429 ? 1 : maxRetries)) {
+      const wait = await retryDelayMs(resp, resp.status, attempt);
+      await new Promise((r) => setTimeout(r, wait));
       continue;
     }
     if (!resp.ok) {
@@ -722,8 +758,10 @@ async function agentRequest(
     return { text: "", reasoning: "", calls: [], toolsRejected: true };
   }
   if (!resp.ok) {
-    if (isRetryable(resp.status) && attempt < maxRetries) {
-      await new Promise((r) => setTimeout(r, 1500 * Math.pow(2, attempt)));
+    if (resp.status === 429) last429At = Date.now();
+    if (isRetryable(resp.status) && attempt < (resp.status === 429 ? 1 : maxRetries)) {
+      const wait = await retryDelayMs(resp, resp.status, attempt);
+      await new Promise((r) => setTimeout(r, wait));
       continue;
     }
     let detail = `HTTP ${resp.status}`;

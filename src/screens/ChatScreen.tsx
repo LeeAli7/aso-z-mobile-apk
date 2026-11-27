@@ -812,6 +812,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     const timer = setTimeout(() => ctrl.abort(), 20000);
     void (async () => {
       try {
+        const { recentlyRateLimited } = await import("../core/gateway");
+        if (recentlyRateLimited(45000)) return; // только что упёрлись в лимит — не добиваем
         const title = await suggestSessionTitle(model, s.messages as any, ctrl.signal);
         if (!title) return;
         dispatch({ type: "UPDATE_SESSION", sessionId: s.id, patch: { name: title, titleAuto: true } });
@@ -1457,7 +1459,11 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                 dispatch({ type: "UPDATE_SESSION", sessionId: sid, patch: { agentHistory: trimmed } });
               }
               // ── Self-improve (P1.3): после сложного хода (2+ тула) тихо анализируем ──
-              if (!getRun(sid).stop && usedTools.size >= 2 && !hadToolError) {
+              // Скрытый ревьюер после каждого хода с 2+ тулами — это ещё один
+              // агентский цикл запросов к той же модели. На бесплатных тарифах
+              // он и выбивал 429. Выключен по умолчанию.
+              const SELF_REVIEW_ENABLED = false;
+              if (SELF_REVIEW_ENABLED && !getRun(sid).stop && usedTools.size >= 2 && !hadToolError) {
                 void runSelfReview(model, {
                   toolCalls: usedTools.size,
                   toolNames: [...usedTools],
