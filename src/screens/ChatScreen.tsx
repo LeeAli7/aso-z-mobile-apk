@@ -338,6 +338,13 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // в это окно не должен считаться частью распознанной фразы.
   useEffect(() => {
     recP.value = withTiming(recording ? 1 : 0, { duration: 220, easing: REasing.out(REasing.cubic) });
+    // Страховка: если анимация не доехала (прервали/успели размонтировать
+    // часть дерева), кнопка «+» оставалась сжатой в ноль. Через 300 мс
+    // после конца записи ставим ноль жёстко.
+    if (!recording) {
+      const id = setTimeout(() => { recP.value = 0; }, 300);
+      return () => clearTimeout(id);
+    }
   }, [recording, recP]);
 
 
@@ -527,6 +534,10 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           return;
         }
       }
+      // Сразу после удержания прошлая сессия ещё закрывается — если стартовать
+      // в тот же миг, start() падает и тап «сбрасывается». Ждём остаток паузы.
+      const since = Date.now() - stopAt.current;
+      if (since < 350) await new Promise((r) => setTimeout(r, 350 - since));
       if (!recOnRef.current) return; // успели остановить, пока шёл запрос
       sttRetry.current = 0;
       sttStart();
@@ -1873,10 +1884,11 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       >
         {/* Плавное затемнение сверху: сплошной фон под кнопками, ниже мягкий
             переход. Настоящий градиент — 1px-полоски давали ступеньки. */}
-        <LinearGradient
+        {/* Шапка закрывает контент своим фоном. Никакой полупрозрачной
+            плёнки: на облачках и таблицах она давала видимую полосу. */}
+        <View
           pointerEvents="none"
-          colors={fadeStops(theme.bg, (insets.top + 52) / (insets.top + 78))}
-          style={{ position: "absolute", top: 0, left: 0, right: 0, height: insets.top + 78 }}
+          style={{ position: "absolute", top: 0, left: 0, right: 0, height: insets.top + 52, backgroundColor: theme.bg }}
         />
         <View
           pointerEvents="box-none"
@@ -2764,7 +2776,15 @@ function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions,
   // перестроении списка, и короткое облачко «прыгало» в ширине, когда ниже
   // появлялось новое сообщение. Пиксельная ширина от окна стабильна.
   const winW = useWindowDimensions().width;
-  const containerStyle = { alignSelf: align, maxWidth: user ? Math.round(winW * 0.86) : winW, marginBottom: 10 };
+  // alignItems для юзера: без него ряд иконок под облачком (132 px) растягивал
+  // контейнер, и короткое облачко получало пустое место слева. После отправки
+  // следующего сообщения иконки уезжали — облачко «схлопывалось» в ширине.
+  const containerStyle = {
+    alignSelf: align,
+    alignItems: user ? ("flex-end" as const) : ("stretch" as const),
+    maxWidth: user ? Math.round(winW * 0.86) : winW,
+    marginBottom: 10,
+  };
   // Карточка инструмента — до контента, слева (как у Kimi).
   if (msg.tool) {
     return (
@@ -2950,19 +2970,25 @@ const MsgRow = React.memo(
         </Pressable>
       </Reanimated.View>
     ) : null;
+    const bubble = (
+      <Bubble
+        msg={msg}
+        theme={theme}
+        onCopy={() => onCopy(msg)}
+        onShare={() => onShare(msg)}
+        onEdit={() => onEdit(msg)}
+        onLongPress={(e: any) => onLongPress(msg, e?.nativeEvent?.pageX, e?.nativeEvent?.pageY)}
+        showActions={showActions}
+        onOpenDetail={onDetail}
+      />
+    );
+    // Строку-обёртку рисуем только под кнопку повтора. В строке облачко
+    // перестаёт сжиматься по тексту и берёт лишнюю ширину — пустое место слева.
+    if (!retry) return bubble;
     return (
       <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "flex-end" }}>
         {retry}
-        <Bubble
-          msg={msg}
-          theme={theme}
-          onCopy={() => onCopy(msg)}
-          onShare={() => onShare(msg)}
-          onEdit={() => onEdit(msg)}
-          onLongPress={(e: any) => onLongPress(msg, e?.nativeEvent?.pageX, e?.nativeEvent?.pageY)}
-          showActions={showActions}
-          onOpenDetail={onDetail}
-        />
+        {bubble}
       </View>
     );
   },
