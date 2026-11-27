@@ -51,7 +51,6 @@ export const ICON_XML: Record<string, string> = {
   sync: "<path d='M16 5.07A8 8 0 1 1 8 5.07'/><path d='M4.1 4L8 5.1 7 8.9'/>",
   // Круглая стрелка «повторить»: дуга с уголком-наконечником (как rotate-cw),
   // без мелкой кривой головки, которая на 14 px превращалась в кашу.
-  retry: "<path d='M19.49 14A9 9 0 1 1 17.37 4.64L22 9'/><path d='M22 3v6h-6'/>",
   terminal: "<path d='M7.5 4.5h9a4 4 0 0 1 4 4v7a4 4 0 0 1-4 4h-9a4 4 0 0 1-4-4v-7a4 4 0 0 1 4-4z'/><path d='M8 9.5l3 2.5-3 2.5'/>",
   trash: "<path d='M4.5 6.5h15'/><path d='M9.5 6.5v-1a2 2 0 0 1 2-2h1a2 2 0 0 1 2 2v1'/><path d='M6.5 6.5v11a3 3 0 0 0 3 3h5a3 3 0 0 0 3-3v-11'/>",
   trend: '<path d=\'M4 16.4l5.2-5.2 3.2 3.2L20 7\'/><path d=\'M14.6 7H20v5.4\'/>',
@@ -77,7 +76,7 @@ export const ICON_ALIAS: Record<string, string> = {
   "delete": "trash",
   "copy": "copy",
   "share": "share",
-  "refresh": "retry",
+  "refresh": "sync",
   "image": "image",
   "camera": "camera",
   "file": "doc",

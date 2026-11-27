@@ -111,8 +111,8 @@ function fadeStops(bg: string): FadeStops {
     return 0;
   };
   const out: string[] = [];
-  for (let i = 0; i < 12; i++) {
-    const v = alphaAt(i / 11);
+  for (let i = 0; i < 32; i++) {
+    const v = alphaAt(i / 31);
     out.push(`rgba(${r},${g},${b},${Number(v.toFixed(4))})`);
   }
   return out as FadeStops;
@@ -343,6 +343,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
 
 
   const sttWriting = useRef(false);
+  const sttLive = useRef("");
+  const lastSaid = useRef("");
   // Сторож: если распознавание молча умерло (Android умеет закрывать сессию
   // без события end), поднимаем его заново, пока идёт запись.
   const lastEv = useRef(0);
@@ -357,13 +359,18 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   useEffect(() => { textRef.current = text; }, [text]);
   useSpeechRecognitionEvent("result", (e: any) => {
     sttRetry.current = 0;
+    lastEv.current = Date.now();
     const txt = String(e?.results?.[0]?.transcript ?? "").trim();
     if (!txt) return;
+    // Пока идёт диктовка, в капсуле бегут только строки: распознанный текст
+    // копим в ref и показываем один раз после остановки. Раньше каждый
+    // промежуточный результат перерисовывал весь экран — отсюда лаги и
+    // «замирание» дорожки на речи.
+    if (recOnRef.current) { sttLive.current = txt; return; }
     const base = sttBase.current.trim();
     const merged = base ? base + " " + txt : txt;
     sttWriting.current = true;
     setText(merged);
-    // сбрасываем флаг на следующем тике: onChangeText от пользователя уже после
     setTimeout(() => { sttWriting.current = false; }, 0);
     // base НЕ фиксируем на isFinal: Android присылает кумулятивный транскрипт,
     // и «промежуточный финал + финал» давал проговорённые слова по 2-3 раза.
@@ -401,13 +408,17 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       || code === "language-not-supported" || code === "audio-capture";
     // Любая другая ошибка (тишина, aborted, client, network) — не повод гасить
     // микрофон: пока пользователь не нажал стоп, распознавание поднимается снова.
-    if (recOnRef.current && !fatal) {
+    // Перезапускаем только «мягкие» обрывы. На прочих (network, client)
+    // сессия цела, а частые рестарты рвали аудио — отсюда лаги и стоп дорожки.
+    const soft = code === "no-speech" || code === "speech-timeout" || code === "aborted";
+    if (recOnRef.current && !fatal && soft) {
       sttRetry.current += 1;
+      if (sttRetry.current > 40) { recOnRef.current = false; setRecording(false); return; }
       clearTimeout(sttTimer.current);
       sttTimer.current = setTimeout(() => {
         if (!recOnRef.current) return;
         try { sttStart(); } catch { /* следующий тап начнёт заново */ }
-      }, 350);
+      }, 700);
       return;
     }
     recStarting.current = false;
@@ -431,7 +442,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     // Остановка по второму тапу/отпусканию — сразу отправляем сказанное.
     if (pendingSend.current) {
       pendingSend.current = false;
-      const said = textRef.current.trim();
+      const said = (lastSaid.current || textRef.current).trim();
+      lastSaid.current = "";
       if (said) setTimeout(() => sendTextRef.current(said), 0);
     }
   });
@@ -440,7 +452,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     lastEv.current = Date.now();
     const id = setInterval(() => {
       if (!recOnRef.current) return;
-      if (Date.now() - lastEv.current < 4000) return;
+      if (Date.now() - lastEv.current < 5000) return;
       lastEv.current = Date.now();
       try { sttStart(); } catch {}
     }, 2000);
@@ -461,6 +473,10 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     recOnRef.current = false;
     clearTimeout(sttTimer.current);
     pendingSend.current = sendIt;
+    const said = [sttBase.current.trim(), sttLive.current.trim()].filter(Boolean).join(" ");
+    sttLive.current = "";
+    lastSaid.current = said;
+    if (said) setText(said);
     hapticCommit();
     try { ExpoSpeechRecognitionModule.stop(); } catch {}
     setRecording(false);
@@ -2204,7 +2220,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             {/* поле; на время диктовки текст невидим — поверх идёт линия уровня */}
             <View style={{ flex: 1 }}>
             <TextInput
-              value={text}
+              value={recording ? "" : text}
               caretHidden={recording}
               underlineColorAndroid="transparent"
               /* тап по полю не должен выбрасывать из прочитанного места в самый низ */
@@ -2738,7 +2754,7 @@ function fileIconName(name?: string): AppIconName {
 }
 
 
-function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions, onOpenDetail, onRetry }: { msg: Msg; theme: any; onCopy: () => void; onShare: () => void; onEdit?: () => void; onLongPress?: (e?: any) => void; showActions?: boolean; onOpenDetail?: (m: Msg) => void; onRetry?: (m: Msg) => void }) {
+function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions, onOpenDetail }: { msg: Msg; theme: any; onCopy: () => void; onShare: () => void; onEdit?: () => void; onLongPress?: (e?: any) => void; showActions?: boolean; onOpenDetail?: (m: Msg) => void }) {
   const user = msg.role === "user";
   const align: "flex-end" | "flex-start" = user ? "flex-end" : "flex-start";
   // Kimi: юзер — синяя капсула справа; ассистент — БЕЗ рамки, чистый текст слева
@@ -2827,22 +2843,6 @@ function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions,
         </View>
       )}
       </Pressable>
-      {/* Не ушло — слева от сообщения красный круг со значком отправки. */}
-      {user && msg.failed ? (
-        <Reanimated.View
-          entering={FadeIn.duration(160)}
-          exiting={FadeOut.duration(120)}
-          style={{ position: "absolute", left: -34, top: 6 }}
-        >
-          <Pressable
-            onPress={() => onRetry?.(msg)}
-            accessibilityLabel="Повторить отправку"
-            style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: theme.danger, alignItems: "center", justifyContent: "center" }}
-          >
-            <AppIcon name="refresh" size={15} strokeWidth={2.2} color="#fff" />
-          </Pressable>
-        </Reanimated.View>
-      ) : null}
       {/* действия: ТОЛЬКО в самом конце цепочки агента (или у юзера) — голые иконки, без коробок */}
             {showActions && !msg.streaming && (
               <View style={{ flexDirection: "row", justifyContent: user ? "flex-end" : "flex-start", marginTop: 8, gap: 2 }}>
@@ -2884,7 +2884,7 @@ function groupSig(g: any): string {
     return "c:" + g.msgs.map((m: any) => `${m.id}:${(m.thinking || "").length}:${m.tool || ""}:${m.toolState || ""}:${(m.toolOutput || "").length}`).join(",");
   }
   const m = g.msg;
-  return `b:${m.id}:${(m.content || "").length}:${m.streaming ? 1 : 0}:${(m.thinking || "").length}:${m.error ? 1 : 0}:${(m.image ? 1 : 0)}`;
+  return `b:${m.id}:${(m.content || "").length}:${m.streaming ? 1 : 0}:${(m.thinking || "").length}:${m.error ? 1 : 0}:${(m.image ? 1 : 0)}:${m.failed ? 1 : 0}`;
 }
 
 /**
@@ -2936,17 +2936,32 @@ const MsgRow = React.memo(
     }
     const msg = g.msg;
     const showActions = isLast && !msg.tool;
+    const retry = msg.role === "user" && msg.failed && onRetry ? (
+      <Reanimated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(120)} style={{ marginRight: 6, marginTop: 6 }}>
+        <Pressable
+          onPress={() => onRetry(msg)}
+          hitSlop={8}
+          accessibilityLabel="Повторить отправку"
+          style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: theme.danger, alignItems: "center", justifyContent: "center" }}
+        >
+          <AppIcon name="refresh" size={16} strokeWidth={2.2} color="#fff" />
+        </Pressable>
+      </Reanimated.View>
+    ) : null;
     return (
-      <Bubble
-        msg={msg}
-        theme={theme}
-        onCopy={() => onCopy(msg)}
-        onShare={() => onShare(msg)}
-        onEdit={() => onEdit(msg)}
-        onLongPress={(e: any) => onLongPress(msg, e?.nativeEvent?.pageX, e?.nativeEvent?.pageY)}
-        showActions={showActions}
-        onOpenDetail={onDetail}
-      />
+      <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "flex-end" }}>
+        {retry}
+        <Bubble
+          msg={msg}
+          theme={theme}
+          onCopy={() => onCopy(msg)}
+          onShare={() => onShare(msg)}
+          onEdit={() => onEdit(msg)}
+          onLongPress={(e: any) => onLongPress(msg, e?.nativeEvent?.pageX, e?.nativeEvent?.pageY)}
+          showActions={showActions}
+          onOpenDetail={onDetail}
+        />
+      </View>
     );
   },
   (a, b) => a.sig === b.sig && a.isLast === b.isLast && a.theme === b.theme,
