@@ -15,6 +15,7 @@ import { sanitizeToolHistory } from "./history";
 import { classifyError, retryWaitMs } from "./errors";
 import { shrinkMessages } from "./shrink";
 import { pickMaxOut } from "./modelLimits";
+import { runToolStep } from "./toolStep";
 
 /** Потолки токенов в минуту, которые провайдер назвал в ошибке (на модель). */
 const tpmLimits = new Map<string, number>();
@@ -662,38 +663,32 @@ export async function streamAgentChat(
         ...(c.extra ? { extra_content: c.extra } : {}),
       })),
     });
-    for (const c of r.calls) {
-      callbacks.onToolCall?.(c);
-      const toolCtx = {
-        projectId: options?.projectId,
-        cwd: options?.cwd,
-        onProgress: options?.onToolProgress,
-        model, // для delegate_task
-      };
-      const res = await executeTool(c.name, parseToolArgs(c.arguments), toolCtx);
+    const toolCtx = {
+      projectId: options?.projectId,
+      cwd: options?.cwd,
+      onProgress: options?.onToolProgress,
+      model, // для delegate_task
+    };
+    // I-7 + I-8 (как в OpenCode): вызовы шага идут одновременно, результаты — в
+    // порядке вызовов; битые аргументы и упавший инструмент возвращаются модели
+    // результатом tool, без отдельного user-сообщения и лишнего круга.
+    const stepResults = await runToolStep(r.calls, {
+      known: (n) => toolNames().includes(String(n)),
+      onCall: (c) => callbacks.onToolCall?.(c as any),
+      // карточка инструмента обновляется сразу, как только он отработал —
+      // не ждём самый медленный вызов шага
+      onResult: (r) => callbacks.onToolResult?.(r.call as any, r.ok, r.result, r.broken),
+      execute: (name, args) => executeTool(name, args, toolCtx),
+    });
+    for (const it of stepResults) {
       toolsUsedInTurn++;
-      // «Битый вызов» — модель прислала чужое имя или кривые аргументы.
-      // Обычный провал команды (exit 1) — это результат работы, а не битый вызов:
-      // такой показываем карточкой и НЕ просим модель переписать вызов.
-      const brokenCall =
-        !res.ok &&
-        (!toolNames().includes(String(c.name)) ||
-          /does not exist|не хватило аргументов|не удалось разобрать|invalid json|unexpected token/i.test(res.result));
-      callbacks.onToolResult?.(c, res.ok, res.result, brokenCall);
-      messages.push({ role: "tool", tool_call_id: c.id, name: c.name, content: res.result });
-      if (brokenCall) {
+      const content = it.broken
+        ? `${it.result}\n\n[Исправь вызов: имя инструмента строго из списка (${toolNames().join(", ")}), ` +
+          `аргументы — валидный JSON-объект. Если инструмент не подходит — ответь словами, без вызова.]`
+        : it.result;
+      messages.push({ role: "tool", tool_call_id: it.call.id, name: it.call.name, content });
+      if (it.broken) {
         failedCalls++;
-        // Приложение понимает только свои инструменты и JSON-аргументы.
-        // Модель, приславшая чужой формат, получает текст ошибки и второй шанс —
-        // в чате при этом не появляется красная карточка с ошибкой.
-        messages.push({
-          role: "user",
-          content:
-            `[System: вызов «${c.name}» НЕ выполнен. Ошибка: ${String(res.result).slice(0, 500)}. ` +
-            `Не повторяй тот же вызов. Пришли исправленный: имя инструмента строго из списка ` +
-            `(${toolNames().join(", ")}) и аргументы — валидный JSON-объект. ` +
-            `Если инструмент не подходит — ответь словами, без вызова.]`,
-        });
         if (failedCalls >= 3) toolsEnabled = false;
       }
     }
@@ -974,15 +969,6 @@ async function agentRequest(
   // вызовы вслепую, а сделает дозапрос (анти-обрыв). Сам calls оставляем (имя тула
   // полезно для промпта «повтори вызов»); аргументы могли обрезаться на полуслове.
   return { text: textOut, reasoning, calls, toolsRejected: false, finished, usage };
-  }
-}
-
-function parseToolArgs(raw: string): Record<string, unknown> {
-  try {
-    const obj = JSON.parse(raw || "{}");
-    return obj && typeof obj === "object" ? obj : {};
-  } catch {
-    return {};
   }
 }
 
