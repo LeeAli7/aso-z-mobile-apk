@@ -28,6 +28,8 @@ export interface Msg {
   content: string;
   streaming?: boolean;
   error?: string;
+  /** Отправка не удалась: рядом с сообщением — красная кнопка «Повторить». */
+  failed?: boolean;
   /** Поток раздумий (reasoning_content) — как отдельный блок в стиле Kimi. */
   thinking?: string;
   /** Карточка инструмента (терминал/файл/поиск) — как в Kimi. */

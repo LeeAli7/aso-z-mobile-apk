@@ -340,7 +340,11 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     recP.value = withTiming(recording ? 1 : 0, { duration: 220, easing: REasing.out(REasing.cubic) });
   }, [recording, recP]);
 
+
   const sttWriting = useRef(false);
+  // Сторож: если распознавание молча умерло (Android умеет закрывать сессию
+  // без события end), поднимаем его заново, пока идёт запись.
+  const lastEv = useRef(0);
   // Два способа говорить: тап — «включил и говори, вторым тапом отправил»,
   // удержание — «держишь, пока говоришь». Различаем по длительности касания.
   const pressAt = useRef(0);
@@ -380,7 +384,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         lang,
         interimResults: true,
         continuous: true,
-        volumeChangeEventOptions: { enabled: true, intervalMillis: 100 },
+        volumeChangeEventOptions: { enabled: true, intervalMillis: 60 },
       } as any);
     } catch (e) {
       if (__DEV__) console.log("[stt] start failed", String(e));
@@ -391,10 +395,12 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   useSpeechRecognitionEvent("error", (e: any) => {
     if (__DEV__) console.log("[stt] error", JSON.stringify(e)?.slice(0, 300));
     const code = String(e?.error ?? "");
-    // Тишина — не повод выключать микрофон: пользователь просто думает.
-    // Пока запись включена, перезапускаем распознавание без ограничения
-    // по числу попыток (раньше после третьей кнопка гасла сама).
-    if (recOnRef.current && (code === "no-speech" || code === "speech-timeout")) {
+    // Фатальные — только те, что не лечатся перезапуском.
+    const fatal = code === "not-allowed" || code === "service-not-allowed"
+      || code === "language-not-supported" || code === "audio-capture";
+    // Любая другая ошибка (тишина, aborted, client, network) — не повод гасить
+    // микрофон: пока пользователь не нажал стоп, распознавание поднимается снова.
+    if (recOnRef.current && !fatal) {
       sttRetry.current += 1;
       clearTimeout(sttTimer.current);
       sttTimer.current = setTimeout(() => {
@@ -428,11 +434,23 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       if (said) setTimeout(() => sendTextRef.current(said), 0);
     }
   });
+  useEffect(() => {
+    if (!recording) return;
+    lastEv.current = Date.now();
+    const id = setInterval(() => {
+      if (!recOnRef.current) return;
+      if (Date.now() - lastEv.current < 4000) return;
+      lastEv.current = Date.now();
+      try { sttStart(); } catch {}
+    }, 2000);
+    return () => clearInterval(id);
+  }, [recording, sttStart]);
   // rms с микрофона: 10-20 событий в секунду, рисуем не чаще 22 кадров
   useSpeechRecognitionEvent("volumechange", (e: any) => {
     const raw = Number(e?.value ?? 0);
     waveApi.current?.(raw);
     // Android отдаёт примерно -2..10 dB: нормализуем в 0..1.
+    lastEv.current = Date.now();
     vol.value = withTiming(Math.max(0, Math.min(1, (raw + 2) / 12)), { duration: 90 });
   });
   /** Остановить запись. sendIt — отправить сказанное сразу. */
@@ -1024,7 +1042,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
 
       // Сообщение уходит в чат ДО любых проверок модели и сети: даже если
       // дальше ошибка, текст пользователя уже виден в переписке.
-      dispatch({ type: "ADD_MSG", sessionId: sid, msg: { id: genId(), role: "user", content, ...(attachments.length ? { attachments: [...attachments] } : {}) } });
+      const userMsgId = genId();
+      dispatch({ type: "ADD_MSG", sessionId: sid, msg: { id: userMsgId, role: "user", content, ...(attachments.length ? { attachments: [...attachments] } : {}) } });
       setAttachments([]);
       setText("");
 
@@ -1368,6 +1387,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             patch: { streaming: false, content: textAcc || "" },
           });
         }
+        // Провал виден в чате: сообщение остаётся, рядом появляется «Повторить».
+        dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: userMsgId, patch: { failed: true } });
         showError(err);
       };
 
@@ -1488,6 +1509,34 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   const send = useCallback(() => {
     if (text.trim()) sendText(text);
   }, [text, sendText]);
+  // Повтор неудачной отправки: сообщение уходит из чата и отправляется заново.
+  const retrySend = useCallback((m: Msg) => {
+    if (!active || isStreaming(active.id)) return;
+    const sid = active.id;
+    hapticTap();
+    dispatch({ type: "DELETE_MSG", sessionId: sid, msgId: m.id });
+    setTimeout(() => sendText(m.content, { sessionId: sid }), 0);
+  }, [active, dispatch, sendText]);
+
+  // Отмена хода, пока агент не ответил: вопрос убираем из чата, а его текст
+  // возвращаем в капсулу — человек хотел поправить, а не потерять написанное.
+  const cancelTurn = useCallback((): boolean => {
+    const s = active;
+    if (!s) return false;
+    const msgs = s.messages;
+    let ui = -1;
+    for (let i = msgs.length - 1; i >= 0; i -= 1) if (msgs[i].role === "user") { ui = i; break; }
+    if (ui < 0) return false;
+    const answered = msgs.slice(ui + 1).some((m) => m.role === "assistant" && m.content.trim());
+    if (answered) return false;
+    const q = msgs[ui];
+    for (const m of msgs.slice(ui)) dispatch({ type: "DELETE_MSG", sessionId: s.id, msgId: m.id });
+    setText(q.content);
+    if (q.attachments?.length) setAttachments(q.attachments);
+    hapticTap();
+    return true;
+  }, [active, dispatch]);
+
   // sendText нужен обработчику события end (он объявлен выше) — через ref.
   useEffect(() => { sendTextRef.current = sendText; }, [sendText]);
 
@@ -1981,8 +2030,11 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           scrollEventThrottle={16}
           keyboardShouldPersistTaps="handled"
           renderItem={({ item: g, index }) => (
-            <View
-              ref={(r) => {
+            <Reanimated.View
+              entering={FadeIn.duration(160)}
+              exiting={FadeOut.duration(140)}
+              layout={LinearTransition.duration(180)}
+              ref={(r: any) => {
                 const id = g.kind === "chain" ? g.msgs[g.msgs.length - 1]?.id : g.msg?.id;
                 if (id) rowRefs.current[id] = r;
               }}
@@ -2001,8 +2053,9 @@ export function ChatScreen({ navigation }: { navigation: any }) {
               onShare={shareMsg}
               onEdit={startEdit}
               onLongPress={msgMenu}
+              onRetry={retrySend}
             />
-            </View>
+            </Reanimated.View>
           )}
         />
         </Animated.View>
@@ -2204,6 +2257,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                   getRun(s).stop = true;
                   getRun(s).ctrl?.abort();
                   markStreaming(s, false);
+                  cancelTurn();
                   dispatch({ type: "STOP_SESSION_STREAM", sessionId: s });
                 }}
                 // Спокойная кнопка вместо красного круга: нейтральный фон
@@ -2611,7 +2665,7 @@ function RecWave({ api, color }: { api: React.MutableRefObject<((v: number) => v
 
   const push = useCallback((v: number) => {
     const now = Date.now();
-    if (now - last.current < 45) return; // не чаще ~22 раз в секунду
+    if (now - last.current < 30) return; // ~33 кадра в секунду — дорожка бежит живее
     last.current = now;
 
     let raw = Math.max(0, Math.min(1, (v + 2) / 12));
@@ -2664,8 +2718,8 @@ function RecWave({ api, color }: { api: React.MutableRefObject<((v: number) => v
   );
 }
 
-const MAX_BARS = 70;   // 70 столбиков × 1.42 = вся ширина капсулы
-const BAR_STEP = 1.42; // шаг в единицах viewBox 0..100
+const MAX_BARS = 56;   // 56 столбиков × 1.80 = вся ширина капсулы
+const BAR_STEP = 1.80; // шаг в единицах viewBox 0..100
 
 function fileIconName(name?: string): AppIconName {
   const ext = (name ?? "").split(".").pop()?.toLowerCase() ?? "";
@@ -2675,7 +2729,7 @@ function fileIconName(name?: string): AppIconName {
 }
 
 
-function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions, onOpenDetail }: { msg: Msg; theme: any; onCopy: () => void; onShare: () => void; onEdit?: () => void; onLongPress?: (e?: any) => void; showActions?: boolean; onOpenDetail?: (m: Msg) => void }) {
+function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions, onOpenDetail, onRetry }: { msg: Msg; theme: any; onCopy: () => void; onShare: () => void; onEdit?: () => void; onLongPress?: (e?: any) => void; showActions?: boolean; onOpenDetail?: (m: Msg) => void; onRetry?: (m: Msg) => void }) {
   const user = msg.role === "user";
   const align: "flex-end" | "flex-start" = user ? "flex-end" : "flex-start";
   // Kimi: юзер — синяя капсула справа; ассистент — БЕЗ рамки, чистый текст слева
@@ -2764,6 +2818,23 @@ function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions,
         </View>
       )}
       </Pressable>
+      {/* Не ушло — сообщение остаётся в чате, снизу красная «Повторить». */}
+      {user && msg.failed ? (
+        <Reanimated.View
+          entering={FadeIn.duration(160)}
+          exiting={FadeOut.duration(120)}
+          style={{ flexDirection: "row", justifyContent: "flex-end", marginTop: 6 }}
+        >
+          <Pressable
+            onPress={() => onRetry?.(msg)}
+            accessibilityLabel="Повторить отправку"
+            style={{ flexDirection: "row", alignItems: "center", gap: 6, height: 32, paddingHorizontal: 12, borderRadius: 16, backgroundColor: theme.danger }}
+          >
+            <AppIcon name="refresh" size={14} color="#fff" />
+            <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600", fontFamily: fonts.sansDemi }}>Повторить</Text>
+          </Pressable>
+        </Reanimated.View>
+      ) : null}
       {/* действия: ТОЛЬКО в самом конце цепочки агента (или у юзера) — голые иконки, без коробок */}
             {showActions && !msg.streaming && (
               <View style={{ flexDirection: "row", justifyContent: user ? "flex-end" : "flex-start", marginTop: 8, gap: 2 }}>
@@ -2815,12 +2886,13 @@ function groupSig(g: any): string {
  */
 const MsgRow = React.memo(
   function MsgRow({
-    g, isLast, theme, onDetail, onCopy, onShare, onEdit, onLongPress,
+    g, isLast, theme, onDetail, onCopy, onShare, onEdit, onLongPress, onRetry,
   }: {
     g: any; sig: string; isLast: boolean; theme: any;
     onDetail: (m: Msg) => void;
     onCopy: (m: Msg) => void; onShare: (m: Msg) => void;
     onEdit: (m: Msg) => void; onLongPress: (m: Msg, x?: number, y?: number) => void;
+    onRetry?: (m: Msg) => void;
   }) {
     if (g.kind === "chain") {
       const chainText = g.msgs.filter((m: any) => m.thinking).map((m: any) => String(m.thinking)).join("\n\n");
