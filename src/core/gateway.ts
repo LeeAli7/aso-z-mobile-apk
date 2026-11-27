@@ -252,6 +252,7 @@ export async function streamChat(
             full += content;
             // DSML/safety-разметку в чат не показываем вообще (см. parseDsmlCalls)
             const safe = parseDsmlCalls(full).stripped;
+            if (safe.length < sentSafe) sentSafe = safe.length;
             const newPart = safe.slice(sentSafe);
             if (newPart) callbacks.onToken(newPart);
             sentSafe = safe.length;
@@ -282,6 +283,7 @@ export async function streamChat(
         if (content) {
           full += content;
           const safe = parseDsmlCalls(full).stripped;
+          if (safe.length < sentSafe) sentSafe = safe.length;
           const newPart = safe.slice(sentSafe);
           if (newPart) callbacks.onToken(newPart);
           sentSafe = safe.length;
@@ -929,6 +931,14 @@ function parseDsmlCalls(text: string): { calls: AgentToolCall[]; stripped: strin
   stripped = stripped.replace(/<\|ds_safety\|>[\s\S]*?(?:<\/\|ds_safety\|>|$)/gi, "");
   // недозакрытый DSML/safety-хвост (обрыв стрима) — вырезаем от ПЕРВОГО маркера,
   // чтобы не светить разметкой (полные блоки уже удалены replace выше)
+  // Google/Gemma умеют отдавать размышления прямо в content в тегах
+  // <thought>…</thought> (иногда без закрывающего — на обрыве стрима).
+  // В чат это попадать не должно: вырезаем блок целиком, а незакрытый —
+  // до конца, чтобы сырые рассуждения не лились в ответ.
+  stripped = stripped.replace(/<thought\b[^>]*>[\s\S]*?<\/thought>/gi, "");
+  stripped = stripped.replace(/<thinking\b[^>]*>[\s\S]*?<\/thinking>/gi, "");
+  stripped = stripped.replace(/<thought\b[^>]*>[\s\S]*$/gi, "");
+  stripped = stripped.replace(/<thinking\b[^>]*>[\s\S]*$/gi, "");
   const dsmlIdx = stripped.indexOf("<|DSML|");
   const safIdx = stripped.indexOf("<|ds_safety|");
   const cut = dsmlIdx >= 0 && (safIdx < 0 || dsmlIdx < safIdx) ? dsmlIdx : safIdx;

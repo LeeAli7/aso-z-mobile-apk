@@ -301,6 +301,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // Кольцо вокруг микрофона: окутывает кнопку при старте записи и дышит
   // вместе с голосом. Живёт на UI-потоке — кадры не ждут JS.
   const vol = useSharedValue(0);
+  const volPeak = useRef(0.18);
   const recP = useSharedValue(0);
   const ringStyle = useAnimatedStyle(() => ({
     opacity: recP.value * (0.2 + 0.62 * vol.value),
@@ -451,7 +452,9 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     waveApi.current?.(raw);
     // Android отдаёт примерно -2..10 dB: нормализуем в 0..1.
     lastEv.current = Date.now();
-    vol.value = withTiming(Math.max(0, Math.min(1, (raw + 2) / 12)), { duration: 90 });
+    const lvl = Math.max(0, Math.min(1, (raw + 2) / 12));
+    volPeak.current = Math.max(lvl, volPeak.current * 0.975, 0.18);
+    vol.value = withTiming(Math.min(1, lvl / volPeak.current), { duration: 90 });
   });
   /** Остановить запись. sendIt — отправить сказанное сразу. */
   const stopVoice = useCallback((sendIt: boolean) => {
@@ -2165,7 +2168,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           <Glass
             radius={25}
             border={false}
-            style={{ flexDirection: "row", alignItems: "flex-end", gap: 8, padding: 8, overflow: "hidden" }}
+            style={{ flexDirection: "row", alignItems: "flex-end", gap: 8, padding: 8 }}
           >
             {/* во время диктовки слева не остаётся ничего: кнопка сжимается
                 в ноль, линия начинается от самой кромки капсулы */}
@@ -2294,7 +2297,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
                     pointerEvents="none"
                     style={[
                       {
-                        position: "absolute", width: 54, height: 54, borderRadius: 27,
+                        position: "absolute", width: 58, height: 58, borderRadius: 29,
                         borderWidth: 1.5, borderColor: theme.text,
                       },
                       ringStyle,
@@ -2656,6 +2659,7 @@ function RecWave({ api, color }: { api: React.MutableRefObject<((v: number) => v
   const buf = useRef<number[]>([]);
   const last = useRef(0);
   const sm = useRef(0);
+  const peak = useRef(0.18);
   const inn = useSharedValue(0);
 
   useEffect(() => {
@@ -2670,8 +2674,13 @@ function RecWave({ api, color }: { api: React.MutableRefObject<((v: number) => v
 
     let raw = Math.max(0, Math.min(1, (v + 2) / 12));
     if (raw < 0.06) raw = 0; // шумовой порог: тишина остаётся тишиной
-    const k = raw > sm.current ? 0.45 : 0.22;
-    sm.current = sm.current + (raw - sm.current) * k;
+    // На громком голосе сырой уровень упирался в 1 и все столбики замирали
+    // одной высотой. Держим плавающий пик и нормируем по нему — рисунок
+    // продолжает двигаться даже на крике.
+    peak.current = Math.max(raw, peak.current * 0.975, 0.18);
+    const rel = Math.min(1, raw / peak.current);
+    const k = rel > sm.current ? 0.45 : 0.22;
+    sm.current = sm.current + (rel - sm.current) * k;
 
     buf.current.push(sm.current);
     if (buf.current.length > MAX_BARS) buf.current.shift();
@@ -2818,20 +2827,19 @@ function Bubble({ msg, theme, onCopy, onShare, onEdit, onLongPress, showActions,
         </View>
       )}
       </Pressable>
-      {/* Не ушло — сообщение остаётся в чате, снизу красная «Повторить». */}
+      {/* Не ушло — слева от сообщения красный круг со значком отправки. */}
       {user && msg.failed ? (
         <Reanimated.View
           entering={FadeIn.duration(160)}
           exiting={FadeOut.duration(120)}
-          style={{ flexDirection: "row", justifyContent: "flex-end", marginTop: 6 }}
+          style={{ position: "absolute", left: -34, top: 6 }}
         >
           <Pressable
             onPress={() => onRetry?.(msg)}
             accessibilityLabel="Повторить отправку"
-            style={{ flexDirection: "row", alignItems: "center", gap: 6, height: 32, paddingHorizontal: 12, borderRadius: 16, backgroundColor: theme.danger }}
+            style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: theme.danger, alignItems: "center", justifyContent: "center" }}
           >
-            <AppIcon name="refresh" size={14} color="#fff" />
-            <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600", fontFamily: fonts.sansDemi }}>Повторить</Text>
+            <AppIcon name="refresh" size={15} strokeWidth={2.2} color="#fff" />
           </Pressable>
         </Reanimated.View>
       ) : null}
