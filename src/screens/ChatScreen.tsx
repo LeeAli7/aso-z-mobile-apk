@@ -808,10 +808,15 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     if (s.messages.some((m) => m.streaming)) return;
     if (!s.messages.some((m) => m.role === "assistant" && m.content)) return;
     titleTried.current.add(key);
+    if (getRun(s.id).ctrl) return; // ход ещё идёт
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 20000);
     void (async () => {
       try {
+        // Имя даём в самом конце хода: сначала ответ, инструменты, отправка —
+        // и только потом один запрос на название. Не отнимаем квоту у ответа.
+        await new Promise((r) => setTimeout(r, 2500));
+        if (getRun(s.id).ctrl) return; // за это время начался новый ход
         const { recentlyRateLimited } = await import("../core/gateway");
         if (recentlyRateLimited(45000)) return; // только что упёрлись в лимит — не добиваем
         const title = await suggestSessionTitle(model, s.messages as any, ctrl.signal);

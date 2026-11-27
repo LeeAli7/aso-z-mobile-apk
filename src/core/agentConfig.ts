@@ -40,7 +40,7 @@ const LEGACY_KEYS = {
 } as const;
 
 export const DEFAULT_AGENT_CONFIG: AgentConfig = {
-  maxTurns: 90,
+  maxTurns: 30,
   approvalsMode: "smart",
   approvalsTimeoutSec: 120,
   compressionEnabled: true,

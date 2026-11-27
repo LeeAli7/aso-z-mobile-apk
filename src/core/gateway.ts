@@ -349,7 +349,8 @@ export async function streamChat(
     // ── РЕТРАЙ при пустом ответе ──
     // Провайдер иногда молчит (пустое облачко). Если ответ не пришёл —
     // переподсоединяемся (до maxRetries раз), чтобы не отдавать пустоту.
-    if ((!resText || !resText.trim()) && !ctrl.signal.aborted && attempt < maxRetries) {
+    // Один повтор на пустой ответ. Больше — это лишние запросы в лимитную минуту.
+    if ((!resText || !resText.trim()) && !ctrl.signal.aborted && attempt < 1) {
       await new Promise((r) => setTimeout(r, 1200));
       continue;
     }
