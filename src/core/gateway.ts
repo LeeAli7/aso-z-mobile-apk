@@ -14,6 +14,7 @@ import { executeTool, toolNames } from "./tools";
 import { sanitizeToolHistory } from "./history";
 import { classifyError, retryWaitMs } from "./errors";
 import { shrinkMessages } from "./shrink";
+import { pickMaxOut } from "./modelLimits";
 
 /** Потолки токенов в минуту, которые провайдер назвал в ошибке (на модель). */
 const tpmLimits = new Map<string, number>();
@@ -471,7 +472,6 @@ export interface AgentRequestResult {
   usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
 }
 
-const MAX_AGENT_ITERATIONS = 8;
 
 export async function streamAgentChat(
   model: ModelInfo,
@@ -528,21 +528,19 @@ export async function streamAgentChat(
   let failedCalls = 0;
   let continuedAfterTool = 0;
 
-  // Лимит ходов и компрессия из конфига агента (Hermes: agent.max_turns, compression).
-  let maxIter = MAX_AGENT_ITERATIONS;
+  // Предела шагов больше нет: агент работает, пока не закончит задачу.
+  // Осталась только страховка от бесконечного цикла (модель ходит по кругу).
+  const HARD_GUARD = 500;
   let compressionOn = true;
   let compressionRatio = 1;
   try {
     const { loadAgentConfig } = await import("./agentConfig");
     const cfg = await loadAgentConfig();
-    // maxTurns — это ходы агента; тул-итерации не режем в 10 раз (было 9 шагов
-    // на дефолте), иначе длинная задача обрывалась на 8-м вызове инструмента.
-    maxIter = Math.max(30, Math.min(120, Math.ceil(cfg.maxTurns)));
     compressionOn = cfg.compressionEnabled;
     compressionRatio = cfg.compressionThreshold;
   } catch {}
 
-  for (let iter = 0; iter < maxIter; iter++) {
+  for (let iter = 0; ; iter++) {
     if (compressionOn) messages = compressContext(messages, compressionRatio);
     let r: AgentRequestResult;
     try {
@@ -699,13 +697,56 @@ export async function streamAgentChat(
         if (failedCalls >= 3) toolsEnabled = false;
       }
     }
-    // последняя итерация бюджета — просим финальный ответ без тулов
-    if (iter === maxIter - 1) toolsEnabled = false;
+    if (iter >= HARD_GUARD - 1) {
+      toolsEnabled = false;
+      callbacks.onDone(
+        lastText ||
+          "Остановился: за один ход набралось 500 шагов — похоже, я хожу по кругу. Скажи «продолжай», и я продолжу с этого места.",
+        messages,
+      );
+      return;
+    }
   }
 
   callbacks.onDone(lastText, messages);
 }
 
+
+
+/**
+ * Потолок ответа у моделей разный: у одних 4k, у других 8k/16k/64k.
+ * Спрашиваем у провайдера /models (OpenRouter/Groq/vLLM отдают
+ * max_completion_tokens, top_provider.max_completion_tokens или context_length)
+ * и запоминаем. Запрос идёт ФОНОМ: первый ответ не ждёт справочник, со второго
+ * запроса потолок уже известен.
+ */
+const outLimits = new Map<string, number>();
+const outProbed = new Set<string>();
+
+function prefetchMaxOut(model: ModelInfo): void {
+  const key = `${model.baseUrl}|${model.modelName}`;
+  if (outProbed.has(key) || isAnthropic(model.baseUrl)) return;
+  outProbed.add(key);
+  (async () => {
+    try {
+      const base = normalizeChatUrl(model.baseUrl).replace(/\/chat\/completions.*$/, "");
+      let url = `${base}/models`;
+      if (Platform.OS === "web") url = `${config.apiBase}/api/mobile/gw?url=${encodeURIComponent(url)}`;
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 4000);
+      const headers: Record<string, string> = { Accept: "application/json" };
+      if (model.apiKey) headers.Authorization = `Bearer ${model.apiKey}`;
+      const resp = await fetch(url, { headers, signal: ctrl.signal });
+      clearTimeout(timer);
+      if (!resp.ok) return;
+      const json: any = await resp.json();
+      const n = pickMaxOut(json, model.apiModel ?? model.modelName) ?? pickMaxOut(json, model.modelName);
+      if (n) outLimits.set(key, n);
+    } catch {
+      // нет справочника — остаёмся на 8192
+    }
+  })();
+}
 
 /** Один запрос к провайдеру: стриминг + накопление tool_calls. */
 async function agentRequest(
@@ -724,7 +765,11 @@ async function agentRequest(
   // никогда — даже с пустой историей. Поэтому ответ режем под лимит, а вход ужимаем.
   const knownTpm = tpmLimits.get(`${model.baseUrl}|${model.modelName}`);
   const toolsTokens = Math.ceil(JSON.stringify(tools).length / 3.5);
-  const maxOut = knownTpm ? Math.max(512, Math.min(2048, Math.floor(knownTpm / 3))) : 8192;
+  const knownOut = outLimits.get(`${model.baseUrl}|${model.modelName}`) ?? 8192;
+  if (!knownTpm) prefetchMaxOut(model);
+  const maxOut = knownTpm
+    ? Math.max(512, Math.min(knownOut, 2048, Math.floor(knownTpm / 3)))
+    : knownOut;
   if (knownTpm) {
     const budget = Math.max(1_200, knownTpm - maxOut - toolsTokens - 300);
     messages = shrinkMessages(messages, budget);

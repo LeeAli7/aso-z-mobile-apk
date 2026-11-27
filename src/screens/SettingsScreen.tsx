@@ -304,7 +304,7 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
 
   const depts: (DeptDef & { key: DeptKey })[] = [
     { key: "account", title: t("grp_acc"), sub: isSynced ? `@${state.profile?.username}` : t("not_connected"), icon: "send" },
-    { key: "agent", title: t("grp_agent"), sub: `max_turns ${prefs.maxTurns} · ${prefs.approvals}`, icon: "bolt" },
+    { key: "agent", title: t("grp_agent"), sub: `${prefs.approvals}`, icon: "bolt" },
     { key: "appearance", title: t("grp_appearance"), sub: `${state.theme} · ${state.lang}`, icon: "eye" },
     { key: "voice", title: t("grp_voice"), sub: `${prefs.sttProvider} · ${prefs.ttsProvider}`, icon: "mic" },
     { key: "memory", title: t("grp_memory"), sub: prefs.memoryEnabled === "1" ? t("connected") : t("not_connected"), icon: "bulb" },
@@ -417,15 +417,6 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
         {/* ── Агент (Hermes: max_turns, approvals, compression) ── */}
         {dept === "agent" && (
           <View style={{ borderRadius: 20, borderWidth: 1, borderColor: theme.border, overflow: "hidden" }}>
-            <View style={{ padding: 14, backgroundColor: theme.surface }}>
-              <Text style={{ color: theme.text, fontSize: 13.5, marginBottom: 8 }}>{t("agent_max_turns")}: {prefs.maxTurns}</Text>
-              <View style={{ flexDirection: "row", gap: 8 }}>
-                {(["30", "90", "200"] as const).map((v) => (
-                  <Chip key={v} label={v} active={prefs.maxTurns === v} onPress={() => setPref("maxTurns", v)} />
-                ))}
-              </View>
-            </View>
-            <DeptDivider theme={theme} />
             <View style={{ padding: 14, backgroundColor: theme.surface }}>
               <Text style={{ color: theme.text, fontSize: 13.5, marginBottom: 8 }}>{t("approvals_mode")}</Text>
               <View style={{ flexDirection: "row", gap: 8 }}>
