@@ -349,6 +349,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   const pressAt = useRef(0);
   const pressStarted = useRef(false);
   const stopAt = useRef(0);
+  const lastOut = useRef(0);
   const tapMode = useRef(false);
   const pendingSend = useRef(false);
   const textRef = useRef("");
@@ -558,6 +559,10 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   }, [startVoice]);
 
   const onMicPressOut = useCallback(() => {
+    // Кнопка может уехать под пальцем (перестроение капсулы) — тогда система
+    // присылает onPressOut дважды. Второй не должен гасить начатую запись.
+    if (Date.now() - lastOut.current < 260) return;
+    lastOut.current = Date.now();
     if (!recOnRef.current) return;
     if (!pressStarted.current) {
       stopVoice(true);
@@ -1883,7 +1888,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         <LinearGradient
           pointerEvents="none"
           colors={fadeStops(theme.bg)}
-          style={{ position: "absolute", top: insets.top + 54, left: 0, right: 0, height: 96 }}
+          style={{ position: "absolute", top: insets.top + 54, left: 0, right: 0, height: 32 }}
         />
         {/* Сплошная полоса под шапкой: градиент начинается с неё без стыка */}
         <View
@@ -2026,7 +2031,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           windowSize={7}
           contentContainerStyle={{
             padding: 16,
-            paddingTop: insets.top + 128,
+            paddingTop: insets.top + 96,
             // капсула ввода плавает поверх списка: оставляем ровно её высоту,
             // чтобы последнее сообщение можно было доскроллить над капсулой
             paddingBottom: compPadBottom + 80,
@@ -2339,7 +2344,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             {/* Live-режим: справа от микрофона. Как только в поле появился
                 текст — голос и live убираются целиком, а отправка встаёт
                 на место live, в самый правый слот капсулы. */}
-            {!recording && !text.trim() && !isStreaming(active?.id) ? (
+            {!text.trim() && !isStreaming(active?.id) ? (
             <Reanimated.View
               entering={FadeIn.duration(130)}
               exiting={FadeOut.duration(100)}
