@@ -1889,8 +1889,8 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             таблицах он не читается полосой. */}
         <LinearGradient
           pointerEvents="none"
-          colors={fadeStops(theme.bg, (insets.top + 50) / (insets.top + 64))}
-          style={{ position: "absolute", top: 0, left: 0, right: 0, height: insets.top + 64 }}
+          colors={fadeStops(theme.bg, (insets.top + 8) / (insets.top + 22))}
+          style={{ position: "absolute", top: 0, left: 0, right: 0, height: insets.top + 22 }}
         />
         <View
           pointerEvents="box-none"
