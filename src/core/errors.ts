@@ -8,7 +8,7 @@
  *
  * Тексты живут в i18n: здесь только ключи, поэтому ошибки сразу двуязычные.
  */
-import { t, type Translation } from "../i18n";
+import { t, type Translation } from "../i18n/index";
 
 export type ErrorKind =
   | "limit"
@@ -39,6 +39,8 @@ export type ErrorInfo = {
   maxAttempts: number;
   /** Сколько ждать перед повтором, если провайдер сам сказал. */
   retryAfterMs?: number;
+  /** Провайдер назвал потолок токенов в минуту — под него надо ужать запрос. */
+  limitTokens?: number;
 };
 
 type Opts = {
@@ -52,6 +54,7 @@ type Opts = {
   retryAfterMs?: number;
   /** Сырой текст провайдера — показываем вместо шаблона, если он полезнее. */
   detail?: string;
+  limitTokens?: number;
 };
 
 function mk(o: Opts): ErrorInfo {
@@ -67,6 +70,7 @@ function mk(o: Opts): ErrorInfo {
     retryable: o.retryable ?? false,
     maxAttempts: o.maxAttempts ?? 0,
     retryAfterMs: o.retryAfterMs,
+    limitTokens: o.limitTokens,
   };
 }
 
@@ -126,14 +130,36 @@ export function classifyError(raw: string, fallbackTitle = ""): ErrorInfo {
   const detail = bodyOf(s);
   const after = retryAfterFrom(s);
 
+  // ── Потолок токенов в минуту (Groq: 413 + "tokens per minute (TPM): Limit 8000",
+  // OpenAI: 429 + "tokens per min") — это ВРЕМЕННЫЙ лимит, но повторять его
+  // вслепую бессмысленно: запрос всё равно не пролезет. Надо ужать и повторить.
+  const tpm = low.match(/(?:tokens? per minute|\btpm\b)[^]{0,120}?limit\s*(\d{3,})/i);
+  if (tpm || /rate_limit_exceeded/i.test(low) && /tokens? per minute/i.test(low)) {
+    return mk({
+      kind: "limit",
+      code: "TPM",
+      titleKey: "err_tpm_title",
+      detailKey: "err_tpm_detail",
+      params: { n: tpm ? Number(tpm[1]).toLocaleString("ru-RU") : "" },
+      retryable: true,
+      maxAttempts: 2,
+      limitTokens: tpm ? Number(tpm[1]) : undefined,
+    });
+  }
+
   if (/abort|cancel/i.test(low) && !/\d{3}/.test(s)) {
     return mk({ kind: "unknown", code: "STOP", titleKey: "err_abort_title", detailKey: "err_abort_detail" });
   }
 
   // Квота/баланс/оплата — повтор не поможет, только пополнение или другой ключ.
   // Но «quota exceeded ... per minute» у Google — это лимит частоты, а не баланс.
-  const perWindow = /per (?:minute|second|day)|requests per|rpm|tpm|resource[_ ]exhausted/i.test(low);
-  if (code === "402" || (QUOTA_RE.test(low) && !perWindow)) {
+  // «в минуту/секунду» — временный лимит; «в день / free tier» — дневная квота,
+  // её ждать бессмысленно (Google: free_tier_requests, limit: 20).
+  const perMinute = /per minute|per min\b|per second|requests per minute|\brpm\b|\btpm\b|tokens? per minute|resource[_ ]exhausted/i.test(low);
+  const daily = /per day|per-day|daily|free[_ ]tier|free tier|requests per day/i.test(low);
+  // дневная квота — только если провайдер не назвал срок повтора;
+  // «retry in 12.3s» при free_tier — это минутный лимит, его ждём
+  if (code === "402" || (daily && !perMinute && !after) || (QUOTA_RE.test(low) && !perMinute && !daily)) {
     return mk({ kind: "quota", code: code || "QUOTA", titleKey: "err_quota_title", detailKey: "err_quota_detail" });
   }
 

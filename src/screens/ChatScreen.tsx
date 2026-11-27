@@ -1405,7 +1405,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           }
         }
       };
-      const onError = (err: string) => {
+      const onError = (err: string, partial?: any[]) => {
         markStreaming(sid, false);
         if (getRun(sid).stop) return; // abort по Стоп — не показываем ошибку
         closeMsg(thinkId);
@@ -1427,6 +1427,20 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         }
         // Провал виден в чате: сообщение остаётся, рядом появляется «Повторить».
         dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: userMsgId, patch: { failed: true } });
+        // Даже при сбое сохраняем то, что агент успел сделать: иначе следующий
+        // ход начинается «с чистого листа» и модель отвечает «привет».
+        if (Array.isArray(partial) && partial.length > 0) {
+          const trimmed = sanitizeToolHistory(
+            partial
+              .filter((m) => m.role !== "system")
+              .slice(-30)
+              .map((m) => {
+                const c = typeof m.content === "string" ? m.content : "";
+                return c.length > 6000 ? { ...m, content: c.slice(0, 6000) + "\n…(обрезано)" } : m;
+              }),
+          );
+          dispatch({ type: "UPDATE_SESSION", sessionId: sid, patch: { agentHistory: trimmed } });
+        }
         showError(err);
       };
 

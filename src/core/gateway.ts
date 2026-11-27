@@ -13,6 +13,10 @@ import { config } from "./env";
 import { executeTool, toolNames } from "./tools";
 import { sanitizeToolHistory } from "./history";
 import { classifyError, retryWaitMs } from "./errors";
+import { shrinkMessages } from "./shrink";
+
+/** Потолки токенов в минуту, которые провайдер назвал в ошибке (на модель). */
+const tpmLimits = new Map<string, number>();
 import { anthropicHeaders, isAnthropic, messagesUrl, readAnthropicStream, toAnthropicBody } from "./anthropic";
 
 export interface ModelInfo {
@@ -190,7 +194,7 @@ export async function streamChat(
     if (!resp.ok) {
       let body = "";
       try { body = await resp.text(); } catch {}
-      const raw = `HTTP ${resp.status}${body ? `: ${body.slice(0, 400)}` : ""}`;
+      const raw = `HTTP ${resp.status}${body ? `: ${body.slice(0, 800)}` : ""}`;
       const info = classifyError(raw, "Ошибка запроса");
       if (info.kind === "limit") last429At = Date.now();
       if (info.retryable && attempt < info.maxAttempts) {
@@ -410,7 +414,7 @@ export interface AgentCallbacks {
   /** Тул завершился — UI закрывает пульсацию и показывает результат. */
   onToolResult?: (call: AgentToolCall, ok: boolean, result: string, brokenCall?: boolean) => void;
   onDone: (finalText: string, messages: ChatMessage[]) => void;
-  onError: (message: string) => void;
+  onError: (message: string, partial?: any[]) => void;
 }
 
 /** Доп. контекст агентского хода (для тулов, требующих UI/модель). */
@@ -548,7 +552,7 @@ export async function streamAgentChat(
         callbacks.onDone(lastText, messages);
         return;
       }
-      callbacks.onError(e instanceof Error ? e.message : String(e));
+      callbacks.onError(e instanceof Error ? e.message : String(e), messages);
       return;
     }
 
@@ -563,7 +567,7 @@ export async function streamAgentChat(
         tailRetries++;
         continue;
       }
-      callbacks.onError("Провайдер отклонил запрос с инструментами (HTTP 400). Попробуйте ещё раз.");
+      callbacks.onError("Провайдер отклонил запрос с инструментами (HTTP 400). Попробуйте ещё раз.", messages);
       return;
     }
 
@@ -702,6 +706,7 @@ export async function streamAgentChat(
   callbacks.onDone(lastText, messages);
 }
 
+
 /** Один запрос к провайдеру: стриминг + накопление tool_calls. */
 async function agentRequest(
   model: ModelInfo,
@@ -714,11 +719,21 @@ async function agentRequest(
   if (Platform.OS === "web") {
     endpoint = `${config.apiBase}/api/mobile/gw?url=${encodeURIComponent(endpoint)}`;
   }
+  // Потолок токенов в минуту (если провайдер уже сказал) считает ВХОД + запрошенный
+  // ответ. С max_tokens 8192 запрос на модель с лимитом 8000 TPM не проходит
+  // никогда — даже с пустой историей. Поэтому ответ режем под лимит, а вход ужимаем.
+  const knownTpm = tpmLimits.get(`${model.baseUrl}|${model.modelName}`);
+  const toolsTokens = Math.ceil(JSON.stringify(tools).length / 3.5);
+  const maxOut = knownTpm ? Math.max(512, Math.min(2048, Math.floor(knownTpm / 3))) : 8192;
+  if (knownTpm) {
+    const budget = Math.max(1_200, knownTpm - maxOut - toolsTokens - 300);
+    messages = shrinkMessages(messages, budget);
+  }
   const payload: Record<string, unknown> = {
     model: apiModelName(model.apiModel ?? model.modelName),
     messages,
     temperature: model.temperature ?? 0.7,
-    max_tokens: 8192,
+    max_tokens: maxOut,
     stream: true,
     stream_options: { include_usage: true },
   };
@@ -733,9 +748,8 @@ async function agentRequest(
         Accept: "text/event-stream",
       };
   if (!anth && model.apiKey) headers.Authorization = `Bearer ${model.apiKey}`;
-  const wireBody = anth ? toAnthropicBody(payload) : payload;
-
   for (let attempt = 0; ; attempt++) {
+  const wireBody = anth ? toAnthropicBody({ ...payload, messages }) : { ...payload, messages };
   let resp: Response;
   try {
     resp = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(wireBody), signal });
@@ -752,9 +766,18 @@ async function agentRequest(
   if (!resp.ok) {
     let body = "";
     try { body = await resp.text(); } catch {}
-    const raw = `HTTP ${resp.status}${body ? `: ${body.slice(0, 400)}` : ""}`;
+    const raw = `HTTP ${resp.status}${body ? `: ${body.slice(0, 800)}` : ""}`;
     const info = classifyError(raw, "Ошибка запроса");
     if (info.kind === "limit") last429At = Date.now();
+    if (info.limitTokens) {
+      // запрос физически не пролезет в минутный потолок — ждать бесполезно,
+      // ужимаем историю (начало сохраняем) и повторяем сразу
+      tpmLimits.set(`${model.baseUrl}|${model.modelName}`, info.limitTokens);
+      const before = messages.length;
+      messages = shrinkMessages(messages, info.limitTokens);
+      console.warn(`[gateway] TPM ${info.limitTokens}: ужал историю ${before} → ${messages.length} сообщений, повторяю`);
+      continue;
+    }
     if (info.retryable && attempt < info.maxAttempts) {
       const wait = retryWaitMs(info, attempt);
       console.warn(`[gateway] ${info.kind} ${resp.status}: повтор ${attempt + 1}/${info.maxAttempts} через ${Math.round(wait / 1000)} с`);

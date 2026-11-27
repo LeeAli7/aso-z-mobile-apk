@@ -331,7 +331,7 @@ registerTool({
     "прочитать результат выполнения. Команды выполняются по одной; дожидайся вывода. " +
     "Долгие процессы (дев-сервер, локальный холст, vite/next/http.server, watch-режим) НЕ жди: они не завершаются. " +
     "Для них передавай background=true — процесс поднимется в фоне, вернутся pid и первые строки вывода (порт/адрес). " +
-    "Обычная команда ограничена тайм-аутом (по умолчанию 120 с, можно изменить через timeout_ms); " +
+    "Обычная команда ограничена тайм-аутом (по умолчанию 300 с, можно изменить через timeout_ms); " +
     "если команда не уложилась — она останавливается и возвращается честная ошибка, а не вечное ожидание.",
   parameters: {
     type: "object",
@@ -389,7 +389,7 @@ registerTool({
       );
     }
 
-    const timeout = Math.min(600_000, Math.max(5_000, Number(args.timeout_ms) || 120_000));
+    const timeout = Math.min(600_000, Math.max(5_000, Number(args.timeout_ms) || 300_000));
     const r = await runCommandCapture(cmd, ctx.projectId, cwdArg, 4000, timeout);
     if (r.ok) {
       const out = r.output?.trim();
