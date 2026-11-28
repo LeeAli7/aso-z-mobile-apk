@@ -76,9 +76,10 @@ export function planBudget(o: {
   /** История, символы (переводим в токены ~3.5 символа на токен). */
   historyChars: number;
 }): { maxOut: number; historyBudget?: number } {
-  // Потолок неизвестен: 4096 — безопасный компромисс (хватает на файл в
-  // несколько сотен строк и проходит почти на любом бесплатном тарифе).
-  if (!o.tpm) return { maxOut: 4096 };
+  // Потолок неизвестен: 8192. Меньший потолок обрезает аргументы write_file
+  // на больших файлах (битый JSON → модель бросает инструмент и присылает код
+  // в чат), а это хуже одного честного 413, после которого лимит уже известен.
+  if (!o.tpm) return { maxOut: 8192 };
 
   const fixed = o.toolsTokens + o.sysTokens;
   const histTokens = Math.ceil(Math.max(0, o.historyChars) / 3.5);

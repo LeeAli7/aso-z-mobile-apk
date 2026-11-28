@@ -10,7 +10,7 @@ import { decrypt } from "./crypto";
 import { apiModelName, normalizeChatUrl } from "./url";
 import { Platform } from "react-native";
 import { config } from "./env";
-import { executeTool, toolNames } from "./tools";
+import { executeTool, isKnownTool, toolNames } from "./tools";
 import { sanitizeToolHistory } from "./history";
 import { classifyError, retryWaitMs } from "./errors";
 import { shrinkMessages } from "./shrink";
@@ -705,7 +705,7 @@ export async function streamAgentChat(
     // порядке вызовов; битые аргументы и упавший инструмент возвращаются модели
     // результатом tool, без отдельного user-сообщения и лишнего круга.
     const stepResults = await runToolStep(r.calls, {
-      known: (n) => toolNames().includes(String(n)),
+      known: (n) => isKnownTool(String(n)),
       onCall: (c) => callbacks.onToolCall?.(c as any),
       // карточка инструмента обновляется сразу, как только он отработал —
       // не ждём самый медленный вызов шага
@@ -719,10 +719,11 @@ export async function streamAgentChat(
           `аргументы — валидный JSON-объект. Если инструмент не подходит — ответь словами, без вызова.]`
         : it.result;
       messages.push({ role: "tool", tool_call_id: it.call.id, name: it.call.name, content });
-      if (it.broken) {
-        failedCalls++;
-        if (failedCalls >= 3) toolsEnabled = false;
-      }
+      if (it.broken) failedCalls++;
+      // Инструменты за ход больше НЕ выключаем: три неудачных вызова (частая
+      // реакция слабых моделей на первый отказ) оставляли агента без рук до
+      // конца хода, и он присылал код в чат вместо файла. Зацикливание ловит
+      // детектор повторов, а не отключение инструментов.
     }
     if (repeatCount === 3) {
       messages.push({

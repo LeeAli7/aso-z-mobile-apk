@@ -98,6 +98,15 @@ export function toolNames(): string[] {
   return [...registry.keys()];
 }
 
+/** Известен ли такой инструмент — включая синонимы (bash/glob/write/…).
+ * Нужен шагу инструментов: без него вызов `bash` считался «чужым именем»
+ * и после трёх таких ход оставался вообще без инструментов — модель
+ * начинала присылать код в чат вместо создания файла. */
+export function isKnownTool(name: string): boolean {
+  const n = String(name ?? "").toLowerCase();
+  return registry.has(n) || ALIAS_NAMES.has(n);
+}
+
 /** Исполнить тул (Hermes: ошибки тоже возвращаются модели, агент продолжает).
  * Фаза 1: тулсет-гейт — тул выключенного сета не исполняется (модель могла
  * получить все дефы: ChatScreen зовёт синхронный getToolDefs()).
