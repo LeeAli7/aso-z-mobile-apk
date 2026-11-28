@@ -16,6 +16,7 @@ import { classifyError, retryWaitMs } from "./errors";
 import { shrinkMessages } from "./shrink";
 import { pickMaxOut } from "./modelLimits";
 import { runToolStep } from "./toolStep";
+import { planRetry } from "./retryPlan";
 
 /** Потолки токенов в минуту, которые провайдер назвал в ошибке (на модель). */
 const tpmLimits = new Map<string, number>();
@@ -744,7 +745,7 @@ function prefetchMaxOut(model: ModelInfo): void {
 }
 
 /** Один запрос к провайдеру: стриминг + накопление tool_calls. */
-async function agentRequest(
+export async function agentRequest(
   model: ModelInfo,
   messages: any[],
   tools: { type: "function"; function: unknown }[],
@@ -755,30 +756,8 @@ async function agentRequest(
   if (Platform.OS === "web") {
     endpoint = `${config.apiBase}/api/mobile/gw?url=${encodeURIComponent(endpoint)}`;
   }
-  // Потолок токенов в минуту (если провайдер уже сказал) считает ВХОД + запрошенный
-  // ответ. С max_tokens 8192 запрос на модель с лимитом 8000 TPM не проходит
-  // никогда — даже с пустой историей. Поэтому ответ режем под лимит, а вход ужимаем.
-  const knownTpm = tpmLimits.get(`${model.baseUrl}|${model.modelName}`);
+  let tpmTries = 0;
   const toolsTokens = Math.ceil(JSON.stringify(tools).length / 3.5);
-  const knownOut = outLimits.get(`${model.baseUrl}|${model.modelName}`) ?? 8192;
-  if (!knownTpm) prefetchMaxOut(model);
-  const maxOut = knownTpm
-    ? Math.max(512, Math.min(knownOut, 2048, Math.floor(knownTpm / 3)))
-    : knownOut;
-  if (knownTpm) {
-    const budget = Math.max(1_200, knownTpm - maxOut - toolsTokens - 300);
-    messages = shrinkMessages(messages, budget);
-  }
-  const payload: Record<string, unknown> = {
-    model: apiModelName(model.apiModel ?? model.modelName),
-    messages,
-    temperature: model.temperature ?? 0.7,
-    max_tokens: maxOut,
-    stream: true,
-    stream_options: { include_usage: true },
-  };
-  if (tools.length) payload.tools = tools;
-
   const headers: Record<string, string> = anth
     ? anthropicHeaders(model.apiKey)
     : {
@@ -789,6 +768,31 @@ async function agentRequest(
       };
   if (!anth && model.apiKey) headers.Authorization = `Bearer ${model.apiKey}`;
   for (let attempt = 0; ; attempt++) {
+    // Потолок ответа и бюджет ВХОДА считаем НА КАЖДОЙ попытке. Раньше это
+    // делалось один раз: провайдер отвечал «Limit 8000 TPM, Requested 9035»,
+    // лимит запоминался, но повтор уходил с тем же max_tokens 8192 — и так по
+    // кругу. Теперь после первого 413 ответ уже 2048, а вход ужат под бюджет.
+    const key = `${model.baseUrl}|${model.modelName}`;
+    const knownTpm = tpmLimits.get(key);
+    const knownOut = outLimits.get(key) ?? 8192;
+    if (!knownTpm) prefetchMaxOut(model);
+    const maxOut = knownTpm
+      ? Math.max(512, Math.min(knownOut, 2048, Math.floor(knownTpm / 3)))
+      : knownOut;
+    if (knownTpm) {
+      const budget = Math.max(1_200, knownTpm - maxOut - toolsTokens - 300);
+      messages = shrinkMessages(messages, budget);
+    }
+    const payload: Record<string, unknown> = {
+      model: apiModelName(model.apiModel ?? model.modelName),
+      messages,
+      temperature: model.temperature ?? 0.7,
+      max_tokens: maxOut,
+      stream: true,
+      stream_options: { include_usage: true },
+    };
+    if (tools.length) payload.tools = tools;
+
   const wireBody = anth ? toAnthropicBody({ ...payload, messages }) : { ...payload, messages };
   let resp: Response;
   try {
@@ -809,23 +813,42 @@ async function agentRequest(
     const raw = `HTTP ${resp.status}${body ? `: ${body.slice(0, 800)}` : ""}`;
     const info = classifyError(raw, "Ошибка запроса");
     if (info.kind === "limit") last429At = Date.now();
-    if (info.limitTokens) {
-      // запрос физически не пролезет в минутный потолок — ждать бесполезно,
-      // ужимаем историю (начало сохраняем) и повторяем сразу
-      tpmLimits.set(`${model.baseUrl}|${model.modelName}`, info.limitTokens);
-      const before = messages.length;
-      messages = shrinkMessages(messages, info.limitTokens);
-      console.warn(`[gateway] TPM ${info.limitTokens}: ужал историю ${before} → ${messages.length} сообщений, повторяю`);
+    // Решение «повторять или сдаваться» принимает planRetry: у ветки TPM был
+    // безусловный continue, и если история уже не ужималась, приложение молотило
+    // один и тот же запрос всю ночь (3703 попытки, дневная квота Groq в ноль).
+    const shrunk = info.limitTokens ? shrinkMessages(messages, info.limitTokens) : null;
+    const reduced = shrunk
+      ? JSON.stringify(shrunk).length < JSON.stringify(messages).length * 0.95
+      : false;
+    const plan = planRetry({
+      attempt,
+      kind: info.kind,
+      retryable: info.retryable,
+      maxAttempts: info.maxAttempts,
+      limitTokens: info.limitTokens,
+      tpmTries,
+      shrinkReduced: reduced,
+      waitMs: retryWaitMs(info, attempt),
+      raw,
+    });
+    if (plan.action === "retry-now") {
+      tpmTries++;
+      if (shrunk && info.limitTokens) {
+        tpmLimits.set(`${model.baseUrl}|${model.modelName}`, info.limitTokens);
+        console.warn(
+          `[gateway] TPM ${info.limitTokens}: история ${messages.length} → ${shrunk.length} сообщений, повторяю (${tpmTries}/2)`,
+        );
+        messages = shrunk;
+      }
       continue;
     }
-    if (info.retryable && attempt < info.maxAttempts) {
-      const wait = retryWaitMs(info, attempt);
-      console.warn(`[gateway] ${info.kind} ${resp.status}: повтор ${attempt + 1}/${info.maxAttempts} через ${Math.round(wait / 1000)} с`);
-      await new Promise((r) => setTimeout(r, wait));
+    if (plan.action === "retry-wait") {
+      console.warn(`[gateway] ${info.kind} ${resp.status}: повтор ${attempt + 1}/${info.maxAttempts} через ${Math.round(plan.waitMs / 1000)} с`);
+      await new Promise((r) => setTimeout(r, plan.waitMs));
       continue;
     }
     console.warn("[gateway] запрос отклонён:", raw);
-    throw new Error(raw);
+    throw new Error(plan.error);
   }
   if (resp.body == null) {
     if (attempt < 2) {

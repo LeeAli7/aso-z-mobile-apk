@@ -159,7 +159,10 @@ export function classifyError(raw: string, fallbackTitle = ""): ErrorInfo {
   const daily = /per day|per-day|daily|free[_ ]tier|free tier|requests per day/i.test(low);
   // дневная квота — только если провайдер не назвал срок повтора;
   // «retry in 12.3s» при free_tier — это минутный лимит, его ждём
-  if (code === "402" || (daily && !perMinute && !after) || (QUOTA_RE.test(low) && !perMinute && !daily)) {
+  // «токенов в день» (Groq TPD) — суточная квота: даже с «try again in 8m» ждать
+  // бессмысленно, это не минутный лимит.
+  const perDayTokens = /tokens? per day|\btpd\b|per-day tokens/i.test(low);
+  if (code === "402" || perDayTokens || (daily && !perMinute && !after) || (QUOTA_RE.test(low) && !perMinute && !daily)) {
     return mk({ kind: "quota", code: code || "QUOTA", titleKey: "err_quota_title", detailKey: "err_quota_detail" });
   }
 
