@@ -43,7 +43,6 @@ import { ApertureSpin } from "../design-system/components/ApertureMark";
 import { useApp, genId, Msg, Session } from "../store/AppStore";
 import { ModelInfo, streamChat, streamAgentChat, ChatMessage, ChatPart, AgentToolCall } from "../core/gateway";
 import { buildAttachmentParts } from "../core/attachments";
-import { isStalled, STALL_FIRST_MS, STALL_RESUME_MS } from "../core/stall";
 import { sanitizeToolHistory } from "../core/history";
 import { suggestSessionTitle } from "../core/sessionTitle";
 import { setSessionTitleSink } from "../core/tools";
@@ -175,26 +174,34 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     return true;
   };
 
-  // Вернулись из фона — не ждём полного порога: если запрос молчит, значит
-  // сокет умер в фоне. Сразу рвём и говорим причину, иначе «отправил и тишина».
+  // Вернулись из фона. Мобильный случай, которого у OpenCode нет: у них агент
+  // живёт в серверном процессе и переживает отключение клиента, у нас — в
+  // процессе приложения, и ОС может прибить сокет. Если, пока нас не было,
+  // не пришло НИ ОДНОГО события (а отсутствовали мы дольше 3 с), соединение
+  // мертво: рвём и говорим причину, вместо вечного «отправлено».
   useEffect(() => {
+    let bgAt = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const sub = AppState.addEventListener("change", (st) => {
-      if (st !== "active") return;
-      const now = Date.now();
-      for (const id of Object.keys(streamingRef.current)) {
-        if (!streamingRef.current[id]) continue;
-        if (toolBusyRef.current[id]) continue;
-        if (!isStalled({
-          now,
-          lastBeat: lastBeatRef.current[id] ?? 0,
-          toolBusy: false,
-          limitMs: STALL_RESUME_MS,
-        })) continue;
-        stallReasonRef.current[id] = t("stalled_error");
-        try { runStateRef.current[id]?.ctrl?.abort(); } catch {}
-      }
+      if (st === "background" || st === "inactive") { bgAt = Date.now(); return; }
+      if (st !== "active" || !bgAt) return;
+      const away = Date.now() - bgAt;
+      bgAt = 0;
+      if (away < 3000) return;
+      // 3 с форы: события, доставленные пока мы спали, должны успеть дойти
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        const now = Date.now();
+        for (const id of Object.keys(streamingRef.current)) {
+          if (!streamingRef.current[id]) continue;
+          if (toolBusyRef.current[id]) continue;
+          if (now - (lastBeatRef.current[id] ?? 0) < 3000) continue;
+          stallReasonRef.current[id] = t("stalled_error");
+          try { runStateRef.current[id]?.ctrl?.abort(); } catch {}
+        }
+      }, 3000);
     });
-    return () => sub.remove();
+    return () => { sub.remove(); if (timer) clearTimeout(timer); };
   }, [t]);
   const markStreaming = (sid: string, on: boolean) => {
     streamingRef.current[sid] = on;
@@ -1268,22 +1275,6 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       let hadToolError = false;
       const ctrl = new AbortController();
       getRun(sid).ctrl = ctrl;
-      // Сторож тишины: провайдер умеет молчать без ошибки (сокет прибит в фоне,
-      // мёртвый шлюз). Снаружи это «отправил и ничего»: ни ответа, ни плашки,
-      // ни кнопки повтора. Через 45 с тишины рвём и говорим причину.
-      wd = setInterval(() => {
-        if (getRun(sid).stop) return;
-        if (!streamingRef.current[sid]) return;
-        if (!isStalled({
-          now: Date.now(),
-          lastBeat: lastBeatRef.current[sid] ?? 0,
-          toolBusy: !!toolBusyRef.current[sid],
-          limitMs: STALL_FIRST_MS,
-        })) return;
-        if (wd) clearInterval(wd);
-        stallReasonRef.current[sid] = t("stalled_error");
-        try { ctrl.abort(); } catch {}
-      }, 5000);
 
       const closeMsg = (id: string | null, patch: Record<string, unknown> = {}) => {
         if (id) dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: id, patch: { streaming: false, ...patch } });

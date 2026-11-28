@@ -19,6 +19,7 @@ import { runToolStep } from "./toolStep";
 import { planBudget, planRetry } from "./retryPlan";
 import { isGoogleEndpoint, sanitizeGoogleBody } from "./googleBody";
 import { looksLikeCodeDump } from "./codeDump";
+import { resolveTimeouts, humanMs, type TimeoutSettings } from "./timeouts";
 
 /** Потолки токенов в минуту, которые провайдер назвал в ошибке (на модель). */
 const tpmLimits = new Map<string, number>();
@@ -808,7 +809,15 @@ export async function agentRequest(
   messages: any[],
   tools: { type: "function"; function: unknown }[],
   signal: AbortSignal,
+  opts?: { timeouts?: TimeoutSettings },
 ): Promise<AgentRequestResult> {
+  // Таймауты — как в OpenCode: 5 минут до первых байт, 15 минут тишины в стриме.
+  const tmo = resolveTimeouts(opts?.timeouts);
+  // Свой контроллер, чтобы рвать запрос по таймауту, не отменяя чужой сигнал.
+  const ctrl = new AbortController();
+  const relayAbort = () => { try { ctrl.abort(); } catch {} };
+  if (signal.aborted) relayAbort();
+  else signal.addEventListener("abort", relayAbort);
   const anth = isAnthropic(model.baseUrl);
   let endpoint = anth ? messagesUrl(model.baseUrl) : normalizeChatUrl(model.baseUrl);
   if (Platform.OS === "web") {
@@ -864,12 +873,28 @@ export async function agentRequest(
   // санитайзер работал впустую.
   let wireBody: any = anth ? toAnthropicBody({ ...payload, messages }) : { ...payload, messages };
   if (!anth && isGoogleEndpoint(model.baseUrl)) wireBody = sanitizeGoogleBody(wireBody);
+  // headerTimeout (OpenCode: 5 минут) — сколько ждать первые байты.
+  let headerExpired = false;
+  const headerTimer =
+    tmo.headerTimeout === false
+      ? null
+      : setTimeout(() => {
+          headerExpired = true;
+          try { ctrl.abort(); } catch {}
+        }, tmo.headerTimeout);
   let resp: Response;
   try {
-    resp = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(wireBody), signal });
+    resp = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(wireBody), signal: ctrl.signal });
   } catch (e: unknown) {
+    if (headerExpired) {
+      throw new Error(
+        `Провайдер не ответил за ${humanMs(tmo.headerTimeout as number)} — соединение оборвано. Повтори запрос.`,
+      );
+    }
     if (signal.aborted) throw new Error("aborted");
     throw e;
+  } finally {
+    if (headerTimer) clearTimeout(headerTimer);
   }
 
   if (!resp.ok) {
@@ -964,8 +989,29 @@ export async function agentRequest(
   while (true) {
     let chunk: ReadableStreamReadResult<Uint8Array>;
     try {
-      chunk = await reader.read();
-    } catch {
+      // chunkTimeout (OpenCode: 15 минут тишины между кусками; DeepSeek просил
+      // не меньше, потому что модели молчат, пока думают).
+      const chunkMs = tmo.chunkTimeout;
+      if (chunkMs === false) {
+        chunk = await reader.read();
+      } else {
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        const guard = new Promise<never>((_, rej) => {
+          timer = setTimeout(
+            () => rej(new Error(`Провайдер молчит ${humanMs(chunkMs)} — оборвал стрим. Повтори.`)),
+            chunkMs,
+          );
+        });
+        try {
+          chunk = await Promise.race([reader.read(), guard]);
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
+      }
+    } catch (e: unknown) {
+      // Таймаут тишины — не «обрыв», а честная ошибка: иначе анти-обрыв
+      // начнёт дозапрашивать модель, которая всё равно молчит.
+      if (e instanceof Error && /молчит/.test(e.message)) throw e;
       // Обрыв чтения (сеть/провайдер упал) — это НЕ ошибка для пользователя:
       // возвращаем то, что накопилось, с finished=false → streamAgentChat сделает
       // дозапрос (анти-обрыв). Если сигнал отменён — тоже тихо завершаем цикл.
