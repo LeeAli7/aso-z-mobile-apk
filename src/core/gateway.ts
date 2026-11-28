@@ -18,6 +18,7 @@ import { pickMaxOut } from "./modelLimits";
 import { runToolStep } from "./toolStep";
 import { planBudget, planRetry } from "./retryPlan";
 import { isGoogleEndpoint, sanitizeGoogleBody } from "./googleBody";
+import { looksLikeCodeDump } from "./codeDump";
 
 /** Потолки токенов в минуту, которые провайдер назвал в ошибке (на модель). */
 const tpmLimits = new Map<string, number>();
@@ -519,6 +520,7 @@ export async function streamAgentChat(
   }
 
   let toolsEnabled = true;
+  let codeNudged = false;
   let lastText = "";
   let tailRetries = 0;
   const MAX_TAIL_RETRIES = 2;
@@ -630,6 +632,21 @@ export async function streamAgentChat(
     }
 
     if (r.calls.length === 0) {
+      // ── «Файл в чат» ──
+      // Инструменты есть, но модель ни разу их не позвала и вывалила код
+      // текстом. Один раз просим сделать файл по-человечески.
+      if (toolsEnabled && tools.length > 0 && toolsUsedInTurn === 0 && !codeNudged && looksLikeCodeDump(r.text || "")) {
+        codeNudged = true;
+        messages.push({ role: "assistant", content: r.text || "" });
+        messages.push({
+          role: "user",
+          content:
+            "[System: Ты вывел содержимое файла текстом в чат. Пользователю нужен ФАЙЛ, а не код в ответе. " +
+            "Создай его инструментом write_file (путь и имя — по задаче), при необходимости создай папку через run_command. " +
+            "В ответе — только что создано и где, без повторения кода.]",
+        });
+        continue;
+      }
       // ── Автопродолжение после инструментов ──
       // Если тул уже отработал, а модель ответила одной короткой строкой —
       // это чаще всего «показывает результат» вместо завершения задачи.
@@ -641,7 +658,7 @@ export async function streamAgentChat(
       // прогресс: дожимать её вторым и третьим запросом незачем (лишние
       // запросы в TPM и ровно то «дёрганье», которого не должно быть).
       const looksDone =
-        /готово|создан|сделал|сделано|записан|сохран|done|created|written|finished|complete/i.test(short);
+        /готово|создан|создал|сделал|сделано|записан|записал|сохран|done|created|written|finished|complete/i.test(short);
       if (toolsUsedInTurn > 0 && continuedAfterTool < 2 && short.length < 400 && !looksDone) {
         continuedAfterTool++;
         messages.push({ role: "assistant", content: short });

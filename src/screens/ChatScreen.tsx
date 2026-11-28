@@ -1490,6 +1490,10 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       // ── Путь Б (web/dev или провайдер без tools): обычный стрим + текстовые [CMD:].
       // гейт тулсетов: выключенные в настройках инструменты модель больше не видит
       const toolDefs = await getToolDefsGated();
+      // Диагностика: по этой строке видно, дали ли модели инструменты вообще.
+      console.log(
+        `[chat] ход: ${model.modelName} | инструментов: ${toolDefs.length} | рантайм: ${runtimeAvailable()}`,
+      );
       if (runtimeAvailable() && toolDefs.length > 0) {
         await streamAgentChat(
           model,
@@ -1538,6 +1542,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           { projectId: proj?.id, cwd: proj ? projectDirPath(proj.id) : undefined, onToolProgress: (msg) => { beat(sid); if (!getRun(sid).stop) setToolNote(msg); } },
         );
       } else {
+        console.warn("[chat] ход БЕЗ инструментов — модель может прислать код текстом вместо файла");
         await streamChat(model, chatMessages, {
           onToken,
           onThinking,
