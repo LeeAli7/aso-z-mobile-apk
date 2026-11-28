@@ -17,6 +17,7 @@ import { shrinkMessages } from "./shrink";
 import { pickMaxOut } from "./modelLimits";
 import { runToolStep } from "./toolStep";
 import { planBudget, planRetry } from "./retryPlan";
+import { isGoogleEndpoint, sanitizeGoogleBody } from "./googleBody";
 
 /** Потолки токенов в минуту, которые провайдер назвал в ошибке (на модель). */
 const tpmLimits = new Map<string, number>();
@@ -841,7 +842,11 @@ export async function agentRequest(
     };
     if (tools.length) payload.tools = tools;
 
-  const wireBody = anth ? toAnthropicBody({ ...payload, messages }) : { ...payload, messages };
+  // Тело собираем один раз, а под Google — чистим УЖЕ СОБРАННОЕ: иначе
+  // сообщения из payload перетирались исходными (с пустыми content) и
+  // санитайзер работал впустую.
+  let wireBody: any = anth ? toAnthropicBody({ ...payload, messages }) : { ...payload, messages };
+  if (!anth && isGoogleEndpoint(model.baseUrl)) wireBody = sanitizeGoogleBody(wireBody);
   let resp: Response;
   try {
     resp = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(wireBody), signal });
@@ -850,14 +855,16 @@ export async function agentRequest(
     throw e;
   }
 
-  if (resp.status === 400 && tools.length > 0 && !anth) {
-    // провайдер не поддерживает tools — вернём флаг для fallback
-    try { await resp.text(); } catch {}
-    return { text: "", reasoning: "", calls: [], toolsRejected: true };
-  }
   if (!resp.ok) {
     let body = "";
     try { body = await resp.text(); } catch {}
+    // 400 с инструментами = «провайдер не умеет tools» ТОЛЬКО если он про них
+    // и говорит. Раньше любой 400 (а Google на кривое тело отвечает просто
+    // «Request contains an invalid argument») молча выключал инструменты —
+    // агент оставался без рук и присылал код в чат вместо файла.
+    if (resp.status === 400 && tools.length > 0 && !anth && /tool|function|schema|function_call/i.test(body)) {
+      return { text: "", reasoning: "", calls: [], toolsRejected: true };
+    }
     const raw = `HTTP ${resp.status}${body ? `: ${body.slice(0, 800)}` : ""}`;
     const info = classifyError(raw, "Ошибка запроса");
     if (info.kind === "limit") last429At = Date.now();
@@ -896,6 +903,14 @@ export async function agentRequest(
       continue;
     }
     console.warn("[gateway] запрос отклонён:", raw);
+    if (resp.status === 400) {
+      // Google не говорит, что именно не так. Пишем в лог тело (без ключей —
+      // они в заголовках), чтобы причина была видна, а не угадывалась.
+      try {
+        const peek = JSON.stringify(wireBody);
+        console.warn("[gateway] 400 body:", peek.length > 1500 ? peek.slice(0, 1500) + "…" : peek);
+      } catch {}
+    }
     throw new Error(plan.error);
   }
   if (resp.body == null) {
