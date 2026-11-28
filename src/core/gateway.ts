@@ -16,7 +16,7 @@ import { classifyError, retryWaitMs } from "./errors";
 import { shrinkMessages } from "./shrink";
 import { pickMaxOut } from "./modelLimits";
 import { runToolStep } from "./toolStep";
-import { planRetry } from "./retryPlan";
+import { planBudget, planRetry } from "./retryPlan";
 
 /** Потолки токенов в минуту, которые провайдер назвал в ошибке (на модель). */
 const tpmLimits = new Map<string, number>();
@@ -776,12 +776,20 @@ export async function agentRequest(
     const knownTpm = tpmLimits.get(key);
     const knownOut = outLimits.get(key) ?? 8192;
     if (!knownTpm) prefetchMaxOut(model);
-    const maxOut = knownTpm
-      ? Math.max(512, Math.min(knownOut, 2048, Math.floor(knownTpm / 3)))
-      : knownOut;
-    if (knownTpm) {
-      const budget = Math.max(1_200, knownTpm - maxOut - toolsTokens - 300);
-      messages = shrinkMessages(messages, budget);
+    const historyChars = messages.reduce(
+      (s: number, m: any) => s + (typeof m.content === "string" ? m.content.length : 1_200),
+      0,
+    );
+    const budget = planBudget({
+      tpm: knownTpm,
+      toolsTokens,
+      sysTokens: Math.ceil(String(model.systemPrompt ?? "").length / 3.5),
+      historyChars,
+    });
+    const maxOut = Math.min(knownOut, budget.maxOut);
+    if (budget.historyBudget) {
+      // бюджет — в токенах, shrinkMessages ждёт токены
+      messages = shrinkMessages(messages, budget.historyBudget);
     }
     const payload: Record<string, unknown> = {
       model: apiModelName(model.apiModel ?? model.modelName),

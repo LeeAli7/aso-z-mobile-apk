@@ -56,3 +56,46 @@ export function planRetry(o: {
 
   return { action: "fail", error: o.raw };
 }
+
+/**
+ * Сколько токенов просить под ответ, чтобы запрос целиком влез в потолок
+ * провайдера (TPM = tokens per minute: вход + запрошенный ответ).
+ *
+ * Потолок ответа — это НЕ «сколько модель напишет», а «сколько ей разрешено».
+ * Просить 8192 на модели с лимитом 8000 TPM бессмысленно: один такой запрос
+ * больше всего лимита. Поэтому считаем бюджет от потолка и оставляем место
+ * под инструменты, системный промпт и историю.
+ */
+export function planBudget(o: {
+  /** Потолок провайдера в токенах в минуту (если известен). */
+  tpm?: number;
+  /** Схемы инструментов, токены. */
+  toolsTokens: number;
+  /** Системный промпт, токены. */
+  sysTokens: number;
+  /** История, символы (переводим в токены ~3.5 символа на токен). */
+  historyChars: number;
+}): { maxOut: number; historyBudget?: number } {
+  // Потолок неизвестен: 4096 — безопасный компромисс (хватает на файл в
+  // несколько сотен строк и проходит почти на любом бесплатном тарифе).
+  if (!o.tpm) return { maxOut: 4096 };
+
+  const fixed = o.toolsTokens + o.sysTokens;
+  const histTokens = Math.ceil(Math.max(0, o.historyChars) / 3.5);
+  // Ответ — не больше 40 % потолка и не больше 4096.
+  let maxOut = Math.min(4096, Math.max(512, Math.floor(o.tpm * 0.4)));
+  // Всё вместе должно влезть с запасом ~200 токенов на разметку.
+  const over = fixed + histTokens + maxOut + 200 - o.tpm;
+  if (over > 0) {
+    // сначала режем ответ, но не ниже 512
+    const cut = Math.min(over, maxOut - 512);
+    maxOut -= cut;
+    const rest = over - cut;
+    if (rest > 0) {
+      // потом историю — до 400 токенов, ниже смысла нет
+      const room = o.tpm - fixed - maxOut - 200;
+      return { maxOut, historyBudget: Math.max(400, room) };
+    }
+  }
+  return { maxOut };
+}
