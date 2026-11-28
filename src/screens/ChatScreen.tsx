@@ -43,6 +43,7 @@ import { ApertureSpin } from "../design-system/components/ApertureMark";
 import { useApp, genId, Msg, Session } from "../store/AppStore";
 import { ModelInfo, streamChat, streamAgentChat, ChatMessage, ChatPart, AgentToolCall } from "../core/gateway";
 import { buildAttachmentParts } from "../core/attachments";
+import { isStalled, STALL_FIRST_MS, STALL_RESUME_MS } from "../core/stall";
 import { sanitizeToolHistory } from "../core/history";
 import { suggestSessionTitle } from "../core/sessionTitle";
 import { setSessionTitleSink } from "../core/tools";
@@ -144,6 +145,10 @@ export function ChatScreen({ navigation }: { navigation: any }) {
   // так, что onError не позвали) не блокировал чат навсегда: с ним
   // sendText молча выходит, и сообщение пользователя просто НЕ появляется.
   const lastBeatRef = useRef<Record<string, number>>({});
+  // инструмент выполняется прямо сейчас — тишина в это время нормальна
+  const toolBusyRef = useRef<Record<string, boolean>>({});
+  // почему оборвали: «провайдер молчит», а не «aborted» в плашке
+  const stallReasonRef = useRef<Record<string, string>>({});
   const beat = (sid: string) => {
     lastBeatRef.current[sid] = Date.now();
   };
@@ -169,6 +174,28 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     }
     return true;
   };
+
+  // Вернулись из фона — не ждём полного порога: если запрос молчит, значит
+  // сокет умер в фоне. Сразу рвём и говорим причину, иначе «отправил и тишина».
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (st) => {
+      if (st !== "active") return;
+      const now = Date.now();
+      for (const id of Object.keys(streamingRef.current)) {
+        if (!streamingRef.current[id]) continue;
+        if (toolBusyRef.current[id]) continue;
+        if (!isStalled({
+          now,
+          lastBeat: lastBeatRef.current[id] ?? 0,
+          toolBusy: false,
+          limitMs: STALL_RESUME_MS,
+        })) continue;
+        stallReasonRef.current[id] = t("stalled_error");
+        try { runStateRef.current[id]?.ctrl?.abort(); } catch {}
+      }
+    });
+    return () => sub.remove();
+  }, [t]);
   const markStreaming = (sid: string, on: boolean) => {
     streamingRef.current[sid] = on;
     if (on) beat(sid);
@@ -1135,6 +1162,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       // оставался включённым навсегда, и следующий sendText молча выходил —
       // сообщение пользователя не появлялось в чате вообще (лечилось только
       // новым чатом). Теперь флаг снимается в любом случае.
+      let wd: ReturnType<typeof setInterval> | null = null;
       try {
       const cur = state.sessions.find((s) => s.id === sid);
       // ВАЖНО: включаем текущее сообщение в историю — иначе модель не видит вопрос.
@@ -1240,6 +1268,22 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       let hadToolError = false;
       const ctrl = new AbortController();
       getRun(sid).ctrl = ctrl;
+      // Сторож тишины: провайдер умеет молчать без ошибки (сокет прибит в фоне,
+      // мёртвый шлюз). Снаружи это «отправил и ничего»: ни ответа, ни плашки,
+      // ни кнопки повтора. Через 45 с тишины рвём и говорим причину.
+      wd = setInterval(() => {
+        if (getRun(sid).stop) return;
+        if (!streamingRef.current[sid]) return;
+        if (!isStalled({
+          now: Date.now(),
+          lastBeat: lastBeatRef.current[sid] ?? 0,
+          toolBusy: !!toolBusyRef.current[sid],
+          limitMs: STALL_FIRST_MS,
+        })) return;
+        if (wd) clearInterval(wd);
+        stallReasonRef.current[sid] = t("stalled_error");
+        try { ctrl.abort(); } catch {}
+      }, 5000);
 
       const closeMsg = (id: string | null, patch: Record<string, unknown> = {}) => {
         if (id) dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: id, patch: { streaming: false, ...patch } });
@@ -1333,6 +1377,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
         if (getRun(sid).stop) return;
         beat(sid);
         usedTools.add(call.name);
+        toolBusyRef.current[sid] = true;
         let label = "выполняю " + call.name;
         try {
           const a = JSON.parse(call.arguments || "{}");
@@ -1354,6 +1399,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       // Тул завершён: гасим пульсацию, показываем результат.
       const onToolResult = (_call: AgentToolCall, ok: boolean, result: string, brokenCall?: boolean) => {
         beat(sid);
+        toolBusyRef.current[sid] = false;
         if (getRun(sid).stop) return;
         const tid = toolIds[toolIdx++];
         if (!tid) return;
@@ -1449,6 +1495,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       const onError = (err: string, partial?: any[]) => {
         markStreaming(sid, false);
         if (getRun(sid).stop) return; // abort по Стоп — не показываем ошибку
+        if (/^aborted$/i.test(String(err ?? "").trim())) return; // это сторож, он объяснит сам
         closeMsg(thinkId);
         thinkId = null;
         // висящие карточки инструментов не должны пульсировать после ошибки
@@ -1553,10 +1600,14 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       } catch (e: any) {
         // Ход упал мимо onError — показываем причину и оставляем сообщение с
         // кнопкой повтора, а не тишину.
-        console.warn("[chat] ход упал мимо onError:", e?.message ?? e);
+        const stall = stallReasonRef.current[sid];
+        delete stallReasonRef.current[sid];
+        if (!stall) console.warn("[chat] ход упал мимо onError:", e?.message ?? e);
         dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: userMsgId, patch: { failed: true } });
-        if (!getRun(sid).stop) showError(String(e?.message ?? e));
+        if (!getRun(sid).stop) showError(stall || String(e?.message ?? e));
       } finally {
+        if (wd) clearInterval(wd);
+        toolBusyRef.current[sid] = false;
         markStreaming(sid, false);
         getRun(sid).ctrl = null;
       }
