@@ -139,9 +139,40 @@ export function ChatScreen({ navigation }: { navigation: any }) {
     if (!runStateRef.current[sid]) runStateRef.current[sid] = { stop: false, ctrl: null };
     return runStateRef.current[sid];
   };
-  const isStreaming = (sid?: string | null) => (sid ? !!streamingRef.current[sid] : false);
+  // Последняя «жизненная» отметка стрима: токен, размышление, вызов
+  // инструмента, прогресс команды. Нужна, чтобы застрявший флаг (запрос упал
+  // так, что onError не позвали) не блокировал чат навсегда: с ним
+  // sendText молча выходит, и сообщение пользователя просто НЕ появляется.
+  const lastBeatRef = useRef<Record<string, number>>({});
+  const beat = (sid: string) => {
+    lastBeatRef.current[sid] = Date.now();
+  };
+  const STREAM_STALE_MS = 180_000;
+  const isStreaming = (sid?: string | null) => {
+    if (!sid || !streamingRef.current[sid]) return false;
+    const last = lastBeatRef.current[sid] ?? 0;
+    const run = runStateRef.current[sid];
+    // Живой стрим всегда держит контроллер. Нет контроллера (или он уже
+    // прерван) и 5 секунд тишины — флаг осиротел, снимаем сразу, не ждём три
+    // минуты: иначе первое же сообщение после сбоя просто не отправится.
+    const noCtrl = !run?.ctrl || run.ctrl.signal.aborted;
+    if ((noCtrl && last && Date.now() - last > 5_000) || (last && Date.now() - last > STREAM_STALE_MS)) {
+      // три минуты ни одного события — это не работа, а мёртвый флаг
+      streamingRef.current[sid] = false;
+      const r = runStateRef.current[sid];
+      if (r) {
+        r.stop = true;
+        try { r.ctrl?.abort(); } catch {}
+        r.ctrl = null;
+      }
+      return false;
+    }
+    return true;
+  };
   const markStreaming = (sid: string, on: boolean) => {
     streamingRef.current[sid] = on;
+    if (on) beat(sid);
+    else delete lastBeatRef.current[sid];
     setStreamingSessions((p) => ({ ...p, [sid]: on }));
     // Основной агент — НЕ фоновая задача: ни в счётчике, ни в шторке.
     // Индикатор и окно процессов показывают только реальный фон
@@ -1099,6 +1130,12 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       // отправил сообщение — принудительно вниз, даже если читал историю выше
       stickBottom(true);
 
+      // Всё, что ниже, может бросить исключение (файлы вложений, подготовка
+      // инструментов, сбой провайдера). Без этого блока флаг streaming
+      // оставался включённым навсегда, и следующий sendText молча выходил —
+      // сообщение пользователя не появлялось в чате вообще (лечилось только
+      // новым чатом). Теперь флаг снимается в любом случае.
+      try {
       const cur = state.sessions.find((s) => s.id === sid);
       // ВАЖНО: включаем текущее сообщение в историю — иначе модель не видит вопрос.
       // Вложения (фото/файл) превращаются в части сообщения (vision/текст).
@@ -1213,6 +1250,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       // поэтому текст агента всегда остаётся на своём месте в цепочке.
       const onToken = (tok: string) => {
         if (getRun(sid).stop) return;
+        beat(sid);
         acc += tok;
         textAcc += tok;
         // как и в обычном пути: экран не чаще ~18 раз в секунду, иначе
@@ -1273,6 +1311,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       // её к текстовому сообщению: она рендерится НАД ответом, а не отдельным блоком снизу.
       const onThinking = (thinking: string) => {
         if (getRun(sid).stop) return;
+        beat(sid);
         // Порядок «раздумья → ответ» должен быть ВСЕГДА, даже если провайдер
         // отдал reasoning-чанки уже после первых токенов ответа (бывает у
         // reasoning-моделей и при ретраях): в этом случае думалка приклеивается
@@ -1292,6 +1331,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       // думалка гаснет (анимации — только у активного шага), создаём карточку тула с пульсацией.
       const onToolCall = (call: AgentToolCall) => {
         if (getRun(sid).stop) return;
+        beat(sid);
         usedTools.add(call.name);
         let label = "выполняю " + call.name;
         try {
@@ -1313,6 +1353,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
       };
       // Тул завершён: гасим пульсацию, показываем результат.
       const onToolResult = (_call: AgentToolCall, ok: boolean, result: string, brokenCall?: boolean) => {
+        beat(sid);
         if (getRun(sid).stop) return;
         const tid = toolIds[toolIdx++];
         if (!tid) return;
@@ -1494,7 +1535,7 @@ export function ChatScreen({ navigation }: { navigation: any }) {
             onError,
           },
           ctrl.signal,
-          { projectId: proj?.id, cwd: proj ? projectDirPath(proj.id) : undefined, onToolProgress: (msg) => { if (!getRun(sid).stop) setToolNote(msg); } },
+          { projectId: proj?.id, cwd: proj ? projectDirPath(proj.id) : undefined, onToolProgress: (msg) => { beat(sid); if (!getRun(sid).stop) setToolNote(msg); } },
         );
       } else {
         await streamChat(model, chatMessages, {
@@ -1503,6 +1544,16 @@ export function ChatScreen({ navigation }: { navigation: any }) {
           onDone: (clean) => { void finalize(clean || acc); },
           onError,
         }, ctrl.signal, { maxTokens: prefs.ctx, reasoning: prefs.reasoning });
+      }
+      } catch (e: any) {
+        // Ход упал мимо onError — показываем причину и оставляем сообщение с
+        // кнопкой повтора, а не тишину.
+        console.warn("[chat] ход упал мимо onError:", e?.message ?? e);
+        dispatch({ type: "UPDATE_MSG", sessionId: sid, msgId: userMsgId, patch: { failed: true } });
+        if (!getRun(sid).stop) showError(String(e?.message ?? e));
+      } finally {
+        markStreaming(sid, false);
+        getRun(sid).ctrl = null;
       }
     },
     [active, dispatch, model, setActive, scrollBottom, attachments, runSlashCommand, streamingSessions, prefs.ctx, prefs.reasoning],
