@@ -533,6 +533,9 @@ export async function streamAgentChat(
   // Предела шагов больше нет: агент работает, пока не закончит задачу.
   // Осталась только страховка от бесконечного цикла (модель ходит по кругу).
   const HARD_GUARD = 500;
+  // Детектор зацикливания: подпись вызовов шага и сколько раз она повторилась.
+  let lastSig = "";
+  let repeatCount = 0;
   let compressionOn = true;
   let compressionRatio = 1;
   try {
@@ -633,7 +636,12 @@ export async function streamAgentChat(
       const short = (r.text || "").trim();
       // Хуже пустого ответа ничего нет: tool_result ушёл, а модель промолчала —
       // раньше в этом случае молча завершали ход.
-      if (toolsUsedInTurn > 0 && continuedAfterTool < 2 && short.length < 400) {
+      // Если модель уже сказала «готово/создан/сделано» — это финал, а не
+      // прогресс: дожимать её вторым и третьим запросом незачем (лишние
+      // запросы в TPM и ровно то «дёрганье», которого не должно быть).
+      const looksDone =
+        /готово|создан|сделал|сделано|записан|сохран|done|created|written|finished|complete/i.test(short);
+      if (toolsUsedInTurn > 0 && continuedAfterTool < 2 && short.length < 400 && !looksDone) {
         continuedAfterTool++;
         messages.push({ role: "assistant", content: short });
         messages.push({
@@ -650,6 +658,29 @@ export async function streamAgentChat(
         continue;
       }
       callbacks.onDone(r.text || lastText, messages);
+      return;
+    }
+
+    // ── Детектор зацикливания ──
+    // Модель, повторяющая один и тот же вызов (тот же инструмент с теми же
+    // аргументами), сама из этого не выйдет: она не видит, что результат не
+    // меняется. На третьем повторе подсказываем сменить подход, на пятом
+    // останавливаем ход — иначе это ночь на провайдерский счёт.
+    const sig = r.calls
+      .map((c) => `${c.name}:${String(c.arguments ?? "").replace(/\s+/g, "")}`)
+      .join("|");
+    if (sig && sig === lastSig) repeatCount++;
+    else {
+      lastSig = sig;
+      repeatCount = 1;
+    }
+    if (repeatCount >= 5) {
+      callbacks.onError(
+        `Агент зациклился: ${repeatCount} раз подряд один и тот же вызов (${r.calls
+          .map((c) => c.name)
+          .join(", ")}). Остановил, чтобы не выжигать лимит. Уточни задачу — зайду с другого конца.`,
+        messages,
+      );
       return;
     }
 
@@ -692,6 +723,14 @@ export async function streamAgentChat(
         failedCalls++;
         if (failedCalls >= 3) toolsEnabled = false;
       }
+    }
+    if (repeatCount === 3) {
+      messages.push({
+        role: "user",
+        content:
+          "[System: Ты третий раз подряд вызываешь один и тот же инструмент с теми же аргументами и получаешь то же самое. " +
+          "Это зацикливание. Смени подход: другие аргументы, другой инструмент или честный текстовый ответ о том, что не получается.]",
+      });
     }
     if (iter >= HARD_GUARD - 1) {
       toolsEnabled = false;
